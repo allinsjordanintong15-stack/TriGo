@@ -1,17 +1,48 @@
 /**
- * TriGo primary service area — Trinidad, Bohol.
- * Adjust `radiusKm` to change the geographic boundary without rewriting booking logic.
+ * TriGo primary service area — Municipality of Trinidad, Bohol.
+ *
+ * `boundary` is the official municipal boundary (PSGC 0701244000), taken from the
+ * PSA/NAMRIA 2023 administrative boundaries (faeldon/philippines-json-maps, 0.01
+ * simplification) and stored as [latitude, longitude] vertices of a closed ring.
+ * Replace the vertices here to change the service area without touching booking logic.
  */
 export const TRIGO_SERVICE_AREA = {
   name: 'Trinidad',
   province: 'Bohol',
   country: 'Philippines',
+  psgcCode: '0701244000',
+  /** Trinidad poblacion (town center). */
   center: {
-    latitude: 9.7386,
-    longitude: 124.3295,
+    latitude: 10.0792,
+    longitude: 124.343,
   },
-  /** Radius in kilometres from the center point. */
-  radiusKm: 7,
+  boundary: [
+    [10.09927, 124.39246], [10.09804, 124.38987], [10.09693, 124.38544], [10.09724, 124.38232],
+    [10.09629, 124.38153], [10.09558, 124.37926], [10.09658, 124.37542], [10.09731, 124.36895],
+    [10.0984, 124.36684], [10.10083, 124.3642], [10.10069, 124.36033], [10.09969, 124.3588],
+    [10.09893, 124.35443], [10.09894, 124.35261], [10.09821, 124.35069], [10.09946, 124.34818],
+    [10.09811, 124.34409], [10.09342, 124.3447], [10.08786, 124.33435], [10.07823, 124.32083],
+    [10.07299, 124.30951], [10.07089, 124.29868], [10.06751, 124.29618], [10.05869, 124.26906],
+    [10.04556, 124.23133], [10.02396, 124.233], [10.01393, 124.2252], [9.99268, 124.25282],
+    [9.99734, 124.27117], [10.0029, 124.28962], [10.00399, 124.29393], [10.00906, 124.31766],
+    [10.01288, 124.33431], [10.01446, 124.34728], [10.01784, 124.35546], [10.02169, 124.36795],
+    [10.02331, 124.37374], [10.02261, 124.37594], [10.02369, 124.37737], [10.02258, 124.38194],
+    [10.02503, 124.39127], [10.02679, 124.3961], [10.03015, 124.39916], [10.02669, 124.4053],
+    [10.02859, 124.4114], [10.03655, 124.41258], [10.03861, 124.41156], [10.04059, 124.41155],
+    [10.04305, 124.41237], [10.04729, 124.41095], [10.04877, 124.41101], [10.05026, 124.41017],
+    [10.04957, 124.40894], [10.05166, 124.40808], [10.05374, 124.40982], [10.05585, 124.4076],
+    [10.05533, 124.40598], [10.05747, 124.40506], [10.06096, 124.40477], [10.06306, 124.40498],
+    [10.06285, 124.40701], [10.06493, 124.40886], [10.06642, 124.40827], [10.06679, 124.40508],
+    [10.07045, 124.40442], [10.07214, 124.40294], [10.07594, 124.40148], [10.07708, 124.40147],
+    [10.07945, 124.40285], [10.08106, 124.40296], [10.08465, 124.40473], [10.08689, 124.40376],
+    [10.08879, 124.39904], [10.09015, 124.39647], [10.09275, 124.39585], [10.09338, 124.39517],
+    [10.09589, 124.39498], [10.09846, 124.39347],
+  ] as readonly (readonly [number, number])[],
+  /**
+   * Tolerance in metres applied at the boundary edge so pins dropped on a border road
+   * (and the ~tens-of-metres simplification error of the polygon) still count as inside.
+   */
+  edgeToleranceMeters: 150,
 } as const;
 
 export type TrigoServiceArea = typeof TRIGO_SERVICE_AREA;

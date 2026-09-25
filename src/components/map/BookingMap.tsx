@@ -1,11 +1,21 @@
-import { MAP_DELTA, TRINIDAD_BOHOL_REGION } from '@/constants/map';
+import { TRINIDAD_BOHOL_REGION } from '@/constants/map';
 import { colors, spacing, typography } from '@/constants/theme';
 import { LocationSelectionMode } from '@/contexts/BookingDraftContext';
+import { getServiceAreaBoundaryCoordinates } from '@/services/serviceAreaService';
 import { Location } from '@/types';
 import { logMapDiagnostics } from '@/utils/mapConfig';
 import { useEffect, useRef, useState } from 'react';
 import { Platform, ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
+import MapView, {
+  Marker,
+  Polygon,
+  Polyline,
+  PROVIDER_DEFAULT,
+  Region,
+} from 'react-native-maps';
+
+// Outline only: the service area is the default focus, not a limit on panning or selection.
+const SERVICE_AREA_BOUNDARY = getServiceAreaBoundaryCoordinates();
 
 interface BookingMapProps {
   region: Region;
@@ -14,6 +24,14 @@ interface BookingMapProps {
   selectionMode: LocationSelectionMode;
   loading?: boolean;
   onMapPress: (latitude: number, longitude: number) => void;
+  /** Height of UI floating over the top of the map, kept clear when fitting the route. */
+  topOverlayHeight?: number;
+  /** Height of UI floating over the bottom of the map (e.g. a bottom sheet). */
+  bottomOverlayHeight?: number;
+  /** Show the "Tap the map to set …" banner at the top of the map. */
+  showSelectionBanner?: boolean;
+  /** Fill the area edge to edge without rounded corners. */
+  edgeToEdge?: boolean;
 }
 
 export function BookingMap({
@@ -23,6 +41,10 @@ export function BookingMap({
   selectionMode,
   loading = false,
   onMapPress,
+  topOverlayHeight = 0,
+  bottomOverlayHeight = 0,
+  showSelectionBanner = true,
+  edgeToEdge = false,
 }: BookingMapProps) {
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -33,7 +55,8 @@ export function BookingMap({
     }
 
     mapRef.current.animateToRegion(region, 500);
-  }, [mapReady, region.latitude, region.longitude]);
+    // Re-centre once the overlays have been measured so the view settles between them.
+  }, [mapReady, region.latitude, region.longitude, topOverlayHeight > 0, bottomOverlayHeight > 0]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) {
@@ -52,11 +75,12 @@ export function BookingMap({
         longitude: point.longitude,
       })),
       {
-        edgePadding: { top: 80, right: 40, bottom: 80, left: 40 },
+        // mapPadding already keeps the floating overlay clear; this is extra breathing room.
+        edgePadding: { top: 60, right: 40, bottom: 80, left: 40 },
         animated: true,
       },
     );
-  }, [mapReady, pickupLocation, destination]);
+  }, [mapReady, pickupLocation, destination, topOverlayHeight, bottomOverlayHeight]);
 
   function handleMapReady() {
     setMapReady(true);
@@ -65,7 +89,7 @@ export function BookingMap({
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, edgeToEdge ? styles.containerEdgeToEdge : null]}>
       <MapView
         ref={mapRef}
         style={styles.map}
@@ -73,9 +97,14 @@ export function BookingMap({
         // The LATEST Google renderer draws a black map on some Android devices.
         googleRenderer="LEGACY"
         mapType="standard"
-        initialRegion={{
-          ...TRINIDAD_BOHOL_REGION,
-          ...MAP_DELTA,
+        initialRegion={TRINIDAD_BOHOL_REGION}
+        // Pull the map's centre and framing down below UI floating over its top edge,
+        // so Trinidad and the pickup/destination markers are not hidden behind it.
+        mapPadding={{
+          top: topOverlayHeight > 0 ? topOverlayHeight + spacing.sm : 0,
+          right: 0,
+          bottom: bottomOverlayHeight,
+          left: 0,
         }}
         onMapReady={handleMapReady}
         onPress={(event) => {
@@ -93,6 +122,14 @@ export function BookingMap({
         loadingEnabled
         loadingBackgroundColor={colors.surface}
       >
+        <Polygon
+          coordinates={SERVICE_AREA_BOUNDARY}
+          strokeColor={colors.primary}
+          strokeWidth={1.5}
+          fillColor="rgba(27,94,58,0.06)"
+          tappable={false}
+        />
+
         {pickupLocation && destination ? (
           <Polyline
             coordinates={[
@@ -135,7 +172,7 @@ export function BookingMap({
         ) : null}
       </MapView>
 
-      {selectionMode ? (
+      {selectionMode && showSelectionBanner ? (
         <View style={styles.selectionBanner} pointerEvents="none">
           <Text style={styles.selectionBannerText}>
             Tap the map to set {selectionMode === 'pickup' ? 'pickup' : 'destination'}
@@ -167,6 +204,9 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'ios'
       ? { borderRadius: 16, overflow: 'hidden' }
       : { borderRadius: 16 }),
+  },
+  containerEdgeToEdge: {
+    borderRadius: 0,
   },
   map: {
     ...Platform.select({

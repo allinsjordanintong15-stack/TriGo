@@ -1,9 +1,12 @@
-/** Default map viewport for Trinidad, Bohol (map center only — not used as booking data). */
+/**
+ * Default map viewport — the Municipality of Trinidad, Bohol and its immediate neighbours
+ * (map framing only — not used as booking data or as a service-area check).
+ */
 export const TRINIDAD_BOHOL_REGION = {
-  latitude: 9.7386,
-  longitude: 124.3295,
-  latitudeDelta: 0.06,
-  longitudeDelta: 0.06,
+  latitude: 10.0468,
+  longitude: 124.3189,
+  latitudeDelta: 0.14,
+  longitudeDelta: 0.2,
 } as const;
 
 export const MAP_DELTA = {

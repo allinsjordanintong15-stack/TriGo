@@ -1,8 +1,9 @@
 import { docToUser } from '@/services/userMapper';
 import { PASSENGER_ROLE } from '@/constants';
 import { auth, COLLECTIONS, firestore } from '@/firebase';
-import { LoginInput, Passenger, RegisterPassengerInput, User } from '@/types';
+import { DriverUser, LoginInput, Passenger, RegisterPassengerInput, User } from '@/types';
 import { getFirebaseErrorMessage, logFirebaseError } from '@/utils/errors';
+import { isMobileUserRole } from '@/utils/roleRoutes';
 import {
   normalizeMobileNumber,
   validateEmail,
@@ -106,7 +107,11 @@ export async function registerPassenger(
   }
 }
 
-export async function loginPassenger(input: LoginInput): Promise<Passenger> {
+/**
+ * Sign in a passenger or driver. The caller routes by the returned profile's role.
+ * Admin accounts are rejected — they use the separate TriGo Admin Website.
+ */
+export async function loginUser(input: LoginInput): Promise<Passenger | DriverUser> {
   const validation = validateLoginInput(input.email, input.password);
   if (!validation.isValid) {
     throw new AuthServiceError(
@@ -128,7 +133,7 @@ export async function loginPassenger(input: LoginInput): Promise<Passenger> {
     } catch (profileError) {
       // Sign-in succeeded but the Firestore profile read failed. Sign out so the
       // app is not left with a Firebase session that has no usable profile.
-      logFirebaseError('loginPassenger: load profile', profileError);
+      logFirebaseError('loginUser: load profile', profileError);
       await signOut(auth).catch(() => undefined);
       throw new AuthServiceError(
         getFirebaseErrorMessage(
@@ -145,20 +150,25 @@ export async function loginPassenger(input: LoginInput): Promise<Passenger> {
       );
     }
 
-    if (profile.role !== PASSENGER_ROLE) {
+    if (profile.role === 'admin') {
       await signOut(auth);
       throw new AuthServiceError(
-        'This account is not authorized for passenger access.',
+        'Admin accounts cannot sign in to the mobile app. Please use the TriGo Admin Website.',
       );
     }
 
-    return profile as Passenger;
+    if (!isMobileUserRole(profile.role)) {
+      await signOut(auth);
+      throw new AuthServiceError('This account is not authorized to use TriGo.');
+    }
+
+    return profile as Passenger | DriverUser;
   } catch (error) {
     if (error instanceof AuthServiceError) {
       throw error;
     }
 
-    logFirebaseError('loginPassenger', error);
+    logFirebaseError('loginUser', error);
     throw new AuthServiceError(
       getFirebaseErrorMessage(error, 'Unable to log in. Please try again.'),
     );

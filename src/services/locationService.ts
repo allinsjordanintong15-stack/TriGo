@@ -1,5 +1,11 @@
 import { MAP_DELTA } from '@/constants/map';
+import {
+  distanceFromServiceAreaCenterKm,
+  getServiceAreaLabel,
+  isWithinTrigoServiceArea,
+} from '@/services/serviceAreaService';
 import { Location as AppLocation } from '@/types';
+import { calculateDistanceKmFromCoords } from '@/utils/distance';
 import * as Location from 'expo-location';
 
 export class LocationServiceError extends Error {
@@ -83,6 +89,81 @@ export async function resolveLocation(
 export async function getCurrentLocation(): Promise<AppLocation> {
   const coordinates = await getCurrentCoordinates();
   return resolveLocation(coordinates.latitude, coordinates.longitude);
+}
+
+export interface LocationSearchResult extends AppLocation {
+  withinServiceArea: boolean;
+}
+
+const MAX_SEARCH_RESULTS = 5;
+
+/**
+ * Search places by text. Results inside Trinidad, Bohol are ranked first, followed by
+ * everything else ordered by distance from Trinidad — nothing outside is filtered out,
+ * so passengers can still pick destinations for out-of-area trips.
+ */
+export async function searchLocations(searchText: string): Promise<LocationSearchResult[]> {
+  const trimmed = searchText.trim();
+  if (trimmed.length < 2) {
+    return [];
+  }
+
+  const hasPermission = await requestLocationPermission();
+  if (!hasPermission) {
+    throw new LocationServiceError(
+      'Location permission is required to search places. Please enable location access.',
+    );
+  }
+
+  // Query with a Trinidad, Bohol hint first so local places win, then without it so
+  // municipalities, cities and landmarks elsewhere are still found.
+  const queries = [`${trimmed}, ${getServiceAreaLabel()}, Philippines`, `${trimmed}, Philippines`];
+  const candidates: { latitude: number; longitude: number }[] = [];
+
+  for (const query of queries) {
+    try {
+      const results = await Location.geocodeAsync(query);
+      for (const result of results) {
+        const isDuplicate = candidates.some(
+          (existing) =>
+            calculateDistanceKmFromCoords(
+              existing.latitude,
+              existing.longitude,
+              result.latitude,
+              result.longitude,
+            ) < 0.05,
+        );
+        if (!isDuplicate) {
+          candidates.push({ latitude: result.latitude, longitude: result.longitude });
+        }
+      }
+    } catch {
+      // One failed geocode query should not discard results from the other.
+    }
+  }
+
+  const ranked = candidates
+    .map((candidate) => ({
+      ...candidate,
+      withinServiceArea: isWithinTrigoServiceArea(candidate.latitude, candidate.longitude),
+      distanceKm: distanceFromServiceAreaCenterKm(candidate.latitude, candidate.longitude),
+    }))
+    .sort((a, b) => {
+      if (a.withinServiceArea !== b.withinServiceArea) {
+        return a.withinServiceArea ? -1 : 1;
+      }
+      return a.distanceKm - b.distanceKm;
+    })
+    .slice(0, MAX_SEARCH_RESULTS);
+
+  return Promise.all(
+    ranked.map(async ({ latitude, longitude, withinServiceArea }) => ({
+      latitude,
+      longitude,
+      withinServiceArea,
+      address: await reverseGeocode(latitude, longitude),
+    })),
+  );
 }
 
 export function toMapRegion(location: AppLocation) {

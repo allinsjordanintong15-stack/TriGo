@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// Cloud Storage rules for TriGo.
+// Publish in Firebase Console → Storage → Rules (Storage must be enabled first).
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─── Driver application documents ──────────────────────────────────────
+    // driverApplications/{uid}/orCr        — OR/CR of the vehicle
+    // driverApplications/{uid}/ltoLicense  — LTO-verified driver's license
+    //
+    // A passenger uploads only their own two documents, only as images under 10 MB,
+    // and only while they have no application yet or it was rejected (so documents
+    // cannot be swapped while an application is pending or after approval).
+    // Administrators review files through the console / Admin Website (not these rules).
+    match /driverApplications/{uid}/{documentType} {
+      allow read: if request.auth != null
+        && request.auth.uid == uid;
+
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && documentType in ['orCr', 'ltoLicense']
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)')
+        && firestore.get(/databases/(default)/documents/users/$(uid)).data.role == 'passenger'
+        && (
+          !firestore.exists(/databases/(default)/documents/driverApplications/$(uid))
+          || firestore.get(/databases/(default)/documents/driverApplications/$(uid)).data.status == 'rejected'
+        );
+
+      allow delete: if false;
+    }
+
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

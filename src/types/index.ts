@@ -94,18 +94,75 @@ export interface Passenger extends User {
   role: 'passenger';
 }
 
-export interface DriverProfile {
+export type DriverApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+export type DriverApplicationDocumentType = 'orCr' | 'ltoLicense';
+
+/** A verification image in Cloud Storage; the file itself is never stored in Firestore. */
+export interface DriverApplicationDocument {
+  /** `driverApplications/{uid}/{orCr | ltoLicense}` in Cloud Storage. */
+  storagePath: string;
+  downloadUrl: string;
+  fileName: string;
+  contentType: string;
+  uploadedAt: Date | null;
+}
+
+export interface DriverApplicationDocuments {
+  /** OR/CR of the registered vehicle. */
+  orCr: DriverApplicationDocument | null;
+  /** LTO-verified driver's license. */
+  ltoLicense: DriverApplicationDocument | null;
+}
+
+/**
+ * A passenger's application to become a TriGo driver, stored at `driverApplications/{uid}`
+ * (one per Firebase Auth account, so one per email). `status`, `adminRemarks` and
+ * `reviewedAt` are controlled by administrators only.
+ */
+export interface DriverApplication {
   uid: string;
+  firstName: string;
+  middleName: string | null;
+  lastName: string;
+  /** "First Middle Last", kept for screens and admin tools that expect a single name. */
   fullName: string;
+  /** The applicant's Firebase Auth email (the same account they use as a passenger). */
   email: string;
+  /** Snapshot of `users/{uid}.mobileNumber` at submission. */
   mobileNumber: string;
+  vehicleType: VehicleType;
+  vehiclePlate: string;
+  documents: DriverApplicationDocuments;
+  status: DriverApplicationStatus;
+  adminRemarks: string | null;
+  submittedAt: Date;
+  updatedAt: Date;
+  reviewedAt: Date | null;
+}
+
+/** Roles that have an interface in the TriGo mobile app (admins use the Admin Website). */
+export type MobileUserRole = 'passenger' | 'driver';
+
+export interface DriverUser extends User {
   role: 'driver';
+}
+
+/**
+ * Driver record stored at `drivers/{uid}` (managed by TriGo admins).
+ * Account details (email, mobile number) stay in `users/{uid}` and are not duplicated here.
+ */
+export interface DriverRecord {
+  driverId: string;
+  fullName: string;
   profileImage: string | null;
   vehicleType: VehicleType;
   vehiclePlate: string;
   rating: number;
-  createdAt: Date;
-  updatedAt: Date;
+  isOnline: boolean;
+  isVerified: boolean;
+  isAvailable: boolean;
+  currentLocation: { latitude: number; longitude: number } | null;
 }
 
 export interface Booking {

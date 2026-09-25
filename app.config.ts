@@ -28,7 +28,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       monochromeImage: './assets/android-icon-monochrome.png',
     },
     predictiveBackGestureEnabled: false,
-    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION'],
+    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'CAMERA'],
     config: {
       ...config.android?.config,
       googleMaps: {
@@ -46,6 +46,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         locationWhenInUsePermission:
           'TriGo uses your location to set pickup points and show your ride on the map.',
+      },
+    ],
+    [
+      'expo-image-picker',
+      {
+        cameraPermission:
+          'TriGo uses the camera to take photos of your OR/CR and driver\'s license for your driver application.',
+        photosPermission:
+          'TriGo accesses your photos so you can choose images of your OR/CR and driver\'s license for your driver application.',
+        microphonePermission: false,
       },
     ],
     [

@@ -9,7 +9,8 @@ import {
   cancelBooking,
   subscribeToBooking,
 } from '@/services/bookingService';
-import { Booking } from '@/types';
+import { getDriverRecord } from '@/services/driverService';
+import { Booking, DriverRecord } from '@/types';
 import { canPassengerCancelBooking } from '@/utils/booking';
 import { isActiveBookingStatus } from '@/utils/bookingStatus';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -35,6 +36,7 @@ export default function BookingStatusScreen() {
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
+  const [assignedDriverRecord, setAssignedDriverRecord] = useState<DriverRecord | null>(null);
 
   useEffect(() => {
     if (!bookingId) {
@@ -63,6 +65,28 @@ export default function BookingStatusScreen() {
 
     return unsubscribe;
   }, [bookingId, setActiveBookingId]);
+
+  // Once a driver accepts, show who they are (name, vehicle, plate) from drivers/{uid}.
+  const assignedDriverId = booking?.driverId ?? null;
+  useEffect(() => {
+    if (!assignedDriverId) {
+      setAssignedDriverRecord(null);
+      return;
+    }
+
+    let active = true;
+    getDriverRecord(assignedDriverId)
+      .then((record) => {
+        if (active) setAssignedDriverRecord(record);
+      })
+      .catch(() => {
+        // Driver details are optional; the status still shows "Driver Found".
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [assignedDriverId]);
 
   function confirmCancel() {
     Alert.alert(
@@ -121,6 +145,10 @@ export default function BookingStatusScreen() {
     );
   }
 
+  const assignedDriver =
+    assignedDriverRecord && assignedDriverRecord.driverId === booking.driverId
+      ? assignedDriverRecord
+      : null;
   const canCancel = canPassengerCancelBooking(booking);
   const isActive = isActiveBookingStatus(booking.status);
 
@@ -140,7 +168,11 @@ export default function BookingStatusScreen() {
 
       <ErrorBanner message={error} />
 
-      <BookingStatusCard booking={booking} loading={isActive && booking.status === 'pending'} />
+      <BookingStatusCard
+        booking={booking}
+        loading={isActive && booking.status === 'pending'}
+        driver={assignedDriver}
+      />
 
       {canCancel ? (
         <Button

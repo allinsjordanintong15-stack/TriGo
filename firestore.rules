@@ -21,6 +21,38 @@ service cloud.firestore {
       return isSignedIn() && userDoc().data.role == 'passenger';
     }
 
+    function driverDoc() {
+      return get(/databases/$(database)/documents/drivers/$(request.auth.uid));
+    }
+
+    // Driver capability comes from an admin: either a `driver` account, or a passenger
+    // whose driver application was approved AND who has an admin-created drivers/{uid}
+    // record. Clients can never create drivers/{uid} or approve an application.
+    function isDriver() {
+      return isSignedIn()
+        && (
+          userDoc().data.role == 'driver'
+          || (
+            userDoc().data.role == 'passenger'
+            && exists(/databases/$(database)/documents/drivers/$(request.auth.uid))
+            && exists(/databases/$(database)/documents/driverApplications/$(request.auth.uid))
+            && get(/databases/$(database)/documents/driverApplications/$(request.auth.uid)).data.status == 'approved'
+          )
+        );
+    }
+
+    function isValidVehiclePlate(plate) {
+      return plate is string && plate.matches('^[A-Z0-9][A-Z0-9 -]{0,10}[A-Z0-9]$');
+    }
+
+    // Driver access needs both the `driver` role in users/{uid} and an admin-verified
+    // record in drivers/{uid}. Only verified drivers may perform driver booking actions.
+    function isVerifiedDriver() {
+      return isDriver()
+        && exists(/databases/$(database)/documents/drivers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.isVerified == true;
+    }
+
     function passengerCancellableStatuses() {
       return [
         'pending',
@@ -67,6 +99,35 @@ service cloud.firestore {
       allow read: if isSignedIn()
         && resource.data.passengerId == request.auth.uid;
 
+      // Verified drivers see open standard bookings and the bookings assigned to them.
+      // Out-of-area bookings are never open: their driver comes from the fare agreement.
+      allow read: if isVerifiedDriver()
+        && (
+          (
+            resource.data.status == 'pending'
+            && resource.data.driverId == null
+            && resource.data.bookingType == 'standard'
+          )
+          || resource.data.driverId == request.auth.uid
+        );
+
+      // A verified driver who is online, available and has the requested vehicle type
+      // claims an open standard booking by assigning themselves and accepting it.
+      allow update: if isVerifiedDriver()
+        && resource.data.bookingType == 'standard'
+        && resource.data.status == 'pending'
+        && resource.data.driverId == null
+        && driverDoc().data.isOnline == true
+        && driverDoc().data.isAvailable == true
+        && driverDoc().data.vehicleType == resource.data.vehicleType
+        && resource.data.passengerId != request.auth.uid
+        && request.resource.data.status == 'accepted'
+        && request.resource.data.driverId == request.auth.uid
+        && request.resource.data.acceptedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'driverId', 'acceptedAt', 'updatedAt']);
+
       // Passengers create bookings with driverId == null. Driver assignment is a
       // separate, authorized operation (driver app / Cloud Function) and must never
       // be set by the passenger. Extra fields (agreedFare, fareAgreement,
@@ -96,7 +157,7 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['status', 'cancelledAt', 'updatedAt'])
           )
-          // Driver-side updates will be added when the driver app is built.
+          // Driver acceptance is the separate driver `allow update` rule above.
         );
     }
 
@@ -105,6 +166,41 @@ service cloud.firestore {
     match /outOfAreaRequests/{requestId} {
       allow read: if isSignedIn()
         && resource.data.passengerId == request.auth.uid;
+
+      // Verified drivers can review open requests and the ones they are handling.
+      allow read: if isVerifiedDriver()
+        && (resource.data.status == 'searching' || resource.data.driverId == request.auth.uid);
+
+      // Verified driver accepts an open, unexpired request and proposes a fare
+      // (see fareAgreementService.createProposal). The passenger still has to agree.
+      allow update: if isVerifiedDriver()
+        && resource.data.status == 'searching'
+        && resource.data.driverId == null
+        && resource.data.passengerId != request.auth.uid
+        && (resource.data.expiresAt == null || request.time < resource.data.expiresAt)
+        && request.resource.data.status == 'negotiating'
+        && request.resource.data.driverId == request.auth.uid
+        && request.resource.data.fareAgreement.driverProposedFare is number
+        && request.resource.data.fareAgreement.driverProposedFare > 0
+        && request.resource.data.fareAgreement.agreedFare == request.resource.data.fareAgreement.driverProposedFare
+        && request.resource.data.fareAgreement.standardEstimatedFare == resource.data.standardEstimatedFare
+        && request.resource.data.fareAgreement.agreedByDriver == true
+        && request.resource.data.fareAgreement.agreedByPassenger == false
+        && request.resource.data.suggestedAgreementFare == request.resource.data.fareAgreement.driverProposedFare
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt']);
+
+      // The driver handling a request may withdraw before the passenger agrees,
+      // returning it to the open pool. Declining an open request needs no write.
+      allow update: if isVerifiedDriver()
+        && resource.data.driverId == request.auth.uid
+        && resource.data.status in ['negotiating', 'driver_interested']
+        && request.resource.data.status == 'searching'
+        && request.resource.data.driverId == null
+        && request.resource.data.suggestedAgreementFare == null
+        && request.resource.data.fareAgreement == null
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt']);
 
       allow create: if isSignedIn()
         && isPassenger()
@@ -190,8 +286,116 @@ service cloud.firestore {
       allow read: if isSignedIn()
         && resource.data.isVerified == true;
 
-      // Driver writes will be added when the driver app is built.
-      allow write: if false;
+      // A driver can always read their own record, including while pending verification.
+      allow read: if isOwner(driverId);
+
+      // A driver controls only their own duty status and position. Admin-managed fields
+      // (isVerified, name, vehicle, rating) cannot be changed from the app. Being
+      // available requires being online, and an unverified driver can only be offline.
+      allow update: if isOwner(driverId)
+        && isDriver()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['isOnline', 'isAvailable', 'currentLocation', 'updatedAt'])
+        && request.resource.data.isOnline is bool
+        && request.resource.data.isAvailable is bool
+        && (!request.resource.data.isAvailable || request.resource.data.isOnline)
+        && (
+          (!request.resource.data.isOnline && !request.resource.data.isAvailable)
+          || resource.data.isVerified == true
+        )
+        && (
+          !('currentLocation' in request.resource.data.diff(resource.data).affectedKeys())
+          || (
+            request.resource.data.currentLocation.latitude is number
+            && request.resource.data.currentLocation.longitude is number
+          )
+        );
+
+      // Driver records are created and removed by TriGo admins only.
+      allow create, delete: if false;
+    }
+
+    // ─── Driver applications ───────────────────────────────────────────────
+    // One application per passenger at driverApplications/{uid}. Passengers can only
+    // submit (always `pending`) or resubmit after a rejection. Approval, rejection,
+    // adminRemarks and reviewedAt are set by administrators only (console / Admin
+    // Website), so a passenger can never approve themselves.
+
+    match /driverApplications/{uid} {
+      function isValidPersonName(name) {
+        return name is string && name.size() >= 1 && name.size() <= 50;
+      }
+
+      // A document entry must reference this applicant's own file in Cloud Storage.
+      function isValidApplicationDocument(entry, documentType) {
+        return entry is map
+          && entry.keys().hasAll(['storagePath', 'downloadUrl', 'fileName', 'contentType', 'uploadedAt'])
+          && entry.keys().hasOnly(['storagePath', 'downloadUrl', 'fileName', 'contentType', 'uploadedAt'])
+          && entry.storagePath == 'driverApplications/' + uid + '/' + documentType
+          && entry.downloadUrl is string
+          && entry.downloadUrl.matches('^https://firebasestorage[.]googleapis[.]com/.*')
+          && entry.fileName is string
+          && entry.fileName.size() <= 200
+          && entry.contentType is string
+          && entry.contentType.matches('^image/.*')
+          && (entry.uploadedAt == null || entry.uploadedAt is timestamp);
+      }
+
+      // Both required documents (OR/CR and LTO driver's license), nothing else.
+      function hasValidDocuments(data) {
+        return data.documents is map
+          && data.documents.keys().hasAll(['orCr', 'ltoLicense'])
+          && data.documents.keys().hasOnly(['orCr', 'ltoLicense'])
+          && isValidApplicationDocument(data.documents.orCr, 'orCr')
+          && isValidApplicationDocument(data.documents.ltoLicense, 'ltoLicense');
+      }
+
+      // Applicant details: structured name, the account's own email and mobile number.
+      function hasValidApplicantDetails(data) {
+        return isValidPersonName(data.firstName)
+          && (data.middleName == null || isValidPersonName(data.middleName))
+          && isValidPersonName(data.lastName)
+          && data.fullName is string
+          && data.fullName.size() <= 160
+          && data.email == request.auth.token.email
+          && data.mobileNumber == userDoc().data.mobileNumber
+          && data.vehicleType in ['tricycle', 'motorcycle']
+          && isValidVehiclePlate(data.vehiclePlate)
+          && hasValidDocuments(data);
+      }
+
+      allow read: if isOwner(uid);
+
+      allow create: if isOwner(uid)
+        && isPassenger()
+        && request.resource.data.keys().hasOnly([
+          'uid', 'firstName', 'middleName', 'lastName', 'fullName', 'email', 'mobileNumber',
+          'vehicleType', 'vehiclePlate', 'documents',
+          'status', 'adminRemarks', 'submittedAt', 'updatedAt', 'reviewedAt'
+        ])
+        && request.resource.data.uid == uid
+        && hasValidApplicantDetails(request.resource.data)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.adminRemarks == null
+        && request.resource.data.reviewedAt == null
+        && request.resource.data.submittedAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      // Controlled resubmission: only after an administrator rejected the application.
+      // uid, adminRemarks and reviewedAt cannot change.
+      allow update: if isOwner(uid)
+        && isPassenger()
+        && resource.data.status == 'rejected'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'firstName', 'middleName', 'lastName', 'fullName', 'email', 'mobileNumber',
+          'vehicleType', 'vehiclePlate', 'documents', 'status', 'submittedAt', 'updatedAt'
+        ])
+        && hasValidApplicantDetails(request.resource.data)
+        && request.resource.data.submittedAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
     }
 
     // ─── Fare settings (read-only for app; admin manages via console) ──────

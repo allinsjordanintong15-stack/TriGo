@@ -1,5 +1,5 @@
 import { colors, spacing, typography } from '@/constants/theme';
-import { Booking } from '@/types';
+import { Booking, DriverRecord } from '@/types';
 import { getDisplayFare } from '@/utils/booking';
 import { getBookingStatusDisplay } from '@/utils/bookingStatus';
 import { formatPhilippinePeso } from '@/utils/fare';
@@ -8,9 +8,11 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 interface BookingStatusCardProps {
   booking: Booking;
   loading?: boolean;
+  /** The assigned driver's public record, once a driver has accepted the booking. */
+  driver?: DriverRecord | null;
 }
 
-export function BookingStatusCard({ booking, loading = false }: BookingStatusCardProps) {
+export function BookingStatusCard({ booking, loading = false, driver = null }: BookingStatusCardProps) {
   const statusDisplay = getBookingStatusDisplay(booking.status);
   const displayFare = getDisplayFare(booking);
 
@@ -27,6 +29,18 @@ export function BookingStatusCard({ booking, loading = false }: BookingStatusCar
           <Text style={styles.statusMessage}>{statusDisplay.message}</Text>
         </View>
       </View>
+
+      {driver ? (
+        <View style={styles.driverBox}>
+          <Text style={styles.driverLabel}>Your driver</Text>
+          <Text style={styles.driverName}>{driver.fullName}</Text>
+          <Text style={styles.driverMeta}>
+            {driver.vehicleType.charAt(0).toUpperCase() + driver.vehicleType.slice(1)}
+            {driver.vehiclePlate ? ` · Plate ${driver.vehiclePlate}` : ''}
+            {driver.rating > 0 ? ` · ★ ${driver.rating.toFixed(1)}` : ''}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.divider} />
 
@@ -93,6 +107,29 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
     lineHeight: 18,
+  },
+  driverBox: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.accent,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  driverLabel: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  driverName: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.primaryDark,
+    marginTop: 2,
+  },
+  driverMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   divider: {
     height: 1,

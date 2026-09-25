@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { TextInputField } from '@/components/ui/TextInputField';
 import { useAuth } from '@/hooks/useAuth';
-import { AuthServiceError, loginPassenger } from '@/services/authService';
+import { AuthServiceError, loginUser } from '@/services/authService';
 import { colors, spacing, typography } from '@/constants/theme';
 import { logFirebaseError } from '@/utils/errors';
+import { getRoleHomeHref } from '@/utils/roleRoutes';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -26,9 +27,9 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      await loginPassenger({ email, password });
+      const profile = await loginUser({ email, password });
       await refreshProfile();
-      router.replace('/home');
+      router.replace(getRoleHomeHref(profile.role));
     } catch (error) {
       if (error instanceof AuthServiceError) {
         if (error.fieldErrors) {

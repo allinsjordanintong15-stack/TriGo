@@ -1,3 +1,5 @@
+import { DriverApplicationCard } from '@/components/profile/DriverApplicationCard';
+import { ProfileMenuItem, ProfileMenuSection } from '@/components/profile/ProfileMenuItem';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -6,6 +8,7 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
+import { useDriverApplication } from '@/hooks/useDriverApplication';
 import { logout } from '@/services/authService';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -23,8 +26,9 @@ function getInitials(fullName: string): string {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { passenger } = useAuth();
+  const { passenger, hasDriverMode } = useAuth();
   const { clearDraft } = useBookingDraft();
+  const driverApplication = useDriverApplication();
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState('');
@@ -75,32 +79,79 @@ export default function ProfileScreen() {
             <Text style={styles.name} numberOfLines={1}>
               {passenger.fullName}
             </Text>
-            <Text style={styles.role}>Passenger</Text>
+            <Text style={styles.role} numberOfLines={1}>
+              Passenger · {passenger.email}
+            </Text>
           </View>
         </View>
 
-        <View style={styles.card}>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Full name</Text>
-            <Text style={styles.fieldValue}>{passenger.fullName}</Text>
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Email</Text>
-            <Text style={styles.fieldValue}>{passenger.email}</Text>
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Mobile number</Text>
-            <Text style={styles.fieldValue}>{passenger.mobileNumber}</Text>
-          </View>
+        <ProfileMenuSection title="Account">
+          <ProfileMenuItem
+            icon="person-circle-outline"
+            label="Personal Information"
+            description="Name, email, mobile number and profile photo"
+            onPress={() => router.push('/profile/personal-information')}
+          />
+          <ProfileMenuItem
+            icon="create-outline"
+            label="Edit Profile"
+            description="Update your name and mobile number"
+            onPress={() => router.push('/profile/edit')}
+            last
+          />
+        </ProfileMenuSection>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Driver</Text>
+          <DriverApplicationCard
+            application={driverApplication.application}
+            loading={driverApplication.loading}
+            driverModeReady={hasDriverMode}
+            onApply={() => router.push('/profile/driver-application')}
+            onViewApplication={() => router.push('/profile/driver-application')}
+            onOpenDriverMode={() => router.replace('/driver/home')}
+          />
+          {driverApplication.error ? <ErrorBanner message={driverApplication.error} /> : null}
         </View>
+
+        <ProfileMenuSection title="Activity">
+          <ProfileMenuItem
+            icon="receipt-outline"
+            label="Ride History"
+            description="Your current and past trips"
+            onPress={() => router.navigate('/activity')}
+            last
+          />
+        </ProfileMenuSection>
+
+        <ProfileMenuSection title="Notifications">
+          <ProfileMenuItem
+            icon="notifications-outline"
+            label="Notifications"
+            description="Booking updates and alerts"
+            onPress={() => router.navigate('/notifications')}
+            last
+          />
+        </ProfileMenuSection>
+
+        <ProfileMenuSection title="Support & Settings">
+          <ProfileMenuItem
+            icon="help-circle-outline"
+            label="Help & Support"
+            description="How TriGo works and common questions"
+            onPress={() => router.push('/profile/help')}
+          />
+          <ProfileMenuItem
+            icon="settings-outline"
+            label="Settings"
+            description="Location access and app information"
+            onPress={() => router.push('/profile/settings')}
+            last
+          />
+        </ProfileMenuSection>
 
         {error ? <ErrorBanner message={error} /> : null}
 
-        <Button
-          title="Edit Profile"
-          onPress={() => router.push('/profile/edit')}
-        />
-        <View style={styles.spacer} />
         <Button
           title="Log Out"
           variant="secondary"
@@ -169,27 +220,15 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 2,
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: spacing.md,
+  section: {
     marginBottom: spacing.lg,
   },
-  field: {
-    paddingVertical: spacing.sm,
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-  },
-  fieldLabel: {
+  sectionTitle: {
     ...typography.caption,
+    fontWeight: '700',
     color: colors.textSecondary,
-    marginBottom: 2,
-  },
-  fieldValue: {
-    ...typography.body,
-    color: colors.text,
-  },
-  spacer: {
-    height: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
   },
 });

@@ -11,4 +11,5 @@ export const COLLECTIONS = {
   fareSettings: 'fareSettings',
   outOfAreaRequests: 'outOfAreaRequests',
   drivers: 'drivers',
+  driverApplications: 'driverApplications',
 } as const;
