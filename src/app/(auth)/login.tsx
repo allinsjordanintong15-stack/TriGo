@@ -6,6 +6,7 @@ import { TextInputField } from '@/components/ui/TextInputField';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthServiceError, loginPassenger } from '@/services/authService';
 import { colors, spacing, typography } from '@/constants/theme';
+import { logFirebaseError } from '@/utils/errors';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -27,7 +28,7 @@ export default function LoginScreen() {
     try {
       await loginPassenger({ email, password });
       await refreshProfile();
-      router.replace('/(passenger)/home');
+      router.replace('/home');
     } catch (error) {
       if (error instanceof AuthServiceError) {
         if (error.fieldErrors) {
@@ -35,6 +36,7 @@ export default function LoginScreen() {
         }
         setFormError(error.message);
       } else {
+        logFirebaseError('LoginScreen', error);
         setFormError('Unable to log in. Please try again.');
       }
     } finally {

@@ -13,7 +13,7 @@ import {
 } from '@/services/fareAgreementService';
 import { OutOfAreaRequest } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
-import { Href, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,7 +22,8 @@ export default function FareAgreementScreen() {
   const insets = useSafeAreaInsets();
   const { tripQuote, activeOutOfAreaRequestId } = useBookingDraft();
   const [request, setRequest] = useState<OutOfAreaRequest | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const [declining, setDeclining] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -50,38 +51,38 @@ export default function FareAgreementScreen() {
     summarizeFareProposal(agreement.standardEstimatedFare, agreement.driverProposedFare);
 
   async function handleAccept() {
-    if (!activeOutOfAreaRequestId || !agreement) return;
+    if (!activeOutOfAreaRequestId || !agreement || accepting || declining) return;
 
-    setLoading(true);
+    setAccepting(true);
     setError('');
 
     try {
       await acceptProposal(activeOutOfAreaRequestId, agreement);
-      router.replace('/(passenger)/booking/confirmation' as Href);
+      router.replace('/(passenger)/booking/confirmation');
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Unable to accept the fare. Please try again.',
       );
     } finally {
-      setLoading(false);
+      setAccepting(false);
     }
   }
 
   async function handleDecline() {
-    if (!activeOutOfAreaRequestId) return;
+    if (!activeOutOfAreaRequestId || accepting || declining) return;
 
-    setLoading(true);
+    setDeclining(true);
     setError('');
 
     try {
       await declineProposal(activeOutOfAreaRequestId);
-      router.replace('/(passenger)/booking/out-of-area-search' as Href);
+      router.replace('/(passenger)/booking/out-of-area-search');
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Unable to decline the fare. Please try again.',
       );
     } finally {
-      setLoading(false);
+      setDeclining(false);
     }
   }
 
@@ -143,9 +144,9 @@ export default function FareAgreementScreen() {
         </Text>
       </View>
 
-      <Button title="Accept Fare" loading={loading} onPress={handleAccept} />
+      <Button title="Accept Fare" loading={accepting} onPress={handleAccept} />
       <View style={styles.spacer} />
-      <Button title="Decline" variant="secondary" loading={loading} onPress={handleDecline} />
+      <Button title="Decline" variant="secondary" loading={declining} onPress={handleDecline} />
     </ScrollView>
   );
 }

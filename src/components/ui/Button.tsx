@@ -1,4 +1,4 @@
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, typography } from '@/constants/theme';
 import {
   ActivityIndicator,
   Pressable,

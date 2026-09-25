@@ -1,0 +1,209 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helpers ───────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isPassenger() {
+      return isSignedIn() && userDoc().data.role == 'passenger';
+    }
+
+    function passengerCancellableStatuses() {
+      return [
+        'pending',
+        'accepted',
+        'arriving',
+        'out_of_area_searching',
+        'driver_interested',
+        'fare_negotiation',
+        'awaiting_passenger_confirmation'
+      ];
+    }
+
+    function isValidLocation(loc) {
+      return loc.keys().hasAll(['latitude', 'longitude', 'address'])
+        && loc.latitude is number
+        && loc.longitude is number
+        && loc.address is string;
+    }
+
+    // ─── Users ─────────────────────────────────────────────────────────────
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.role == 'passenger'
+        && request.resource.data.email is string
+        && request.resource.data.fullName is string
+        && request.resource.data.mobileNumber is string;
+
+      // Passengers may update their own profile but cannot change role or uid.
+      allow update: if isOwner(userId)
+        && isPassenger()
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.role == 'passenger';
+    }
+
+    // ─── Bookings ──────────────────────────────────────────────────────────
+
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn()
+        && resource.data.passengerId == request.auth.uid;
+
+      // Passengers create bookings with driverId == null. Driver assignment is a
+      // separate, authorized operation (driver app / Cloud Function) and must never
+      // be set by the passenger. Extra fields (agreedFare, fareAgreement,
+      // outOfAreaRequestId) are permitted but cannot include a forged driverId.
+      allow create: if isSignedIn()
+        && isPassenger()
+        && request.resource.data.passengerId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.driverId == null
+        && request.resource.data.bookingType in ['standard', 'out_of_area']
+        && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
+        && isValidLocation(request.resource.data.pickupLocation)
+        && isValidLocation(request.resource.data.destination)
+        && request.resource.data.distanceKm is number
+        && request.resource.data.estimatedFare is number;
+
+      // Passengers may cancel eligible bookings or accept fare agreement fields only.
+      allow update: if isSignedIn()
+        && isPassenger()
+        && resource.data.passengerId == request.auth.uid
+        && (
+          // Cancel booking
+          (
+            resource.data.status in passengerCancellableStatuses()
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.passengerId == resource.data.passengerId
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'cancelledAt', 'updatedAt'])
+          )
+          // Driver-side updates will be added when the driver app is built.
+        );
+    }
+
+    // ─── Out-of-area requests ──────────────────────────────────────────────
+
+    match /outOfAreaRequests/{requestId} {
+      allow read: if isSignedIn()
+        && resource.data.passengerId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && isPassenger()
+        && request.resource.data.passengerId == request.auth.uid
+        && request.resource.data.status == 'searching'
+        && request.resource.data.driverId == null
+        && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
+        && isValidLocation(request.resource.data.pickupLocation)
+        && isValidLocation(request.resource.data.destination);
+
+      allow update: if isSignedIn()
+        && isPassenger()
+        && resource.data.passengerId == request.auth.uid
+        && (
+          // Passenger cancels the request while it is still open
+          (
+            resource.data.status in ['searching', 'driver_interested', 'negotiating']
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'updatedAt'])
+          )
+          // Passenger accepts a fare proposal.
+          // The driver-side fields (driverId, driverProposedFare, agreedByDriver)
+          // are authored by an authorized flow (driver app / Cloud Function) and must
+          // NOT be altered by the passenger. The agreed fare must equal the driver's
+          // proposed fare, so a passenger cannot fabricate a different fare or a
+          // driver agreement that does not exist.
+          || (
+            resource.data.status in ['negotiating', 'driver_interested']
+            && request.resource.data.status == 'accepted'
+            && request.resource.data.agreedFare is number
+            && request.resource.data.agreedFare == request.resource.data.fareAgreement.driverProposedFare
+            && request.resource.data.fareAgreement.agreedByPassenger == true
+            && request.resource.data.fareAgreement.standardEstimatedFare == resource.data.fareAgreement.standardEstimatedFare
+            && request.resource.data.fareAgreement.driverProposedFare == resource.data.fareAgreement.driverProposedFare
+            && request.resource.data.fareAgreement.agreedByDriver == resource.data.fareAgreement.agreedByDriver
+            && request.resource.data.driverId == resource.data.driverId
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'agreedFare', 'fareAgreement', 'updatedAt'])
+          )
+          // Passenger declines a pending fare proposal
+          || (
+            resource.data.status in ['negotiating', 'driver_interested']
+            && request.resource.data.status == 'searching'
+            && request.resource.data.driverId == null
+            && request.resource.data.fareAgreement == null
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt'])
+          )
+        );
+    }
+
+    // ─── Ratings ───────────────────────────────────────────────────────────
+
+    match /ratings/{ratingId} {
+      allow read: if isSignedIn()
+        && resource.data.passengerId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && isPassenger()
+        && request.resource.data.passengerId == request.auth.uid
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && request.resource.data.bookingId is string
+        && request.resource.data.driverId is string;
+    }
+
+    // ─── Notifications ─────────────────────────────────────────────────────
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+    }
+
+    // ─── Drivers (read-only for passengers during driver search) ───────────
+
+    match /drivers/{driverId} {
+      allow read: if isSignedIn()
+        && resource.data.isVerified == true;
+
+      // Driver writes will be added when the driver app is built.
+      allow write: if false;
+    }
+
+    // ─── Fare settings (read-only for app; admin manages via console) ──────
+
+    match /fareSettings/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Deny everything else by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

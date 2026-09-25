@@ -1,15 +1,17 @@
 export const colors = {
-  primary: '#0B6E4F',
-  primaryDark: '#095C42',
-  primaryLight: '#E8F5F0',
-  background: '#FFFFFF',
-  surface: '#F7F9F8',
+  primary: '#1B5E3A',
+  primaryDark: '#0F3D26',
+  primaryLight: '#E8F3EC',
+  accent: '#C9A66B',
+  error: '#D32F2F',
+  errorBackground: '#FFEBEE',
+  background: '#FAFAF8',
+  // Cards and subtle surfaces use Primary Light per the TriGo design system.
+  surface: '#E8F3EC',
   text: '#1A1A1A',
   textSecondary: '#666666',
   textMuted: '#999999',
   border: '#E0E0E0',
-  error: '#D32F2F',
-  errorBackground: '#FFEBEE',
   white: '#FFFFFF',
 } as const;
 

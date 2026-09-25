@@ -36,7 +36,7 @@ export default function RegisterScreen() {
         mobileNumber,
       });
       await refreshProfile();
-      router.replace('/(passenger)/home');
+      router.replace('/home');
     } catch (error) {
       if (error instanceof AuthServiceError) {
         if (error.fieldErrors) {

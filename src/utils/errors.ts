@@ -14,9 +14,29 @@ const FIREBASE_AUTH_ERROR_MESSAGES: Record<string, string> = {
   'auth/user-disabled': 'This account has been disabled. Please contact support.',
 };
 
+// Firestore error codes are not prefixed (e.g. 'permission-denied'), so they
+// cannot collide with the 'auth/...' codes above.
+const FIRESTORE_ERROR_MESSAGES: Record<string, string> = {
+  'permission-denied':
+    'We could not access your account data (permission denied). Please contact support.',
+  unavailable:
+    'Unable to reach the TriGo server. Please check your internet connection and try again.',
+  'deadline-exceeded': 'The server took too long to respond. Please try again.',
+  unauthenticated: 'Your session has expired. Please log in again.',
+};
+
+/** Logs the underlying Firebase error code in development builds only. */
+export function logFirebaseError(context: string, error: unknown): void {
+  if (!__DEV__) return;
+  const code = error instanceof FirebaseError ? error.code : 'non-firebase-error';
+  console.warn(`[${context}] ${code}`, error);
+}
+
 export function getFirebaseErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof FirebaseError) {
-    return FIREBASE_AUTH_ERROR_MESSAGES[error.code] ?? fallback;
+    return (
+      FIREBASE_AUTH_ERROR_MESSAGES[error.code] ?? FIRESTORE_ERROR_MESSAGES[error.code] ?? fallback
+    );
   }
 
   if (error instanceof Error && error.message.includes('network')) {

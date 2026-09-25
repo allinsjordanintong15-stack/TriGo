@@ -4,7 +4,7 @@ import { PASSENGER_ROLE } from '@/constants';
 import { Passenger } from '@/types';
 import { auth } from '@/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -15,19 +15,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [passenger, setPassenger] = useState<Passenger | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Only the most recent profile load may update state. During registration the
+  // auth listener's load can resolve after refreshProfile() and must not clobber it.
+  const latestLoadId = useRef(0);
+
   const loadProfile = useCallback(async (user: FirebaseUser | null) => {
+    const loadId = ++latestLoadId.current;
+
     if (!user) {
       setPassenger(null);
       return;
     }
 
-    const profile = await getUserProfile(user.uid);
-    if (profile?.role === PASSENGER_ROLE) {
-      setPassenger(profile as Passenger);
-      return;
+    try {
+      const profile = await getUserProfile(user.uid);
+      if (loadId !== latestLoadId.current) return;
+      setPassenger(profile?.role === PASSENGER_ROLE ? (profile as Passenger) : null);
+    } catch {
+      if (loadId !== latestLoadId.current) return;
+      // Keep the current profile on a transient failure (e.g. offline) for the same user.
+      setPassenger((current) => (current?.uid === user.uid ? current : null));
     }
-
-    setPassenger(null);
   }, []);
 
   const refreshProfile = useCallback(async () => {

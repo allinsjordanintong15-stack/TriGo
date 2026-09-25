@@ -21,7 +21,7 @@ import {
   toMapRegion,
 } from '@/services/locationService';
 import { isLocationWithinServiceArea } from '@/services/serviceAreaService';
-import { Href, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -46,6 +46,7 @@ export default function PassengerHomeScreen() {
     destination,
     vehicleType,
     selectionMode,
+    fareConfig,
     setPickupLocation,
     setDestination,
     setVehicleType,
@@ -153,7 +154,7 @@ export default function PassengerHomeScreen() {
       return null;
     }
 
-    return buildTripQuote(pickupLocation, destination, vehicleType);
+    return buildTripQuote(pickupLocation, destination, vehicleType, fareConfig.fares);
   }
 
   function handleBookRide() {
@@ -169,7 +170,7 @@ export default function PassengerHomeScreen() {
       return;
     }
 
-    router.push('/(passenger)/booking/confirmation' as Href);
+    router.push('/(passenger)/booking/confirmation');
   }
 
   async function handleFindAvailableDrivers() {
@@ -179,10 +180,14 @@ export default function PassengerHomeScreen() {
     setFormError('');
 
     try {
-      const request = await createOutOfAreaRequest(passenger.uid, pendingQuote);
+      const request = await createOutOfAreaRequest(
+        passenger.uid,
+        pendingQuote,
+        fareConfig.outOfArea,
+      );
       setActiveOutOfAreaRequestId(request.requestId);
       setShowOutOfAreaNotice(false);
-      router.push('/(passenger)/booking/out-of-area-search' as Href);
+      router.push('/(passenger)/booking/out-of-area-search');
     } catch (error) {
       setFormError(
         error instanceof BookingServiceError
@@ -371,8 +376,8 @@ const styles = StyleSheet.create({
   },
   outOfAreaHint: {
     ...typography.caption,
-    color: '#B45309',
-    backgroundColor: '#FFF7ED',
+    color: colors.primary,
+    backgroundColor: colors.primaryLight,
     padding: spacing.sm,
     borderRadius: 8,
     marginBottom: spacing.sm,

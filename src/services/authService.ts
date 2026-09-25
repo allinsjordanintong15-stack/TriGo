@@ -2,11 +2,12 @@ import { docToUser } from '@/services/userMapper';
 import { PASSENGER_ROLE } from '@/constants';
 import { auth, COLLECTIONS, firestore } from '@/firebase';
 import { LoginInput, Passenger, RegisterPassengerInput, User } from '@/types';
-import { getFirebaseErrorMessage } from '@/utils/errors';
+import { getFirebaseErrorMessage, logFirebaseError } from '@/utils/errors';
 import {
   normalizeMobileNumber,
   validateEmail,
   validateLoginInput,
+  validateMobileNumber,
   validateRegisterInput,
 } from '@/validations/auth';
 import {
@@ -22,6 +23,7 @@ import {
   getDoc,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from 'firebase/firestore';
 
 export class AuthServiceError extends Error {
@@ -120,7 +122,22 @@ export async function loginPassenger(input: LoginInput): Promise<Passenger> {
       input.password,
     );
 
-    const profile = await getUserProfile(credential.user.uid);
+    let profile: User | null;
+    try {
+      profile = await getUserProfile(credential.user.uid);
+    } catch (profileError) {
+      // Sign-in succeeded but the Firestore profile read failed. Sign out so the
+      // app is not left with a Firebase session that has no usable profile.
+      logFirebaseError('loginPassenger: load profile', profileError);
+      await signOut(auth).catch(() => undefined);
+      throw new AuthServiceError(
+        getFirebaseErrorMessage(
+          profileError,
+          'You signed in, but your account data could not be loaded. Please try again.',
+        ),
+      );
+    }
+
     if (!profile) {
       await signOut(auth);
       throw new AuthServiceError(
@@ -141,6 +158,7 @@ export async function loginPassenger(input: LoginInput): Promise<Passenger> {
       throw error;
     }
 
+    logFirebaseError('loginPassenger', error);
     throw new AuthServiceError(
       getFirebaseErrorMessage(error, 'Unable to log in. Please try again.'),
     );
@@ -183,4 +201,32 @@ export async function sendPasswordReset(email: string): Promise<void> {
 
 export function getCurrentFirebaseUser(): FirebaseUser | null {
   return auth.currentUser;
+}
+
+export interface PassengerProfileUpdate {
+  fullName: string;
+  mobileNumber: string;
+}
+
+export async function updatePassengerProfile(
+  uid: string,
+  update: PassengerProfileUpdate,
+): Promise<void> {
+  const trimmedName = update.fullName.trim();
+  const nameError = trimmedName ? null : 'Full name is required.';
+  const mobileError = validateMobileNumber(update.mobileNumber);
+
+  if (nameError || mobileError) {
+    throw new AuthServiceError(nameError ?? mobileError ?? 'Invalid profile details.', {
+      ...(nameError ? { fullName: nameError } : {}),
+      ...(mobileError ? { mobileNumber: mobileError } : {}),
+    });
+  }
+
+  const userRef = doc(firestore, COLLECTIONS.users, uid);
+  await updateDoc(userRef, {
+    fullName: trimmedName,
+    mobileNumber: normalizeMobileNumber(update.mobileNumber),
+    updatedAt: serverTimestamp(),
+  });
 }

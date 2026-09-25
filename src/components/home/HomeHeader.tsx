@@ -1,6 +1,6 @@
 import { colors, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
-import { Href, router } from 'expo-router';
+import { router } from 'expo-router';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 function getInitials(fullName: string): string {
@@ -36,7 +36,7 @@ export function HomeHeader() {
 
       <Pressable
         style={styles.notificationButton}
-        onPress={() => router.push('/(passenger)/notifications' as Href)}
+        onPress={() => router.navigate('/notifications')}
         accessibilityLabel="Notifications"
       >
         <Text style={styles.notificationIcon}>🔔</Text>

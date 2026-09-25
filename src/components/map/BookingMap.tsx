@@ -2,6 +2,7 @@ import { MAP_DELTA, TRINIDAD_BOHOL_REGION } from '@/constants/map';
 import { colors, spacing, typography } from '@/constants/theme';
 import { LocationSelectionMode } from '@/contexts/BookingDraftContext';
 import { Location } from '@/types';
+import { logMapDiagnostics } from '@/utils/mapConfig';
 import { useEffect, useRef, useState } from 'react';
 import { Platform, ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
@@ -60,6 +61,7 @@ export function BookingMap({
   function handleMapReady() {
     setMapReady(true);
     mapRef.current?.animateToRegion(region, 0);
+    logMapDiagnostics();
   }
 
   return (
@@ -68,6 +70,8 @@ export function BookingMap({
         ref={mapRef}
         style={styles.map}
         provider={PROVIDER_DEFAULT}
+        // The LATEST Google renderer draws a black map on some Android devices.
+        googleRenderer="LEGACY"
         mapType="standard"
         initialRegion={{
           ...TRINIDAD_BOHOL_REGION,
@@ -126,7 +130,7 @@ export function BookingMap({
             }}
             title="Destination"
             description={destination.address}
-            pinColor="#D32F2F"
+            pinColor={colors.accent}
           />
         ) : null}
       </MapView>

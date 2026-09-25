@@ -13,7 +13,7 @@ import {
   getDriverSearchStatusMessage,
 } from '@/services/driverSearchService';
 import { OutOfAreaRequest } from '@/types';
-import { Href, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,7 +38,7 @@ export default function OutOfAreaSearchScreen() {
           updatedRequest.status === 'negotiating' &&
           updatedRequest.fareAgreement
         ) {
-          router.replace('/(passenger)/booking/agreement' as Href);
+          router.replace('/(passenger)/booking/agreement');
         }
       },
       (err) => {
@@ -84,7 +84,7 @@ export default function OutOfAreaSearchScreen() {
     try {
       await cancelOutOfAreaRequest(activeOutOfAreaRequestId);
       setActiveOutOfAreaRequestId(null);
-      router.replace('/(passenger)/home' as Href);
+      router.dismissTo('/home');
     } catch (err) {
       setError(
         err instanceof BookingServiceError
@@ -98,7 +98,7 @@ export default function OutOfAreaSearchScreen() {
     return (
       <View style={[styles.centered, { paddingTop: insets.top }]}>
         <Text style={styles.subtitle}>No active out-of-area request.</Text>
-        <Button title="Back to Home" onPress={() => router.replace('/(passenger)/home' as Href)} />
+        <Button title="Back to Home" onPress={() => router.dismissTo('/home')} />
       </View>
     );
   }
