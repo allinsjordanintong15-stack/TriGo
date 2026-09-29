@@ -52,7 +52,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     '@maplibre/maplibre-react-native',
   ],
-  experiments: {
+   experiments: {
     typedRoutes: true,
+  },
+  extra: {
+    eas: {
+      projectId: '7a704286-e428-4379-bbc5-756e72e857c1',
+    },
   },
 });
