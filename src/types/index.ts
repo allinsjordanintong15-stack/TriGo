@@ -8,18 +8,22 @@ export interface Location {
 
 export type VehicleType = 'tricycle' | 'motorcycle';
 
+/**
+ * Ride lifecycle: pending → accepted → arrived → in_progress → completed, or cancelled
+ * (see docs/plans/task2-ride-lifecycle.md). Out-of-area negotiation states live on
+ * `outOfAreaRequests`, not on bookings.
+ */
 export type BookingStatus =
   | 'pending'
   | 'accepted'
-  | 'arriving'
+  | 'arrived'
   | 'in_progress'
   | 'completed'
-  | 'cancelled'
-  | 'out_of_area_searching'
-  | 'driver_interested'
-  | 'fare_negotiation'
-  | 'awaiting_passenger_confirmation'
-  | 'confirmed';
+  | 'cancelled';
+
+export type PaymentMethod = 'cash' | 'gcash';
+
+export type CancelledBy = 'passenger' | 'driver';
 
 export type BookingType = 'standard' | 'out_of_area';
 
@@ -163,6 +167,8 @@ export interface DriverRecord {
   isVerified: boolean;
   isAvailable: boolean;
   currentLocation: { latitude: number; longitude: number } | null;
+  /** The booking this driver is assigned to; set on accept, cleared when the trip ends. */
+  currentBookingId: string | null;
 }
 
 export interface Booking {
@@ -184,9 +190,15 @@ export interface Booking {
   createdAt: Date;
   updatedAt: Date;
   acceptedAt: Date | null;
+  arrivedAt: Date | null;
   startedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
+  /** Recorded when the trip completes. */
+  paymentMethod: PaymentMethod | null;
+  /** Null for bookings cancelled before `cancelledBy` existed. */
+  cancelledBy: CancelledBy | null;
+  cancellationReason: string | null;
 }
 
 export interface DriverLocation {
@@ -208,7 +220,7 @@ export interface Rating {
 export type NotificationType =
   | 'booking_created'
   | 'driver_accepted'
-  | 'driver_arriving'
+  | 'driver_arrived'
   | 'ride_started'
   | 'ride_completed'
   | 'booking_cancelled';

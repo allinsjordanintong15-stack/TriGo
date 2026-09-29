@@ -9,10 +9,7 @@ function statusColors(status: BookingStatus): { bg: string; text: string } {
       return { bg: colors.errorBackground, text: colors.error };
     case 'completed':
       return { bg: colors.primaryLight, text: colors.primary };
-    case 'fare_negotiation':
-    case 'awaiting_passenger_confirmation':
-    case 'out_of_area_searching':
-    case 'driver_interested':
+    case 'arrived':
       return { bg: colors.accent, text: colors.primaryDark };
     default:
       return { bg: colors.primaryLight, text: colors.primary };

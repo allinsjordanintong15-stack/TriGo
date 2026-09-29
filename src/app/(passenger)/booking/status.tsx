@@ -187,7 +187,7 @@ export default function BookingStatusScreen() {
         <>
           <View style={styles.spacer} />
           <Button
-            title="Back to Home"
+            title={booking.cancelledBy === 'driver' ? 'Book Again' : 'Back to Home'}
             onPress={() => {
               setActiveBookingId(null);
               router.dismissTo('/home');

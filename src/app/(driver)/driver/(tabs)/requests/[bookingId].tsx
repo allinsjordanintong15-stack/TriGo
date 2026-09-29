@@ -4,7 +4,6 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
-import { StatusBadge } from '@/components/ui/StatusBadge';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useDriverAccess } from '@/hooks/useDriverAccess';
@@ -17,7 +16,7 @@ import {
 import { Booking } from '@/types';
 import { calculateDistanceKm } from '@/utils/distance';
 import { formatPhilippinePeso } from '@/utils/fare';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -136,7 +135,16 @@ export default function DriverRequestDetailScreen() {
     );
   }
 
-  if (unavailable || !booking || (!isOpen && !isMine)) {
+  // Once this driver has accepted (or re-opens their own booking), the trip screen takes over.
+  if (booking && isMine) {
+    return (
+      <Redirect
+        href={{ pathname: '/driver/trip/[bookingId]', params: { bookingId: booking.bookingId } }}
+      />
+    );
+  }
+
+  if (unavailable || !booking || !isOpen) {
     return (
       <View style={styles.container}>
         {header}
@@ -166,29 +174,13 @@ export default function DriverRequestDetailScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
       >
-        {isMine ? (
-          <View style={styles.acceptedBanner}>
-            <StatusBadge status={booking.status} />
-            <Text style={styles.acceptedTitle}>
-              {booking.status === 'cancelled'
-                ? 'The passenger cancelled this ride'
-                : 'You accepted this ride'}
-            </Text>
-            <Text style={styles.acceptedMessage}>
-              {booking.status === 'cancelled'
-                ? 'You can set yourself as available again from the Home tab.'
-                : 'The passenger can now see that you are their assigned driver. Head to the pickup location.'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.fareHeader}>
-            <Text style={styles.fareLabel}>Estimated fare</Text>
-            <Text style={styles.fareValue}>{formatPhilippinePeso(booking.estimatedFare)}</Text>
-            <Text style={styles.fareNote}>
-              Requested {formatRequestAge(booking.createdAt).toLowerCase()}
-            </Text>
-          </View>
-        )}
+        <View style={styles.fareHeader}>
+          <Text style={styles.fareLabel}>Estimated fare</Text>
+          <Text style={styles.fareValue}>{formatPhilippinePeso(booking.estimatedFare)}</Text>
+          <Text style={styles.fareNote}>
+            Requested {formatRequestAge(booking.createdAt).toLowerCase()}
+          </Text>
+        </View>
 
         <View style={styles.card}>
           <DetailRow label="Pickup" value={booking.pickupLocation.address} />
@@ -215,33 +207,27 @@ export default function DriverRequestDetailScreen() {
 
         <ErrorBanner message={error} />
 
-        {isOpen ? (
-          <>
-            {!canAccept ? (
-              <Text style={styles.cannotAccept}>
-                {hasActiveTrip
-                  ? 'You already have an active trip.'
-                  : 'You must be verified, online and available to accept requests.'}
-              </Text>
-            ) : null}
-            <Button
-              title="Accept Ride"
-              loading={accepting}
-              disabled={!canAccept || declining}
-              onPress={handleAccept}
-            />
-            <View style={styles.spacer} />
-            <Button
-              title="Decline"
-              variant="secondary"
-              loading={declining}
-              disabled={accepting}
-              onPress={handleDecline}
-            />
-          </>
-        ) : (
-          <Button title="Go to Home" onPress={() => router.replace('/driver/home')} />
-        )}
+        {!canAccept ? (
+          <Text style={styles.cannotAccept}>
+            {hasActiveTrip
+              ? 'You already have an active trip.'
+              : 'You must be verified, online and available to accept requests.'}
+          </Text>
+        ) : null}
+        <Button
+          title="Accept Ride"
+          loading={accepting}
+          disabled={!canAccept || declining}
+          onPress={handleAccept}
+        />
+        <View style={styles.spacer} />
+        <Button
+          title="Decline"
+          variant="secondary"
+          loading={declining}
+          disabled={accepting}
+          onPress={handleDecline}
+        />
       </ScrollView>
     </View>
   );
@@ -276,25 +262,6 @@ const styles = StyleSheet.create({
   fareNote: {
     ...typography.caption,
     color: colors.textMuted,
-  },
-  acceptedBanner: {
-    backgroundColor: colors.primaryLight,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.primary,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  acceptedTitle: {
-    ...typography.label,
-    color: colors.primaryDark,
-    marginTop: spacing.sm,
-  },
-  acceptedMessage: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
-    marginTop: 2,
   },
   card: {
     backgroundColor: colors.surface,

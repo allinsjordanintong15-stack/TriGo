@@ -1,14 +1,18 @@
-import { PASSENGER_CANCELLABLE_STATUSES } from '@/constants/cancellation';
+import {
+  DRIVER_CANCELLABLE_STATUSES,
+  PASSENGER_CANCELLABLE_STATUSES,
+} from '@/constants/cancellation';
 import { Booking, OutOfAreaRequest, TripQuote } from '@/types';
 
 export function canPassengerCancelBooking(booking: Booking): boolean {
-  if (booking.status === 'completed') {
-    return false;
-  }
-
   return PASSENGER_CANCELLABLE_STATUSES.includes(booking.status);
 }
 
+export function canDriverCancelBooking(booking: Booking): boolean {
+  return DRIVER_CANCELLABLE_STATUSES.includes(booking.status);
+}
+
+/** The fare shown before completion and recorded as `finalFare` on completion. */
 export function getDisplayFare(booking: Booking): number {
   if (booking.agreedFare !== null) {
     return booking.agreedFare;

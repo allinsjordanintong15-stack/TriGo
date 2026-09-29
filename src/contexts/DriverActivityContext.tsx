@@ -1,8 +1,20 @@
 import { useDriverAccess } from '@/hooks/useDriverAccess';
+import { subscribeToBooking } from '@/services/bookingService';
 import { subscribeToDriverActiveBookings } from '@/services/driverBookingService';
-import { subscribeToDriverActiveRequests } from '@/services/driverService';
+import {
+  releaseCancelledBooking,
+  subscribeToDriverActiveRequests,
+} from '@/services/driverService';
 import { Booking, OutOfAreaRequest } from '@/types';
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 export interface DriverActivityContextValue {
   /** Bookings assigned to this driver that are still in progress (accepted → in_progress). */
@@ -56,6 +68,45 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
       unsubscribeRequests();
     };
   }, [subscriptionKey]);
+
+  // Passenger cancellations cannot touch drivers/{uid}, so the driver app releases itself:
+  // only when currentBookingId points to a booking that is now `cancelled` do we clear it
+  // and restore availability. Completion and driver cancellation clear it in their own commit.
+  const currentBookingId = driverRecord?.currentBookingId ?? null;
+  const driverRecordRef = useRef(driverRecord);
+  driverRecordRef.current = driverRecord;
+  const releasingFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!currentBookingId) {
+      releasingFor.current = null;
+      return;
+    }
+
+    return subscribeToBooking(
+      currentBookingId,
+      (booking) => {
+        const record = driverRecordRef.current;
+        if (
+          booking.status !== 'cancelled' ||
+          !record ||
+          record.currentBookingId !== booking.bookingId ||
+          releasingFor.current === booking.bookingId
+        ) {
+          return;
+        }
+
+        releasingFor.current = booking.bookingId;
+        releaseCancelledBooking(record).catch(() => {
+          // Allow a retry on the next snapshot or app start.
+          releasingFor.current = null;
+        });
+      },
+      () => {
+        // Booking unreadable (e.g. offline); try again when the subscription restarts.
+      },
+    );
+  }, [currentBookingId]);
 
   const value = useMemo<DriverActivityContextValue>(
     () => ({

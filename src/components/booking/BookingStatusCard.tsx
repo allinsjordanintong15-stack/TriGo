@@ -1,7 +1,7 @@
 import { colors, spacing, typography } from '@/constants/theme';
 import { Booking, DriverRecord } from '@/types';
 import { getDisplayFare } from '@/utils/booking';
-import { getBookingStatusDisplay } from '@/utils/bookingStatus';
+import { formatPaymentMethod, getBookingDisplay } from '@/utils/bookingStatus';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
@@ -13,8 +13,9 @@ interface BookingStatusCardProps {
 }
 
 export function BookingStatusCard({ booking, loading = false, driver = null }: BookingStatusCardProps) {
-  const statusDisplay = getBookingStatusDisplay(booking.status);
-  const displayFare = getDisplayFare(booking);
+  const statusDisplay = getBookingDisplay(booking, 'passenger');
+  const displayFare = booking.finalFare ?? getDisplayFare(booking);
+  const isCompleted = booking.status === 'completed' && booking.finalFare !== null;
 
   return (
     <View style={styles.card}>
@@ -59,11 +60,16 @@ export function BookingStatusCard({ booking, loading = false, driver = null }: B
       <Text style={styles.value}>{booking.distanceKm.toFixed(2)} km</Text>
 
       <Text style={styles.label}>
-        {booking.agreedFare !== null ? 'Agreed Fare' : 'Estimated Fare'}
+        {isCompleted ? 'Final Fare' : booking.agreedFare !== null ? 'Agreed Fare' : 'Estimated Fare'}
       </Text>
       <Text style={styles.fare}>{formatPhilippinePeso(displayFare)}</Text>
 
-      {booking.agreedFare !== null && booking.estimatedFare !== booking.agreedFare ? (
+      {isCompleted ? (
+        <>
+          <Text style={styles.label}>Payment Method</Text>
+          <Text style={styles.value}>{formatPaymentMethod(booking.paymentMethod)}</Text>
+        </>
+      ) : booking.agreedFare !== null && booking.estimatedFare !== booking.agreedFare ? (
         <Text style={styles.fareNote}>
           Standard estimated fare was {formatPhilippinePeso(booking.estimatedFare)}.
         </Text>

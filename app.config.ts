@@ -1,7 +1,5 @@
 import { ExpoConfig, ConfigContext } from 'expo/config';
 
-const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? '';
-
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'TriGo',
@@ -29,12 +27,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     predictiveBackGestureEnabled: false,
     permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'CAMERA'],
-    config: {
-      ...config.android?.config,
-      googleMaps: {
-        apiKey: GOOGLE_MAPS_API_KEY,
-      },
-    },
   },
   web: {
     favicon: './assets/favicon.png',
@@ -58,18 +50,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         microphonePermission: false,
       },
     ],
-    [
-      'react-native-maps',
-      {
-        androidGoogleMapsApiKey: GOOGLE_MAPS_API_KEY,
-      },
-    ],
+    '@maplibre/maplibre-react-native',
   ],
   experiments: {
     typedRoutes: true,
-  },
-  extra: {
-    ...config.extra,
-    googleMapsApiKeyConfigured: Boolean(GOOGLE_MAPS_API_KEY),
   },
 });

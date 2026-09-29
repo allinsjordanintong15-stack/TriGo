@@ -5,6 +5,7 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
+import { countDriverCompletedTripsSince } from '@/services/driverBookingService';
 import { useAuth } from '@/hooks/useAuth';
 import { DriverAccessStatus, useDriverAccess } from '@/hooks/useDriverAccess';
 import {
@@ -16,9 +17,17 @@ import {
 import { getCurrentCoordinates, LocationServiceError } from '@/services/locationService';
 import { OutOfAreaRequest } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
-import { router } from 'expo-router';
-import { ComponentProps, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { ComponentProps, useCallback, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -55,6 +64,19 @@ function formatVehicleType(vehicleType: string): string {
   return vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) : '—';
 }
 
+function getGreeting(date: Date): string {
+  const hour = date.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function getStartOfToday(): Date {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
 function getInitials(fullName: string): string {
   return fullName
     .split(' ')
@@ -71,6 +93,32 @@ export default function DriverHomeScreen() {
   const [updatingDuty, setUpdatingDuty] = useState(false);
   const [error, setError] = useState('');
   const { activeBookings, activeRequests, loaded, hasActiveTrip } = useDriverActivity();
+  const driverId = driverRecord?.driverId ?? null;
+  // null while loading; refreshed whenever the tab gains focus so finished trips count.
+  const [completedToday, setCompletedToday] = useState<number | null>(null);
+  const [completedTodayError, setCompletedTodayError] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!driverId) return;
+      let active = true;
+
+      countDriverCompletedTripsSince(driverId, getStartOfToday())
+        .then((count) => {
+          if (!active) return;
+          setCompletedToday(count);
+          setCompletedTodayError(false);
+        })
+        .catch(() => {
+          if (!active) return;
+          setCompletedTodayError(true);
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [driverId]),
+  );
 
   async function handleGoOnline() {
     if (!driverRecord || !canPerformDriverActions) return;
@@ -130,13 +178,19 @@ export default function DriverHomeScreen() {
 
   const statusContent = ACCESS_STATUS_CONTENT[status];
   const fullName = driverRecord?.fullName || driver?.fullName || 'Driver';
+  const firstName = fullName.split(' ').find(Boolean) ?? fullName;
   const profileImage = driverRecord?.profileImage ?? driver?.profileImage ?? null;
   const isOnline = driverRecord?.isOnline === true;
   const activeBooking = activeBookings[0] ?? null;
   const activeRequest = activeRequests[0] ?? null;
-  // Only offer this once active trips have loaded, so it never shows mid-trip.
+  // Only offer this once active trips have loaded and no booking is linked, so it never
+  // shows mid-trip (Firestore rules also refuse availability while currentBookingId is set).
   const canBecomeAvailable =
-    isOnline && driverRecord?.isAvailable === false && loaded && !hasActiveTrip;
+    isOnline &&
+    driverRecord?.isAvailable === false &&
+    !driverRecord.currentBookingId &&
+    loaded &&
+    !hasActiveTrip;
 
   return (
     <View style={styles.container}>
@@ -155,7 +209,7 @@ export default function DriverHomeScreen() {
           )}
           <View style={styles.profileMeta}>
             <Text style={styles.name} numberOfLines={1}>
-              {fullName}
+              {getGreeting(new Date())}, {firstName}
             </Text>
             <Text style={styles.profileSubtitle}>
               TriGo driver
@@ -253,7 +307,7 @@ export default function DriverHomeScreen() {
                   accessibilityRole="button"
                   onPress={() =>
                     router.push({
-                      pathname: '/driver/requests/[bookingId]',
+                      pathname: '/driver/trip/[bookingId]',
                       params: { bookingId: activeBooking.bookingId },
                     })
                   }
@@ -322,6 +376,39 @@ export default function DriverHomeScreen() {
               ) : (
                 <Text style={styles.emptyText}>No active trip or request right now.</Text>
               )}
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Today</Text>
+              <View style={[styles.field, styles.fieldLast, styles.summaryRow]}>
+                <Text style={styles.fieldLabel}>Completed trips</Text>
+                {completedTodayError ? (
+                  <Text style={styles.emptyText}>Unavailable</Text>
+                ) : completedToday === null ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <Text style={styles.summaryValue}>{completedToday}</Text>
+                )}
+              </View>
+              <Pressable accessibilityRole="button" onPress={() => router.navigate('/driver/trips')}>
+                <Text style={styles.linkText}>View trip history</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Earnings</Text>
+              <Text style={styles.emptyText}>
+                Your earnings summary is not available yet. It will appear here once earnings
+                tracking is enabled.
+              </Text>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Commission</Text>
+              <Text style={styles.emptyText}>
+                No commission records yet. Commission rates and settlement are set by the TriGo
+                administrator.
+              </Text>
             </View>
           </>
         ) : null}
@@ -504,6 +591,22 @@ const styles = StyleSheet.create({
   },
   tripBadgeRow: {
     marginVertical: spacing.xs,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  summaryValue: {
+    ...typography.title,
+    fontSize: 20,
+    color: colors.primary,
+  },
+  linkText: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: colors.primary,
+    paddingVertical: spacing.xs,
   },
   emptyText: {
     ...typography.caption,

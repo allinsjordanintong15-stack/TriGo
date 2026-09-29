@@ -114,7 +114,7 @@ export function distanceFromServiceAreaCenterKm(latitude: number, longitude: num
   );
 }
 
-/** Service-area boundary in react-native-maps coordinate format. */
+/** Service-area boundary as latitude/longitude points. */
 export function getServiceAreaBoundaryCoordinates(): { latitude: number; longitude: number }[] {
   return TRIGO_SERVICE_AREA.boundary.map(([latitude, longitude]) => ({ latitude, longitude }));
 }

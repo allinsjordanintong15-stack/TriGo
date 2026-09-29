@@ -7,11 +7,13 @@ import { isOutOfAreaTrip } from '@/services/serviceAreaService';
 import {
   Booking,
   BookingType,
+  CancelledBy,
   FareAgreement,
   FareSettings,
   Location,
   OutOfAreaFareSettings,
   OutOfAreaRequest,
+  PaymentMethod,
   TripQuote,
   VehicleType,
 } from '@/types';
@@ -189,9 +191,14 @@ export function docToBooking(id: string, data: Record<string, unknown>): Booking
     createdAt: timestampToDate(data.createdAt as Timestamp) ?? new Date(),
     updatedAt: timestampToDate(data.updatedAt as Timestamp) ?? new Date(),
     acceptedAt: timestampToDate(data.acceptedAt as Timestamp | null),
+    arrivedAt: timestampToDate(data.arrivedAt as Timestamp | null),
     startedAt: timestampToDate(data.startedAt as Timestamp | null),
     completedAt: timestampToDate(data.completedAt as Timestamp | null),
     cancelledAt: timestampToDate(data.cancelledAt as Timestamp | null),
+    // Older bookings predate these fields.
+    paymentMethod: (data.paymentMethod as PaymentMethod | null) ?? null,
+    cancelledBy: (data.cancelledBy as CancelledBy | null) ?? null,
+    cancellationReason: (data.cancellationReason as string | null) ?? null,
   };
 }
 
@@ -218,9 +225,13 @@ function buildBookingDocument(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     acceptedAt: null,
+    arrivedAt: null,
     startedAt: null,
     completedAt: null,
     cancelledAt: null,
+    paymentMethod: null,
+    cancelledBy: null,
+    cancellationReason: null,
     ...overrides,
   };
 }
@@ -388,6 +399,7 @@ export async function cancelBooking(
 
   await updateDoc(bookingRef, {
     status: 'cancelled',
+    cancelledBy: 'passenger',
     cancelledAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

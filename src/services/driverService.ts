@@ -37,6 +37,7 @@ export function docToDriverRecord(driverId: string, data: DocumentData): DriverR
       location && typeof location.latitude === 'number' && typeof location.longitude === 'number'
         ? { latitude: location.latitude, longitude: location.longitude }
         : null,
+    currentBookingId: typeof data.currentBookingId === 'string' ? data.currentBookingId : null,
   };
 }
 
@@ -78,7 +79,7 @@ export async function goOnline(
     await updateDoc(doc(firestore, COLLECTIONS.drivers, driverRecord.driverId), {
       isOnline: true,
       // A driver with a trip in progress comes back online but stays unavailable.
-      isAvailable: !hasActiveTrip,
+      isAvailable: !hasActiveTrip && !driverRecord.currentBookingId,
       currentLocation: { latitude: location.latitude, longitude: location.longitude },
       updatedAt: serverTimestamp(),
     });
@@ -113,6 +114,10 @@ export async function becomeAvailable(driverRecord: DriverRecord): Promise<void>
     throw new DriverServiceError('Go online first to become available for trips.');
   }
 
+  if (driverRecord.currentBookingId) {
+    throw new DriverServiceError('Finish or cancel your current trip first.');
+  }
+
   try {
     await updateDoc(doc(firestore, COLLECTIONS.drivers, driverRecord.driverId), {
       isAvailable: true,
@@ -123,6 +128,22 @@ export async function becomeAvailable(driverRecord: DriverRecord): Promise<void>
       'Unable to update your availability. Please check your internet connection and try again.',
     );
   }
+}
+
+/**
+ * Release the driver from a booking the passenger cancelled: clear `currentBookingId`
+ * and become available again if still online. Firestore rules only allow clearing
+ * `currentBookingId` once that booking is cancelled or completed.
+ */
+export async function releaseCancelledBooking(driverRecord: DriverRecord): Promise<void> {
+  const canBeAvailable = driverRecord.isOnline && driverRecord.isVerified;
+
+  await updateDoc(doc(firestore, COLLECTIONS.drivers, driverRecord.driverId), {
+    currentBookingId: null,
+    isOnline: canBeAvailable,
+    isAvailable: canBeAvailable,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /**

@@ -1,4 +1,4 @@
-import { BookingStatus } from '@/types';
+import { Booking, BookingStatus, PaymentMethod } from '@/types';
 
 interface StatusDisplay {
   title: string;
@@ -11,12 +11,12 @@ const STATUS_MESSAGES: Record<BookingStatus, StatusDisplay> = {
     message: 'Looking for an available driver…',
   },
   accepted: {
-    title: 'Driver Found',
-    message: 'A driver has accepted your booking.',
+    title: 'Driver on the Way',
+    message: 'A driver accepted your booking and is heading to your pickup location.',
   },
-  arriving: {
-    title: 'Driver Arriving',
-    message: 'Your driver is on the way to your pickup location.',
+  arrived: {
+    title: 'Driver Has Arrived',
+    message: 'Your driver is waiting at the pickup location.',
   },
   in_progress: {
     title: 'Ride in Progress',
@@ -30,32 +30,44 @@ const STATUS_MESSAGES: Record<BookingStatus, StatusDisplay> = {
     title: 'Booking Cancelled',
     message: 'This booking was cancelled.',
   },
-  out_of_area_searching: {
-    title: 'Searching for Driver',
-    message: 'Looking for available drivers for your out-of-area trip…',
-  },
-  driver_interested: {
-    title: 'Driver Interested',
-    message: 'A driver is reviewing your out-of-area request.',
-  },
-  fare_negotiation: {
-    title: 'Fare Negotiation',
-    message: 'Waiting for fare agreement with the driver.',
-  },
-  awaiting_passenger_confirmation: {
-    title: 'Confirm Fare',
-    message: 'Please review and confirm the proposed fare.',
-  },
-  confirmed: {
-    title: 'Booking Confirmed',
-    message: 'Your out-of-area trip has been confirmed.',
-  },
 };
 
 export function getBookingStatusDisplay(status: BookingStatus): StatusDisplay {
-  return STATUS_MESSAGES[status];
+  return STATUS_MESSAGES[status] ?? STATUS_MESSAGES.pending;
+}
+
+/** Status text for a specific booking, e.g. naming who cancelled it. */
+export function getBookingDisplay(booking: Booking, viewer: 'passenger' | 'driver'): StatusDisplay {
+  if (booking.status !== 'cancelled' || !booking.cancelledBy) {
+    return getBookingStatusDisplay(booking.status);
+  }
+
+  const byViewer = booking.cancelledBy === viewer;
+  const reason = booking.cancellationReason ? ` Reason: ${booking.cancellationReason}.` : '';
+
+  if (booking.cancelledBy === 'passenger') {
+    return {
+      title: byViewer ? 'You Cancelled' : 'Cancelled by Passenger',
+      message: byViewer
+        ? `You cancelled this booking.${reason}`
+        : `The passenger cancelled this ride.${reason}`,
+    };
+  }
+
+  return {
+    title: byViewer ? 'You Cancelled' : 'Cancelled by Driver',
+    message: byViewer
+      ? `You cancelled this trip.${reason}`
+      : `The driver cancelled this ride.${reason} You can book again.`,
+  };
 }
 
 export function isActiveBookingStatus(status: BookingStatus): boolean {
   return !['completed', 'cancelled'].includes(status);
+}
+
+export function formatPaymentMethod(method: PaymentMethod | null): string {
+  if (method === 'cash') return 'Cash';
+  if (method === 'gcash') return 'GCash';
+  return '—';
 }

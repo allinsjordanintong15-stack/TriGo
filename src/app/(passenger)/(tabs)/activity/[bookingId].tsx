@@ -7,7 +7,7 @@ import { colors, spacing, typography } from '@/constants/theme';
 import { subscribeToBooking } from '@/services/bookingService';
 import { Booking } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
-import { getBookingStatusDisplay } from '@/utils/bookingStatus';
+import { formatPaymentMethod, getBookingDisplay } from '@/utils/bookingStatus';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -99,11 +99,26 @@ export default function BookingDetailScreen() {
     );
   }
 
-  const status = getBookingStatusDisplay(booking.status);
+  const status = getBookingDisplay(booking, 'passenger');
   const vehicleLabel =
     booking.vehicleType.charAt(0).toUpperCase() + booking.vehicleType.slice(1);
   const hasAgreedFare = booking.agreedFare !== null && booking.agreedFare !== booking.estimatedFare;
   const hasFinalFare = booking.finalFare !== null;
+  const timeline = [
+    { label: 'Driver Accepted', value: booking.acceptedAt },
+    { label: 'Driver Arrived', value: booking.arrivedAt },
+    { label: 'Trip Started', value: booking.startedAt },
+    { label: 'Completed', value: booking.completedAt },
+    {
+      label:
+        booking.cancelledBy === 'driver'
+          ? 'Cancelled by Driver'
+          : booking.cancelledBy === 'passenger'
+            ? 'Cancelled by You'
+            : 'Cancelled',
+      value: booking.cancelledAt,
+    },
+  ].filter((entry): entry is { label: string; value: Date } => entry.value !== null);
 
   return (
     <View style={styles.container}>
@@ -145,6 +160,9 @@ export default function BookingDetailScreen() {
               highlight
             />
           ) : null}
+          {booking.status === 'completed' ? (
+            <DetailRow label="Payment Method" value={formatPaymentMethod(booking.paymentMethod)} />
+          ) : null}
           <DetailRow
             label="Driver"
             value={
@@ -156,6 +174,14 @@ export default function BookingDetailScreen() {
             }
           />
         </View>
+
+        {timeline.length > 0 ? (
+          <View style={styles.card}>
+            {timeline.map((entry) => (
+              <DetailRow key={entry.label} label={entry.label} value={formatDateTime(entry.value)} />
+            ))}
+          </View>
+        ) : null}
 
         {booking.bookingType === 'out_of_area' ? (
           <Text style={styles.note}>

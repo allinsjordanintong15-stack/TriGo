@@ -21,8 +21,16 @@ service cloud.firestore {
       return isSignedIn() && userDoc().data.role == 'passenger';
     }
 
+    function driverPath(uid) {
+      return /databases/$(database)/documents/drivers/$(uid);
+    }
+
+    function bookingPath(id) {
+      return /databases/$(database)/documents/bookings/$(id);
+    }
+
     function driverDoc() {
-      return get(/databases/$(database)/documents/drivers/$(request.auth.uid));
+      return get(driverPath(request.auth.uid));
     }
 
     // Driver capability comes from an admin: either a `driver` account, or a passenger
@@ -34,7 +42,7 @@ service cloud.firestore {
           userDoc().data.role == 'driver'
           || (
             userDoc().data.role == 'passenger'
-            && exists(/databases/$(database)/documents/drivers/$(request.auth.uid))
+            && exists(driverPath(request.auth.uid))
             && exists(/databases/$(database)/documents/driverApplications/$(request.auth.uid))
             && get(/databases/$(database)/documents/driverApplications/$(request.auth.uid)).data.status == 'approved'
           )
@@ -46,23 +54,16 @@ service cloud.firestore {
     }
 
     // Driver access needs both the `driver` role in users/{uid} and an admin-verified
-    // record in drivers/{uid}. Only verified drivers may perform driver booking actions.
+    // record in drivers/{uid}. Only verified drivers may accept new bookings.
     function isVerifiedDriver() {
       return isDriver()
-        && exists(/databases/$(database)/documents/drivers/$(request.auth.uid))
-        && get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.isVerified == true;
+        && exists(driverPath(request.auth.uid))
+        && driverDoc().data.isVerified == true;
     }
 
-    function passengerCancellableStatuses() {
-      return [
-        'pending',
-        'accepted',
-        'arriving',
-        'out_of_area_searching',
-        'driver_interested',
-        'fare_negotiation',
-        'awaiting_passenger_confirmation'
-      ];
+    // True when an update changes only the listed fields.
+    function onlyChanged(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
     function isValidLocation(loc) {
@@ -94,39 +95,52 @@ service cloud.firestore {
     }
 
     // ─── Bookings ──────────────────────────────────────────────────────────
+    // Ride lifecycle (docs/plans/task2-ride-lifecycle.md):
+    //   pending → accepted → arrived → in_progress → completed, or → cancelled.
+    // Only the assigned driver moves a ride forward, one step at a time. Completed and
+    // cancelled bookings are final. After creation, driverId changes only on accept and
+    // finalFare is written only on completion (equal to the agreed/estimated fare); no
+    // other fare field can change. Fields older bookings may lack are read with
+    // .get(field, default) in update rules. Read rules use plain field access so list
+    // queries (open requests, trip history) can be checked against their filters.
 
     match /bookings/{bookingId} {
+      function isValidCancelReason() {
+        return request.resource.data.get('cancellationReason', null) == null
+          || (
+            request.resource.data.cancellationReason is string
+            && request.resource.data.cancellationReason.size() <= 200
+          );
+      }
+
+      // finalFare = agreedFare (out-of-area) when set, otherwise estimatedFare.
+      function isExpectedFinalFare() {
+        let agreedFare = resource.data.get('agreedFare', null);
+        return request.resource.data.finalFare is number
+          && (
+            (agreedFare == null && request.resource.data.finalFare == resource.data.estimatedFare)
+            || (agreedFare != null && request.resource.data.finalFare == agreedFare)
+          );
+      }
+
+      function isAssignedDriver() {
+        return isDriver() && resource.data.get('driverId', null) == request.auth.uid;
+      }
+
       allow read: if isSignedIn()
         && resource.data.passengerId == request.auth.uid;
 
-      // Verified drivers see open standard bookings and the bookings assigned to them.
+      // Verified drivers see open standard bookings.
       // Out-of-area bookings are never open: their driver comes from the fare agreement.
       allow read: if isVerifiedDriver()
-        && (
-          (
-            resource.data.status == 'pending'
-            && resource.data.driverId == null
-            && resource.data.bookingType == 'standard'
-          )
-          || resource.data.driverId == request.auth.uid
-        );
-
-      // A verified driver who is online, available and has the requested vehicle type
-      // claims an open standard booking by assigning themselves and accepting it.
-      allow update: if isVerifiedDriver()
-        && resource.data.bookingType == 'standard'
         && resource.data.status == 'pending'
         && resource.data.driverId == null
-        && driverDoc().data.isOnline == true
-        && driverDoc().data.isAvailable == true
-        && driverDoc().data.vehicleType == resource.data.vehicleType
-        && resource.data.passengerId != request.auth.uid
-        && request.resource.data.status == 'accepted'
-        && request.resource.data.driverId == request.auth.uid
-        && request.resource.data.acceptedAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'driverId', 'acceptedAt', 'updatedAt']);
+        && resource.data.bookingType == 'standard';
+
+      // A driver can always read bookings assigned to them (active trip and trip history),
+      // even if their verification is revoked later.
+      allow read: if isDriver()
+        && resource.data.driverId == request.auth.uid;
 
       // Passengers create bookings with driverId == null. Driver assignment is a
       // separate, authorized operation (driver app / Cloud Function) and must never
@@ -144,21 +158,75 @@ service cloud.firestore {
         && request.resource.data.distanceKm is number
         && request.resource.data.estimatedFare is number;
 
-      // Passengers may cancel eligible bookings or accept fare agreement fields only.
-      allow update: if isSignedIn()
-        && isPassenger()
-        && resource.data.passengerId == request.auth.uid
+      // T1 accept: a verified driver who is online, available, not on another trip and has
+      // the requested vehicle type claims an open standard booking. The same commit must
+      // mark the driver unavailable and link drivers/{uid}.currentBookingId to this booking.
+      allow update: if isVerifiedDriver()
+        && resource.data.get('bookingType', 'standard') == 'standard'
+        && resource.data.status == 'pending'
+        && resource.data.get('driverId', null) == null
+        && resource.data.passengerId != request.auth.uid
+        && driverDoc().data.isOnline == true
+        && driverDoc().data.isAvailable == true
+        && driverDoc().data.get('currentBookingId', null) == null
+        && driverDoc().data.vehicleType == resource.data.vehicleType
+        && request.resource.data.status == 'accepted'
+        && request.resource.data.driverId == request.auth.uid
+        && request.resource.data.acceptedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && onlyChanged(['status', 'driverId', 'acceptedAt', 'updatedAt'])
+        && getAfter(driverPath(request.auth.uid)).data.isAvailable == false
+        && getAfter(driverPath(request.auth.uid)).data.get('currentBookingId', null) == bookingId;
+
+      // T2-T4 and T6: the assigned driver moves the ride forward or cancels before it starts.
+      // isDriver() (not isVerifiedDriver) so a driver revoked mid-ride can still finish it.
+      allow update: if isAssignedDriver()
+        && request.resource.data.updatedAt == request.time
         && (
-          // Cancel booking
+          // T2 accepted → arrived
           (
-            resource.data.status in passengerCancellableStatuses()
-            && request.resource.data.status == 'cancelled'
-            && request.resource.data.passengerId == resource.data.passengerId
-            && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['status', 'cancelledAt', 'updatedAt'])
+            resource.data.status == 'accepted'
+            && request.resource.data.status == 'arrived'
+            && request.resource.data.arrivedAt == request.time
+            && onlyChanged(['status', 'arrivedAt', 'updatedAt'])
           )
-          // Driver acceptance is the separate driver `allow update` rule above.
+          // T3 arrived → in_progress
+          || (
+            resource.data.status == 'arrived'
+            && request.resource.data.status == 'in_progress'
+            && request.resource.data.startedAt == request.time
+            && onlyChanged(['status', 'startedAt', 'updatedAt'])
+          )
+          // T4 in_progress → completed (paymentMethod recorded by the driver until Task 4)
+          || (
+            resource.data.status == 'in_progress'
+            && request.resource.data.status == 'completed'
+            && request.resource.data.completedAt == request.time
+            && request.resource.data.paymentMethod in ['cash', 'gcash']
+            && isExpectedFinalFare()
+            && onlyChanged(['status', 'completedAt', 'finalFare', 'paymentMethod', 'updatedAt'])
+          )
+          // T6 driver cancels before the ride starts
+          || (
+            resource.data.status in ['accepted', 'arrived']
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.cancelledBy == 'driver'
+            && request.resource.data.cancelledAt == request.time
+            && isValidCancelReason()
+            && onlyChanged(['status', 'cancelledBy', 'cancellationReason', 'cancelledAt', 'updatedAt'])
+          )
         );
+
+      // T5 passenger cancels before the ride starts.
+      allow update: if isPassenger()
+        && resource.data.passengerId == request.auth.uid
+        && resource.data.status in ['pending', 'accepted', 'arrived']
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.cancelledBy == 'passenger'
+        && request.resource.data.cancelledAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && isValidCancelReason()
+        && onlyChanged(['status', 'cancelledBy', 'cancellationReason', 'cancelledAt', 'updatedAt']);
     }
 
     // ─── Out-of-area requests ──────────────────────────────────────────────
@@ -283,19 +351,39 @@ service cloud.firestore {
     // ─── Drivers (read-only for passengers during driver search) ───────────
 
     match /drivers/{driverId} {
+      // currentBookingId may only be set in the commit that accepts that booking, and only
+      // cleared once that booking is completed or cancelled. Unchanged is always fine.
+      function isValidCurrentBookingChange() {
+        let before = resource.data.get('currentBookingId', null);
+        let after = request.resource.data.get('currentBookingId', null);
+        return before == after
+          || (
+            before == null
+            && after is string
+            && get(bookingPath(after)).data.status == 'pending'
+            && getAfter(bookingPath(after)).data.status == 'accepted'
+            && getAfter(bookingPath(after)).data.driverId == request.auth.uid
+          )
+          || (
+            before != null
+            && after == null
+            && getAfter(bookingPath(before)).data.status in ['completed', 'cancelled']
+          );
+      }
+
       allow read: if isSignedIn()
         && resource.data.isVerified == true;
 
       // A driver can always read their own record, including while pending verification.
       allow read: if isOwner(driverId);
 
-      // A driver controls only their own duty status and position. Admin-managed fields
-      // (isVerified, name, vehicle, rating) cannot be changed from the app. Being
-      // available requires being online, and an unverified driver can only be offline.
+      // A driver controls only their own duty status, position and current-trip link.
+      // Admin-managed fields (isVerified, name, vehicle, rating) cannot be changed from the
+      // app. Being available requires being online, an unverified driver can only be
+      // offline, and a driver linked to a booking is never available.
       allow update: if isOwner(driverId)
         && isDriver()
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['isOnline', 'isAvailable', 'currentLocation', 'updatedAt'])
+        && onlyChanged(['isOnline', 'isAvailable', 'currentLocation', 'currentBookingId', 'updatedAt'])
         && request.resource.data.isOnline is bool
         && request.resource.data.isAvailable is bool
         && (!request.resource.data.isAvailable || request.resource.data.isOnline)
@@ -309,7 +397,12 @@ service cloud.firestore {
             request.resource.data.currentLocation.latitude is number
             && request.resource.data.currentLocation.longitude is number
           )
-        );
+        )
+        && (
+          request.resource.data.get('currentBookingId', null) == null
+          || request.resource.data.isAvailable == false
+        )
+        && isValidCurrentBookingChange();
 
       // Driver records are created and removed by TriGo admins only.
       allow create, delete: if false;

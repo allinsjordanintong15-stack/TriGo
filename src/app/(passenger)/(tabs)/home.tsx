@@ -7,7 +7,7 @@ import { VehicleSelector } from '@/components/home/VehicleSelector';
 import { BookingMap } from '@/components/map/BookingMap';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { TRINIDAD_BOHOL_REGION } from '@/constants/map';
+import { MapRegion, TRINIDAD_BOHOL_REGION } from '@/constants/map';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
 import { useAuth } from '@/hooks/useAuth';
@@ -42,7 +42,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function PassengerHomeScreen() {
@@ -67,7 +66,7 @@ export default function PassengerHomeScreen() {
     setSelectionMode,
   } = useBookingDraft();
 
-  const [mapRegion, setMapRegion] = useState<Region>({ ...TRINIDAD_BOHOL_REGION });
+  const [mapRegion, setMapRegion] = useState<MapRegion>({ ...TRINIDAD_BOHOL_REGION });
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [resolvingMapTap, setResolvingMapTap] = useState(false);
   const [formError, setFormError] = useState('');
