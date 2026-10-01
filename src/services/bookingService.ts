@@ -17,7 +17,6 @@ import {
   TripQuote,
   VehicleType,
 } from '@/types';
-import { calculateDistanceKm } from '@/utils/distance';
 import {
   addDoc,
   collection,
@@ -44,16 +43,22 @@ function timestampToDate(value: Timestamp | Date | null | undefined): Date | nul
   return value.toDate();
 }
 
+export const ROAD_ROUTE_UNAVAILABLE_MESSAGE =
+  "Couldn't get the road route. Check your connection and try again.";
+
 export function buildTripQuote(
   pickupLocation: Location,
   destinationLocation: Location,
   vehicleType: VehicleType,
+  /** Road distance from routingService. Fares are never quoted on a straight line. */
+  roadDistanceKm: number,
   fareSettings: FareSettings = DEFAULT_FARE_SETTINGS,
-  /** Road distance from routingService; null falls back to the straight-line distance. */
-  roadDistanceKm: number | null = null,
 ): TripQuote {
-  const distanceIsStraightLine = roadDistanceKm === null;
-  const distanceKm = roadDistanceKm ?? calculateDistanceKm(pickupLocation, destinationLocation);
+  if (typeof roadDistanceKm !== 'number' || !Number.isFinite(roadDistanceKm) || roadDistanceKm < 0) {
+    throw new BookingServiceError(ROAD_ROUTE_UNAVAILABLE_MESSAGE);
+  }
+
+  const distanceKm = roadDistanceKm;
   const standardEstimatedFare = calculateEstimatedFare(vehicleType, distanceKm, fareSettings);
   const isOutOfArea = isOutOfAreaTrip(pickupLocation, destinationLocation);
 
@@ -62,7 +67,6 @@ export function buildTripQuote(
     destination: destinationLocation,
     vehicleType,
     distanceKm,
-    distanceIsStraightLine,
     standardEstimatedFare,
     bookingType: isOutOfArea ? 'out_of_area' : 'standard',
     isOutOfArea,

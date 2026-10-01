@@ -15,6 +15,7 @@ import {
   BookingServiceError,
   buildTripQuote,
   createOutOfAreaRequest,
+  ROAD_ROUTE_UNAVAILABLE_MESSAGE,
 } from '@/services/bookingService';
 import {
   getCurrentLocation,
@@ -48,8 +49,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 type RouteState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'road'; route: RoadRoute }
+  | { status: 'road'; key: string; route: RoadRoute }
   | { status: 'unavailable' };
+
+/** Wait for the passenger to settle on a point before asking ORS for a route. */
+const ROUTE_DEBOUNCE_MS = 500;
+
+function routeKey(pickup: Location, destination: Location): string {
+  return `${pickup.latitude},${pickup.longitude}|${destination.latitude},${destination.longitude}`;
+}
 
 export default function PassengerHomeScreen() {
   const insets = useSafeAreaInsets();
@@ -91,6 +99,9 @@ export default function PassengerHomeScreen() {
   );
   const [creatingRequest, setCreatingRequest] = useState(false);
   const [routeState, setRouteState] = useState<RouteState>({ status: 'idle' });
+  const [routeRetryCount, setRouteRetryCount] = useState(0);
+  // Reused when the same pickup/destination come back, so ORS is not asked again.
+  const lastRoadRoute = useRef<{ key: string; route: RoadRoute } | null>(null);
   const hasInitializedLocation = useRef(false);
   // True once the passenger has a pickup they chose (map, search, "Current Location",
   // or one already in the booking draft). The background GPS prefill never replaces it.
@@ -121,24 +132,56 @@ export default function PassengerHomeScreen() {
       });
   }, [setPickupLocation]);
 
-  // Fetch the road route whenever both ends are set; ignore results for stale points.
+  const currentRouteKey =
+    pickupLocation && destination ? routeKey(pickupLocation, destination) : null;
+  // Booking needs a road route for exactly the current pickup and destination.
+  const roadRoute =
+    routeState.status === 'road' && routeState.key === currentRouteKey ? routeState.route : null;
+
+  // Fetch the road route when the pickup or destination coordinates change (not on
+  // address-only updates or re-renders); ignore results for stale points.
+  const pickupLatitude = pickupLocation?.latitude;
+  const pickupLongitude = pickupLocation?.longitude;
+  const destinationLatitude = destination?.latitude;
+  const destinationLongitude = destination?.longitude;
   useEffect(() => {
-    if (!pickupLocation || !destination) {
+    if (
+      pickupLatitude === undefined ||
+      pickupLongitude === undefined ||
+      destinationLatitude === undefined ||
+      destinationLongitude === undefined
+    ) {
       setRouteState({ status: 'idle' });
+      return;
+    }
+
+    const pickup = { latitude: pickupLatitude, longitude: pickupLongitude, address: '' };
+    const dropoff = { latitude: destinationLatitude, longitude: destinationLongitude, address: '' };
+    const key = routeKey(pickup, dropoff);
+
+    if (lastRoadRoute.current?.key === key) {
+      setRouteState({ status: 'road', key, route: lastRoadRoute.current.route });
       return;
     }
 
     let cancelled = false;
     setRouteState({ status: 'loading' });
-    getRoadRoute(pickupLocation, destination).then((route) => {
-      if (!cancelled) {
-        setRouteState(route ? { status: 'road', route } : { status: 'unavailable' });
-      }
-    });
+    const timer = setTimeout(() => {
+      getRoadRoute(pickup, dropoff).then((route) => {
+        if (cancelled) return;
+        if (route) {
+          lastRoadRoute.current = { key, route };
+          setRouteState({ status: 'road', key, route });
+        } else {
+          setRouteState({ status: 'unavailable' });
+        }
+      });
+    }, ROUTE_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [pickupLocation, destination]);
+  }, [pickupLatitude, pickupLongitude, destinationLatitude, destinationLongitude, routeRetryCount]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -263,13 +306,25 @@ export default function PassengerHomeScreen() {
       return null;
     }
 
-    return buildTripQuote(
-      pickupLocation,
-      destination,
-      vehicleType,
-      fareConfig.fares,
-      routeState.status === 'road' ? routeState.route.distanceKm : null,
-    );
+    if (!roadRoute) {
+      setFormError(ROAD_ROUTE_UNAVAILABLE_MESSAGE);
+      return null;
+    }
+
+    try {
+      return buildTripQuote(
+        pickupLocation,
+        destination,
+        vehicleType,
+        roadRoute.distanceKm,
+        fareConfig.fares,
+      );
+    } catch (error) {
+      setFormError(
+        error instanceof BookingServiceError ? error.message : ROAD_ROUTE_UNAVAILABLE_MESSAGE,
+      );
+      return null;
+    }
   }
 
   function handleBookRide() {
@@ -346,7 +401,7 @@ export default function PassengerHomeScreen() {
           bottomOverlayHeight={sheetHeight}
           // The active field in the floating card already says "Tap map".
           showSelectionBanner={false}
-          routeCoordinates={routeState.status === 'road' ? routeState.route.coordinates : null}
+          routeCoordinates={roadRoute?.coordinates ?? null}
           routeUnavailable={routeState.status === 'unavailable'}
         />
 
@@ -496,11 +551,26 @@ export default function PassengerHomeScreen() {
 
                 <VehicleSelector selected={vehicleType} onSelect={setVehicleType} />
 
+                {routeState.status === 'unavailable' ? (
+                  <View style={styles.routeError}>
+                    <ErrorBanner message={ROAD_ROUTE_UNAVAILABLE_MESSAGE} />
+                    <Button
+                      title="Retry"
+                      variant="secondary"
+                      onPress={() => {
+                        setFormError('');
+                        setRouteRetryCount((count) => count + 1);
+                      }}
+                    />
+                  </View>
+                ) : null}
+
                 <Button
                   title={tripIsOutOfArea ? 'Request Out-of-Area Ride' : 'Book a Ride'}
                   onPress={handleBookRide}
-                  // Wait for the road distance so the fare is not quoted on a straight line.
+                  // Fares are only quoted on a road route: wait for it, and block if it failed.
                   loading={routeState.status === 'loading'}
+                  disabled={routeState.status === 'unavailable'}
                 />
               </ScrollView>
             ) : null}
@@ -609,6 +679,8 @@ const styles = StyleSheet.create({
   },
   sheetScroll: {
     flexGrow: 0,
+    // Shrink to the sheet's maxHeight and scroll, instead of spilling under the tab bar.
+    flexShrink: 1,
   },
   panelContent: {
     paddingHorizontal: spacing.lg,
@@ -645,6 +717,9 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.primary,
     lineHeight: 18,
+  },
+  routeError: {
+    marginBottom: spacing.sm,
   },
   selectionHint: {
     ...typography.caption,

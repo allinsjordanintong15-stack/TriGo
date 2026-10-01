@@ -4,8 +4,15 @@ import {
   getServiceAreaLabel,
   isWithinTrigoServiceArea,
 } from '@/services/serviceAreaService';
+import { reverseGeocodeWithOrs } from '@/services/geocodingService';
 import { Location as AppLocation } from '@/types';
 import { calculateDistanceKmFromCoords } from '@/utils/distance';
+import {
+  formatLocationLabel,
+  formatPinnedLocationLabel,
+  getPlaceParts,
+  PlaceParts,
+} from '@/utils/formatLocationLabel';
 import * as Location from 'expo-location';
 
 export class LocationServiceError extends Error {
@@ -47,35 +54,50 @@ export async function getCurrentCoordinates(): Promise<{
   };
 }
 
+/**
+ * Readable label for a point, never a Plus Code. Tries the device geocoder's street,
+ * place name and barangay first, then a nearby place from ORS, then "Pinned location".
+ * Only the label comes from here; callers keep the exact coordinates.
+ */
 export async function reverseGeocode(latitude: number, longitude: number): Promise<string> {
+  let parts: PlaceParts | null = null;
+
   try {
-    const results = await Location.reverseGeocodeAsync({ latitude, longitude });
+    const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
 
-    if (results.length === 0) {
-      return formatCoordinateAddress(latitude, longitude);
+    if (__DEV__) {
+      // TEMPORARY: inspect what the device geocoder returns. Remove once verified.
+      console.log(
+        '[TriGo Geocode] device result',
+        place
+          ? {
+              name: place.name,
+              street: place.street,
+              streetNumber: place.streetNumber,
+              district: place.district,
+              subregion: place.subregion,
+              city: place.city,
+              region: place.region,
+              formattedAddress: place.formattedAddress,
+            }
+          : 'no results',
+      );
     }
 
-    const place = results[0];
-    const parts = [
-      place.name,
-      place.street,
-      place.district,
-      place.city,
-      place.region,
-    ].filter(Boolean);
-
-    if (parts.length === 0) {
-      return formatCoordinateAddress(latitude, longitude);
+    if (place) {
+      parts = getPlaceParts(place);
+      const label = formatLocationLabel(parts);
+      if (label) {
+        return label;
+      }
     }
-
-    return parts.join(', ');
-  } catch {
-    return formatCoordinateAddress(latitude, longitude);
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('[TriGo Geocode] device geocoder failed:', error);
+    }
   }
-}
 
-export function formatCoordinateAddress(latitude: number, longitude: number): string {
-  return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+  return (await reverseGeocodeWithOrs(latitude, longitude)) ?? formatPinnedLocationLabel(parts);
 }
 
 export async function resolveLocation(
