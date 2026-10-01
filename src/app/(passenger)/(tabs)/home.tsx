@@ -23,6 +23,7 @@ import {
   resolveLocation,
   toMapRegion,
 } from '@/services/locationService';
+import { getRoadRoute, RoadRoute } from '@/services/routingService';
 import {
   getServiceAreaLabel,
   getTripServiceAreaStatus,
@@ -43,6 +44,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+type RouteState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'road'; route: RoadRoute }
+  | { status: 'unavailable' };
 
 export default function PassengerHomeScreen() {
   const insets = useSafeAreaInsets();
@@ -83,6 +90,7 @@ export default function PassengerHomeScreen() {
     null,
   );
   const [creatingRequest, setCreatingRequest] = useState(false);
+  const [routeState, setRouteState] = useState<RouteState>({ status: 'idle' });
   const hasInitializedLocation = useRef(false);
   // True once the passenger has a pickup they chose (map, search, "Current Location",
   // or one already in the booking draft). The background GPS prefill never replaces it.
@@ -112,6 +120,25 @@ export default function PassengerHomeScreen() {
         // GPS unavailable: the passenger sets the pickup via search or the map.
       });
   }, [setPickupLocation]);
+
+  // Fetch the road route whenever both ends are set; ignore results for stale points.
+  useEffect(() => {
+    if (!pickupLocation || !destination) {
+      setRouteState({ status: 'idle' });
+      return;
+    }
+
+    let cancelled = false;
+    setRouteState({ status: 'loading' });
+    getRoadRoute(pickupLocation, destination).then((route) => {
+      if (!cancelled) {
+        setRouteState(route ? { status: 'road', route } : { status: 'unavailable' });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pickupLocation, destination]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -236,7 +263,13 @@ export default function PassengerHomeScreen() {
       return null;
     }
 
-    return buildTripQuote(pickupLocation, destination, vehicleType, fareConfig.fares);
+    return buildTripQuote(
+      pickupLocation,
+      destination,
+      vehicleType,
+      fareConfig.fares,
+      routeState.status === 'road' ? routeState.route.distanceKm : null,
+    );
   }
 
   function handleBookRide() {
@@ -313,6 +346,8 @@ export default function PassengerHomeScreen() {
           bottomOverlayHeight={sheetHeight}
           // The active field in the floating card already says "Tap map".
           showSelectionBanner={false}
+          routeCoordinates={routeState.status === 'road' ? routeState.route.coordinates : null}
+          routeUnavailable={routeState.status === 'unavailable'}
         />
 
         {/* Pickup and destination float over the top of the map. The row being chosen
@@ -464,6 +499,8 @@ export default function PassengerHomeScreen() {
                 <Button
                   title={tripIsOutOfArea ? 'Request Out-of-Area Ride' : 'Book a Ride'}
                   onPress={handleBookRide}
+                  // Wait for the road distance so the fare is not quoted on a straight line.
+                  loading={routeState.status === 'loading'}
                 />
               </ScrollView>
             ) : null}

@@ -45,6 +45,10 @@ interface BookingMapProps {
   showSelectionBanner?: boolean;
   /** Fill the area edge to edge without rounded corners. */
   edgeToEdge?: boolean;
+  /** Road path as [longitude, latitude] pairs; without it a direct line is drawn. */
+  routeCoordinates?: [number, number][] | null;
+  /** Show a notice that the road route could not be loaded and the line is direct. */
+  routeUnavailable?: boolean;
 }
 
 export function BookingMap({
@@ -58,6 +62,8 @@ export function BookingMap({
   bottomOverlayHeight = 0,
   showSelectionBanner = true,
   edgeToEdge = false,
+  routeCoordinates = null,
+  routeUnavailable = false,
 }: BookingMapProps) {
   const cameraRef = useRef<CameraRef>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -84,13 +90,13 @@ export function BookingMap({
       properties: {},
       geometry: {
         type: 'LineString',
-        coordinates: [
+        coordinates: routeCoordinates ?? [
           [pickupLocation.longitude, pickupLocation.latitude],
           [destination.longitude, destination.latitude],
         ],
       },
     };
-  }, [pickupLocation, destination]);
+  }, [pickupLocation, destination, routeCoordinates]);
 
   useEffect(() => {
     if (!mapReady || !cameraRef.current) {
@@ -110,12 +116,21 @@ export function BookingMap({
       return;
     }
 
+    // Frame the whole road path when there is one, since it can bulge past the endpoints.
+    const points: [number, number][] = [
+      [pickupLocation.longitude, pickupLocation.latitude],
+      [destination.longitude, destination.latitude],
+      ...(routeCoordinates ?? []),
+    ];
+    const longitudes = points.map(([longitude]) => longitude);
+    const latitudes = points.map(([, latitude]) => latitude);
+
     cameraRef.current.fitBounds(
       [
-        Math.min(pickupLocation.longitude, destination.longitude),
-        Math.min(pickupLocation.latitude, destination.latitude),
-        Math.max(pickupLocation.longitude, destination.longitude),
-        Math.max(pickupLocation.latitude, destination.latitude),
+        Math.min(...longitudes),
+        Math.min(...latitudes),
+        Math.max(...longitudes),
+        Math.max(...latitudes),
       ],
       {
         // contentInset already keeps the floating overlay clear; this is extra breathing room.
@@ -123,7 +138,14 @@ export function BookingMap({
         duration: 500,
       },
     );
-  }, [mapReady, pickupLocation, destination, topOverlayHeight, bottomOverlayHeight]);
+  }, [
+    mapReady,
+    pickupLocation,
+    destination,
+    routeCoordinates,
+    topOverlayHeight,
+    bottomOverlayHeight,
+  ]);
 
   function handleMapReady() {
     setMapReady(true);
@@ -209,6 +231,15 @@ export function BookingMap({
           <Text style={styles.selectionBannerText}>
             Tap the map to set {selectionMode === 'pickup' ? 'pickup' : 'destination'}
           </Text>
+        </View>
+      ) : null}
+
+      {routeShape && routeUnavailable ? (
+        <View
+          style={[styles.routeNotice, { bottom: bottomOverlayHeight + spacing.sm }]}
+          pointerEvents="none"
+        >
+          <Text style={styles.routeNoticeText}>Road route unavailable — showing direct line</Text>
         </View>
       ) : null}
 
@@ -302,6 +333,19 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  routeNotice: {
+    position: 'absolute',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 12,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    zIndex: 2,
+  },
+  routeNoticeText: {
+    ...typography.caption,
+    color: colors.white,
   },
   loadingOverlay: {
     position: 'absolute',

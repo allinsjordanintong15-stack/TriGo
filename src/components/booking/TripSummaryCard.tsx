@@ -33,6 +33,12 @@ export function TripSummaryCard({
 
       <Text style={styles.label}>Distance</Text>
       <Text style={styles.value}>{quote.distanceKm.toFixed(2)} km</Text>
+      {quote.distanceIsStraightLine ? (
+        <Text style={styles.fareNote}>
+          Straight-line distance — the road route was unavailable, so the actual distance and
+          fare may be higher.
+        </Text>
+      ) : null}
 
       {showFare ? (
         <>

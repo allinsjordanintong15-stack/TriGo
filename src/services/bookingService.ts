@@ -49,8 +49,11 @@ export function buildTripQuote(
   destinationLocation: Location,
   vehicleType: VehicleType,
   fareSettings: FareSettings = DEFAULT_FARE_SETTINGS,
+  /** Road distance from routingService; null falls back to the straight-line distance. */
+  roadDistanceKm: number | null = null,
 ): TripQuote {
-  const distanceKm = calculateDistanceKm(pickupLocation, destinationLocation);
+  const distanceIsStraightLine = roadDistanceKm === null;
+  const distanceKm = roadDistanceKm ?? calculateDistanceKm(pickupLocation, destinationLocation);
   const standardEstimatedFare = calculateEstimatedFare(vehicleType, distanceKm, fareSettings);
   const isOutOfArea = isOutOfAreaTrip(pickupLocation, destinationLocation);
 
@@ -59,6 +62,7 @@ export function buildTripQuote(
     destination: destinationLocation,
     vehicleType,
     distanceKm,
+    distanceIsStraightLine,
     standardEstimatedFare,
     bookingType: isOutOfArea ? 'out_of_area' : 'standard',
     isOutOfArea,

@@ -120,7 +120,10 @@ export default function FareAgreementScreen() {
           {tripQuote.vehicleType.charAt(0).toUpperCase() + tripQuote.vehicleType.slice(1)}
         </Text>
         <Text style={styles.label}>Distance</Text>
-        <Text style={styles.value}>{tripQuote.distanceKm.toFixed(2)} km</Text>
+        <Text style={styles.value}>
+          {tripQuote.distanceKm.toFixed(2)} km
+          {tripQuote.distanceIsStraightLine ? ' (straight line — road route unavailable)' : ''}
+        </Text>
       </View>
 
       <View style={styles.card}>

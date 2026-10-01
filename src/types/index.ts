@@ -265,6 +265,8 @@ export interface TripQuote {
   destination: Location;
   vehicleType: VehicleType;
   distanceKm: number;
+  /** True when no road route was available and distanceKm is the straight-line distance. */
+  distanceIsStraightLine: boolean;
   standardEstimatedFare: number;
   bookingType: BookingType;
   isOutOfArea: boolean;
