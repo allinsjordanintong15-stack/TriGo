@@ -270,14 +270,39 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt']);
 
+      // Passenger opens a request (bookingService.createOutOfAreaRequest): exactly these
+      // fields, no driver or fare agreement yet, server timestamps, and an expiry within
+      // 35 min (30 min request setting + 5 min client clock-skew grace).
       allow create: if isSignedIn()
         && isPassenger()
+        && request.resource.data.keys().hasAll([
+          'passengerId', 'pickupLocation', 'destination', 'vehicleType', 'distanceKm',
+          'standardEstimatedFare', 'suggestedAgreementFare', 'agreedFare', 'status',
+          'driverId', 'fareAgreement', 'createdAt', 'updatedAt', 'expiresAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'passengerId', 'pickupLocation', 'destination', 'vehicleType', 'distanceKm',
+          'standardEstimatedFare', 'suggestedAgreementFare', 'agreedFare', 'status',
+          'driverId', 'fareAgreement', 'createdAt', 'updatedAt', 'expiresAt'
+        ])
         && request.resource.data.passengerId == request.auth.uid
         && request.resource.data.status == 'searching'
         && request.resource.data.driverId == null
+        && request.resource.data.suggestedAgreementFare == null
+        && request.resource.data.agreedFare == null
+        && request.resource.data.fareAgreement == null
         && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
         && isValidLocation(request.resource.data.pickupLocation)
-        && isValidLocation(request.resource.data.destination);
+        && isValidLocation(request.resource.data.destination)
+        && request.resource.data.distanceKm is number
+        && request.resource.data.distanceKm > 0
+        && request.resource.data.standardEstimatedFare is number
+        && request.resource.data.standardEstimatedFare > 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm');
 
       allow update: if isSignedIn()
         && isPassenger()

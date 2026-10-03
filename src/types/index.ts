@@ -68,6 +68,9 @@ export interface OutOfAreaRequest {
   driverId: string | null;
   fareAgreement: FareAgreement | null;
   createdAt: Date;
+  /** Null on requests created before updatedAt was required. */
+  updatedAt: Date | null;
+  /** Always set on new requests; null only on requests created before expiry was required. */
   expiresAt: Date | null;
 }
 

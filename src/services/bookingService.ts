@@ -1,5 +1,8 @@
 import { DEFAULT_FARE_SETTINGS } from '@/constants';
-import { OUT_OF_AREA_FARE_SETTINGS } from '@/constants/outOfAreaFareSettings';
+import {
+  MAX_REQUEST_EXPIRY_MINUTES,
+  OUT_OF_AREA_FARE_SETTINGS,
+} from '@/constants/outOfAreaFareSettings';
 import { canPassengerCancelBooking } from '@/utils/booking';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { calculateEstimatedFare } from '@/services/fareService';
@@ -86,9 +89,16 @@ export async function createOutOfAreaRequest(
     throw new BookingServiceError('Out-of-area requests are not available at this time.');
   }
 
-  const expiresAt = new Date(
-    Date.now() + settings.requestExpiryMinutes * 60 * 1000,
-  );
+  if (!(quote.distanceKm > 0) || !(quote.standardEstimatedFare > 0)) {
+    throw new BookingServiceError(ROAD_ROUTE_UNAVAILABLE_MESSAGE);
+  }
+
+  // Must stay within the rules' expiry window (see MAX_REQUEST_EXPIRY_MINUTES).
+  const expiryMinutes =
+    settings.requestExpiryMinutes > 0
+      ? Math.min(settings.requestExpiryMinutes, MAX_REQUEST_EXPIRY_MINUTES)
+      : MAX_REQUEST_EXPIRY_MINUTES;
+  const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
 
   const requestData = {
     passengerId,
@@ -103,6 +113,7 @@ export async function createOutOfAreaRequest(
     driverId: null,
     fareAgreement: null,
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
     expiresAt: Timestamp.fromDate(expiresAt),
   };
 
@@ -162,6 +173,7 @@ export function docToOutOfAreaRequest(id: string, data: Record<string, unknown>)
     driverId: (data.driverId as string | null) ?? null,
     fareAgreement: fareAgreement ? parseFareAgreement(fareAgreement) : null,
     createdAt: timestampToDate(data.createdAt as Timestamp) ?? new Date(),
+    updatedAt: timestampToDate(data.updatedAt as Timestamp | null),
     expiresAt: timestampToDate(data.expiresAt as Timestamp | null),
   };
 }
