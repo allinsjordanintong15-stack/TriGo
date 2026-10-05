@@ -15,3 +15,5 @@ before the next revision is submitted. Mark an entry **Done** once both are upda
 | 2026-10-05 | **Fares keep centavos.** Fares are shown and stored to the centavo (e.g. ₱40.92); they are not rounded to whole pesos. | Fare, payments | No |
 | 2026-10-05 | **Passenger cannot contact the driver yet.** The booking status screen shows the driver's name, vehicle, plate and rating only; no phone number or call/message button. Contacting the driver is a planned separate feature. | Booking status, driver privacy | No |
 | 2026-10-05 | **PENDING — iOS photo/camera permission text.** The iOS camera and photo-library descriptions in `app.config.ts` mention only driver-application documents. Update them to also cover the passenger profile photo in the next EAS build (native change; Android does not use this text). | Profile photo, iOS build | No |
+
+PENDING: Firebase Storage needs the Blaze plan. Blocks profile photos AND driver application document uploads. Code parked on branch feature/profile-photo.
