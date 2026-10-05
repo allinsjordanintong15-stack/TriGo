@@ -1,7 +1,16 @@
-import { BookingStatusCard } from '@/components/booking/BookingStatusCard';
+import { DriverCard } from '@/components/booking/DriverCard';
+import { FareCard } from '@/components/booking/FareCard';
+import { RoutePreviewMap } from '@/components/booking/RoutePreviewMap';
+import { RouteTimeline } from '@/components/booking/RouteTimeline';
+import { StatusHeader } from '@/components/booking/StatusHeader';
+import { StatusStepper } from '@/components/booking/StatusStepper';
+import { StickyActionBar } from '@/components/booking/StickyActionBar';
+import { TripStatsRow } from '@/components/booking/TripStatsRow';
 import { Button } from '@/components/ui/Button';
+import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { colors, spacing, typography } from '@/constants/theme';
+import { ScreenHeader } from '@/components/ui/ScreenHeader';
+import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -10,25 +19,24 @@ import {
   subscribeToBooking,
 } from '@/services/bookingService';
 import { getDriverRecord } from '@/services/driverService';
-import { Booking, DriverRecord } from '@/types';
+import { getRoadRoute, RoadRoute } from '@/services/routingService';
+import { Booking, DriverRecord, Location } from '@/types';
 import { canPassengerCancelBooking } from '@/utils/booking';
-import { isActiveBookingStatus } from '@/utils/bookingStatus';
+import {
+  formatPaymentMethod,
+  getBookingProgress,
+  getPassengerStatusHeader,
+  isActiveBookingStatus,
+} from '@/utils/bookingStatus';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function BookingStatusScreen() {
   const insets = useSafeAreaInsets();
   const { passenger } = useAuth();
-  const { activeBookingId, setActiveBookingId } = useBookingDraft();
+  const { activeBookingId, setActiveBookingId, tripQuote, tripRoute } = useBookingDraft();
   const params = useLocalSearchParams<{ bookingId?: string }>();
   const bookingId = params.bookingId ?? activeBookingId;
 
@@ -37,6 +45,8 @@ export default function BookingStatusScreen() {
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
   const [assignedDriverRecord, setAssignedDriverRecord] = useState<DriverRecord | null>(null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [fetchedRoute, setFetchedRoute] = useState<FetchedRoute | null>(null);
 
   useEffect(() => {
     if (!bookingId) {
@@ -88,15 +98,37 @@ export default function BookingStatusScreen() {
     };
   }, [assignedDriverId]);
 
-  function confirmCancel() {
-    Alert.alert(
-      'Cancel Ride',
-      'Are you sure you want to cancel this ride?',
-      [
-        { text: 'No', style: 'cancel' },
-        { text: 'Yes, Cancel', style: 'destructive', onPress: handleCancel },
-      ],
-    );
+  // Bookings do not store the route. Reuse the one the booking was priced on when this is
+  // the trip just confirmed; otherwise ask ORS once. Without either, a direct line shows.
+  const pickupForRoute = booking?.pickupLocation ?? null;
+  const destinationForRoute = booking?.destination ?? null;
+  const bookingRouteKey =
+    pickupForRoute && destinationForRoute ? routeKey(pickupForRoute, destinationForRoute) : null;
+  const contextRoute =
+    tripRoute &&
+    tripQuote &&
+    routeKey(tripQuote.pickupLocation, tripQuote.destination) === bookingRouteKey
+      ? tripRoute
+      : null;
+  const needsFetchedRoute = bookingRouteKey !== null && contextRoute === null;
+
+  useEffect(() => {
+    if (!needsFetchedRoute || !pickupForRoute || !destinationForRoute || !bookingRouteKey) return;
+    if (fetchedRoute?.key === bookingRouteKey) return;
+
+    let active = true;
+    getRoadRoute(pickupForRoute, destinationForRoute).then((route) => {
+      if (active) setFetchedRoute({ key: bookingRouteKey, route });
+    });
+    return () => {
+      active = false;
+    };
+    // Only re-run when the trip's endpoints change, not on every booking snapshot.
+  }, [bookingRouteKey, needsFetchedRoute]);
+
+  async function handleConfirmCancel() {
+    await handleCancel();
+    setShowCancelDialog(false);
   }
 
   async function handleCancel() {
@@ -151,59 +183,151 @@ export default function BookingStatusScreen() {
       : null;
   const canCancel = canPassengerCancelBooking(booking);
   const isActive = isActiveBookingStatus(booking.status);
+  const header = getPassengerStatusHeader(booking);
+  const isOutOfArea = booking.bookingType === 'out_of_area';
+  const isCompleted = booking.status === 'completed';
+  const route =
+    contextRoute ?? (fetchedRoute?.key === bookingRouteKey ? fetchedRoute.route : null);
+
+  function goHome() {
+    setActiveBookingId(null);
+    router.dismissTo('/home');
+  }
 
   return (
-    <ScrollView
-      contentContainerStyle={[
-        styles.container,
-        { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.lg },
-      ]}
-    >
-      <Text style={styles.title}>Booking Status</Text>
-      <Text style={styles.subtitle}>
-        {isActive
-          ? 'Your booking updates in real time.'
-          : 'This booking is no longer active.'}
-      </Text>
+    <View style={styles.screen}>
+      <ScreenHeader title="Your Ride" />
 
-      <ErrorBanner message={error} />
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.card}>
+          <StatusHeader
+            title={header.title}
+            message={header.message}
+            pulsing={booking.status === 'pending'}
+            tone={booking.status === 'cancelled' ? 'cancelled' : isActive ? 'active' : 'done'}
+          />
+          <View style={styles.stepper}>
+            <StatusStepper steps={getBookingProgress(booking)} />
+          </View>
+        </View>
 
-      <BookingStatusCard
-        booking={booking}
-        loading={isActive && booking.status === 'pending'}
-        driver={assignedDriver}
-      />
+        {booking.driverId ? <DriverCard driver={assignedDriver} /> : null}
+
+        <View style={styles.mapCard}>
+          <RoutePreviewMap
+            pickup={booking.pickupLocation}
+            destination={booking.destination}
+            routeCoordinates={route?.coordinates ?? null}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <RouteTimeline
+            pickupAddress={booking.pickupLocation.address}
+            destinationAddress={booking.destination.address}
+          />
+        </View>
+
+        <TripStatsRow
+          distanceKm={booking.distanceKm}
+          vehicleType={booking.vehicleType}
+          durationMin={route?.durationMin ?? null}
+          durationLabel="Trip time"
+        />
+
+        <FareCard
+          estimatedFare={
+            isOutOfArea ? booking.estimatedFare : (booking.finalFare ?? booking.estimatedFare)
+          }
+          agreedFare={isOutOfArea ? (booking.finalFare ?? booking.agreedFare) : null}
+          isOutOfArea={isOutOfArea}
+          label={isCompleted ? 'Final fare' : undefined}
+          footer={
+            isCompleted && booking.paymentMethod ? (
+              <Text style={styles.payment}>
+                Payment: {formatPaymentMethod(booking.paymentMethod)}
+              </Text>
+            ) : null
+          }
+        />
+      </ScrollView>
+
+      {error ? (
+        <View style={styles.errorWrap}>
+          <ErrorBanner message={error} />
+        </View>
+      ) : null}
 
       {canCancel ? (
-        <Button
-          title="Cancel Ride"
+        <StickyActionBar
+          buttonTitle="Cancel Booking"
           variant="secondary"
           loading={cancelling}
-          onPress={confirmCancel}
+          onPress={() => setShowCancelDialog(true)}
+        />
+      ) : !isActive ? (
+        <StickyActionBar
+          buttonTitle={booking.cancelledBy === 'driver' ? 'Book Again' : 'Back to Home'}
+          onPress={goHome}
         />
       ) : null}
 
-      {!isActive ? (
-        <>
-          <View style={styles.spacer} />
-          <Button
-            title={booking.cancelledBy === 'driver' ? 'Book Again' : 'Back to Home'}
-            onPress={() => {
-              setActiveBookingId(null);
-              router.dismissTo('/home');
-            }}
-          />
-        </>
-      ) : null}
-    </ScrollView>
+      <ConfirmationDialog
+        visible={showCancelDialog}
+        title="Cancel booking?"
+        message="Are you sure you want to cancel this booking?"
+        confirmLabel="Yes, Cancel"
+        cancelLabel="No"
+        destructive
+        loading={cancelling}
+        onConfirm={handleConfirmCancel}
+        onCancel={() => setShowCancelDialog(false)}
+      />
+    </View>
   );
 }
 
+interface FetchedRoute {
+  key: string;
+  /** Null when ORS had no route; the map then draws a direct line. */
+  route: RoadRoute | null;
+}
+
+function routeKey(pickup: Location, destination: Location): string {
+  return `${pickup.latitude},${pickup.longitude}|${destination.latitude},${destination.longitude}`;
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    paddingHorizontal: spacing.lg,
+  screen: {
+    flex: 1,
     backgroundColor: colors.background,
+  },
+  content: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  card: {
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    ...shadow.card,
+  },
+  stepper: {
+    marginTop: spacing.lg,
+  },
+  mapCard: {
+    borderRadius: radius.lg,
+    backgroundColor: colors.white,
+    ...shadow.card,
+  },
+  payment: {
+    ...typography.body,
+    color: colors.text,
+    fontWeight: '600',
+    marginTop: spacing.md,
+  },
+  errorWrap: {
+    paddingHorizontal: spacing.lg,
   },
   centered: {
     flex: 1,
@@ -222,16 +346,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.md,
   },
-  title: {
-    ...typography.title,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  subtitle: {
-    ...typography.subtitle,
-    color: colors.textSecondary,
-    marginBottom: spacing.lg,
-    lineHeight: 22,
-  },
-  spacer: { height: spacing.sm },
 });

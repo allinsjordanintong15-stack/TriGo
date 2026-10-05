@@ -7,12 +7,18 @@ interface TripSummaryCardProps {
   quote: TripQuote;
   showFare?: boolean;
   bookingTypeLabel?: string;
+  /** Label above the standard fare. */
+  fareLabel?: string;
+  /** Note under the standard fare; null hides it. */
+  fareNote?: string | null;
 }
 
 export function TripSummaryCard({
   quote,
   showFare = true,
   bookingTypeLabel,
+  fareLabel = 'Standard Estimated Fare',
+  fareNote = 'This is an estimate only and may change for out-of-area trips.',
 }: TripSummaryCardProps) {
   return (
     <View style={styles.card}>
@@ -36,11 +42,9 @@ export function TripSummaryCard({
 
       {showFare ? (
         <>
-          <Text style={styles.label}>Standard Estimated Fare</Text>
+          <Text style={styles.label}>{fareLabel}</Text>
           <Text style={styles.fare}>{formatPhilippinePeso(quote.standardEstimatedFare)}</Text>
-          <Text style={styles.fareNote}>
-            This is an estimate only and may change for out-of-area trips.
-          </Text>
+          {fareNote ? <Text style={styles.fareNote}>{fareNote}</Text> : null}
         </>
       ) : null}
     </View>

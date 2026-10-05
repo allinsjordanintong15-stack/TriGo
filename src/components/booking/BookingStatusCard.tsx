@@ -1,8 +1,8 @@
-import { colors, spacing, typography } from '@/constants/theme';
-import { Booking, DriverRecord } from '@/types';
-import { getDisplayFare } from '@/utils/booking';
-import { formatPaymentMethod, getBookingDisplay } from '@/utils/bookingStatus';
-import { formatPhilippinePeso } from '@/utils/fare';
+import { colors, spacing, typography } from '../../constants/theme';
+import { Booking, DriverRecord } from '../../types';
+import { getDisplayFare } from '../../utils/booking';
+import { formatPaymentMethod, getBookingDisplay } from '../../utils/bookingStatus';
+import { formatPhilippinePeso } from '../../utils/fare';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 interface BookingStatusCardProps {

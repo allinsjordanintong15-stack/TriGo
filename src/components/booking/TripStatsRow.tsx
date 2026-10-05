@@ -10,9 +10,16 @@ interface TripStatsRowProps {
   vehicleType: VehicleType;
   /** Estimated driving time; the time cell is hidden when it is not known. */
   durationMin?: number | null;
+  /** Caption under the time, e.g. "Trip time" once a driver is on the way. */
+  durationLabel?: string;
 }
 
-export function TripStatsRow({ distanceKm, vehicleType, durationMin = null }: TripStatsRowProps) {
+export function TripStatsRow({
+  distanceKm,
+  vehicleType,
+  durationMin = null,
+  durationLabel = 'Est. time',
+}: TripStatsRowProps) {
   const vehicle = getVehicleOption(vehicleType);
 
   return (
@@ -26,7 +33,7 @@ export function TripStatsRow({ distanceKm, vehicleType, durationMin = null }: Tr
         <Stat
           icon={<StatIcon name="time-outline" />}
           value={`~${durationMin} min`}
-          label="Est. time"
+          label={durationLabel}
         />
       ) : null}
       <Stat

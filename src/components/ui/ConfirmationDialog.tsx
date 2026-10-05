@@ -36,13 +36,19 @@ export function ConfirmationDialog({
           <Text style={styles.title}>{title}</Text>
           {message ? <Text style={styles.message}>{message}</Text> : null}
           <View style={styles.actions}>
-            <Button title={cancelLabel} variant="secondary" onPress={onCancel} disabled={loading} />
+            <Button
+              title={cancelLabel}
+              variant="secondary"
+              onPress={onCancel}
+              disabled={loading}
+              style={styles.actionButton}
+            />
             <View style={styles.actionSpacer} />
             <Button
               title={confirmLabel}
               onPress={onConfirm}
               loading={loading}
-              style={destructive ? styles.destructiveButton : undefined}
+              style={destructive ? styles.destructiveActionButton : styles.actionButton}
             />
           </View>
         </View>
@@ -85,7 +91,14 @@ const styles = StyleSheet.create({
   actionSpacer: {
     width: spacing.sm,
   },
-  destructiveButton: {
+  // Both buttons share the row equally, with room around their labels.
+  actionButton: {
+    flex: 1,
+    paddingHorizontal: spacing.md,
+  },
+  destructiveActionButton: {
+    flex: 1,
+    paddingHorizontal: spacing.md,
     borderColor: colors.error,
   },
 });

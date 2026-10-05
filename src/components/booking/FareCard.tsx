@@ -1,5 +1,6 @@
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 interface FareCardProps {
@@ -10,6 +11,10 @@ interface FareCardProps {
   isOutOfArea: boolean;
   /** Optional line under the fare explaining its basis, e.g. "Based on ₱8/km". */
   fareBasisLabel?: string;
+  /** Replaces the "Fare" / "Agreed fare" title, e.g. "Final fare". */
+  label?: string;
+  /** Extra content at the bottom of the card, e.g. the payment method. */
+  footer?: ReactNode;
 }
 
 export function FareCard({
@@ -17,11 +22,13 @@ export function FareCard({
   agreedFare,
   isOutOfArea,
   fareBasisLabel,
+  label,
+  footer,
 }: FareCardProps) {
   if (isOutOfArea) {
     return (
       <View style={styles.card}>
-        <Text style={styles.label}>Agreed fare</Text>
+        <Text style={styles.label}>{label ?? 'Agreed fare'}</Text>
         {agreedFare !== null ? (
           <Text style={styles.total}>{formatPhilippinePeso(agreedFare)}</Text>
         ) : (
@@ -38,15 +45,17 @@ export function FareCard({
           <Text style={styles.referenceLabel}>Reference fare (not binding)</Text>
           <Text style={styles.referenceValue}>{formatPhilippinePeso(estimatedFare)}</Text>
         </View>
+        {footer}
       </View>
     );
   }
 
   return (
     <View style={styles.card}>
-      <Text style={styles.label}>Fare</Text>
+      <Text style={styles.label}>{label ?? 'Fare'}</Text>
       <Text style={styles.total}>{formatPhilippinePeso(estimatedFare)}</Text>
       {fareBasisLabel ? <Text style={styles.note}>{fareBasisLabel}</Text> : null}
+      {footer}
     </View>
   );
 }

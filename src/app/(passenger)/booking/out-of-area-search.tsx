@@ -124,6 +124,8 @@ export default function OutOfAreaSearchScreen() {
       <TripSummaryCard
         quote={tripQuote}
         bookingTypeLabel="Out-of-Area Trip Request"
+        fareLabel="Reference fare (not binding)"
+        fareNote={null}
       />
 
       <View style={styles.statusCard}>
