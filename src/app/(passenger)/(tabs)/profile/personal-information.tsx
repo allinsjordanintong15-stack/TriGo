@@ -1,20 +1,12 @@
+import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { router } from 'expo-router';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-function getInitials(fullName: string): string {
-  return fullName
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
-}
 
 function formatMemberSince(value: Date): string {
   return value.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
@@ -42,19 +34,7 @@ export default function PersonalInformationScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.photoSection}>
-          {passenger.profileImage ? (
-            <Image source={{ uri: passenger.profileImage }} style={styles.photo} />
-          ) : (
-            <View style={styles.photoFallback}>
-              <Text style={styles.photoInitials}>{getInitials(passenger.fullName)}</Text>
-            </View>
-          )}
-          <Text style={styles.photoLabel}>Profile photo</Text>
-          <Text style={styles.photoNote}>
-            {passenger.profileImage
-              ? 'Photo from your account.'
-              : 'No profile photo yet. Uploading a photo is not available yet.'}
-          </Text>
+          <Avatar name={passenger.fullName} imageUri={passenger.profileImage} size={96} />
         </View>
 
         <View style={styles.card}>
@@ -98,35 +78,6 @@ const styles = StyleSheet.create({
   photoSection: {
     alignItems: 'center',
     marginBottom: spacing.lg,
-  },
-  photo: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-  },
-  photoFallback: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoInitials: {
-    ...typography.title,
-    fontSize: 32,
-    color: colors.primary,
-  },
-  photoLabel: {
-    ...typography.label,
-    color: colors.text,
-    marginTop: spacing.sm,
-  },
-  photoNote: {
-    ...typography.caption,
-    color: colors.textMuted,
-    marginTop: 2,
-    textAlign: 'center',
   },
   card: {
     backgroundColor: colors.surface,

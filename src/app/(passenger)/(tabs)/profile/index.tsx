@@ -1,28 +1,22 @@
 import { DriverApplicationCard } from '@/components/profile/DriverApplicationCard';
 import { ProfileMenuItem, ProfileMenuSection } from '@/components/profile/ProfileMenuItem';
+import { Avatar } from '@/components/ui/Avatar';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { Button } from '@/components/ui/Button';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
 import { useDriverApplication } from '@/hooks/useDriverApplication';
 import { logout } from '@/services/authService';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function getInitials(fullName: string): string {
-  return fullName
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
-}
+const APP_VERSION = Constants.expoConfig?.version ?? null;
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -67,36 +61,23 @@ export default function ProfileScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.avatarRow}>
-          {passenger.profileImage ? (
-            <Image source={{ uri: passenger.profileImage }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Text style={styles.avatarInitials}>{getInitials(passenger.fullName)}</Text>
-            </View>
-          )}
-          <View style={styles.avatarMeta}>
-            <Text style={styles.name} numberOfLines={1}>
-              {passenger.fullName}
-            </Text>
-            <Text style={styles.role} numberOfLines={1}>
-              Passenger · {passenger.email}
-            </Text>
-          </View>
+        <View style={styles.headerCard}>
+          <Avatar name={passenger.fullName} imageUri={passenger.profileImage} size={88} />
+          <Text style={styles.name} numberOfLines={2}>
+            {passenger.fullName}
+          </Text>
+          <Text style={styles.roleChip}>Passenger</Text>
+          <Text style={styles.email} numberOfLines={1}>
+            {passenger.email}
+          </Text>
         </View>
 
         <ProfileMenuSection title="Account">
           <ProfileMenuItem
             icon="person-circle-outline"
             label="Personal Information"
-            description="Name, email, mobile number and profile photo"
+            description="Name, email and mobile number"
             onPress={() => router.push('/profile/personal-information')}
-          />
-          <ProfileMenuItem
-            icon="create-outline"
-            label="Edit Profile"
-            description="Update your name and mobile number"
-            onPress={() => router.push('/profile/edit')}
             last
           />
         </ProfileMenuSection>
@@ -113,26 +94,6 @@ export default function ProfileScreen() {
           />
           {driverApplication.error ? <ErrorBanner message={driverApplication.error} /> : null}
         </View>
-
-        <ProfileMenuSection title="Activity">
-          <ProfileMenuItem
-            icon="receipt-outline"
-            label="Ride History"
-            description="Your current and past trips"
-            onPress={() => router.navigate('/activity')}
-            last
-          />
-        </ProfileMenuSection>
-
-        <ProfileMenuSection title="Notifications">
-          <ProfileMenuItem
-            icon="notifications-outline"
-            label="Notifications"
-            description="Booking updates and alerts"
-            onPress={() => router.navigate('/notifications')}
-            last
-          />
-        </ProfileMenuSection>
 
         <ProfileMenuSection title="Support & Settings">
           <ProfileMenuItem
@@ -152,12 +113,20 @@ export default function ProfileScreen() {
 
         {error ? <ErrorBanner message={error} /> : null}
 
-        <Button
-          title="Log Out"
-          variant="secondary"
-          loading={loggingOut}
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.logout, pressed ? styles.logoutPressed : null]}
+          disabled={loggingOut}
           onPress={() => setConfirmLogout(true)}
-        />
+        >
+          {loggingOut ? (
+            <ActivityIndicator color={colors.error} />
+          ) : (
+            <Text style={styles.logoutText}>Log Out</Text>
+          )}
+        </Pressable>
+
+        {APP_VERSION ? <Text style={styles.version}>TriGo v{APP_VERSION}</Text> : null}
       </ScrollView>
 
       <ConfirmationDialog
@@ -184,41 +153,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
   },
-  avatarRow: {
-    flexDirection: 'row',
+  headerCard: {
     alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md,
     marginBottom: spacing.lg,
-  },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-  },
-  avatarFallback: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    ...typography.title,
-    color: colors.primary,
-  },
-  avatarMeta: {
-    marginLeft: spacing.md,
-    flex: 1,
+    ...shadow.card,
   },
   name: {
     ...typography.title,
     fontSize: 22,
     color: colors.text,
+    textAlign: 'center',
+    marginTop: spacing.md,
   },
-  role: {
+  roleChip: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: colors.primary,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    marginTop: spacing.sm,
+  },
+  email: {
     ...typography.caption,
     color: colors.textSecondary,
-    marginTop: 2,
+    marginTop: spacing.xs,
   },
   section: {
     marginBottom: spacing.lg,
@@ -230,5 +195,25 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: spacing.sm,
+  },
+  logout: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+  },
+  logoutPressed: {
+    backgroundColor: colors.errorBackground,
+  },
+  logoutText: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.error,
+  },
+  version: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: spacing.xs,
   },
 });

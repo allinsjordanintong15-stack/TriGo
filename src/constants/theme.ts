@@ -8,6 +8,8 @@ export const colors = {
   goldLight: '#F5EDE0',
   error: '#D32F2F',
   errorBackground: '#FFEBEE',
+  // Dark green scrim over photos and behind dialogs.
+  overlay: 'rgba(15,61,38,0.45)',
   background: '#FAFAF8',
   // Cards and subtle surfaces use Primary Light per the TriGo design system.
   surface: '#E8F3EC',

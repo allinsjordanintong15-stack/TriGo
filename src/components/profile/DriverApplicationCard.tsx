@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '@/components/ui/Button';
 import { colors, spacing, typography } from '@/constants/theme';
+import { getVehicleOption } from '@/constants/vehicles';
 import { DriverApplication } from '@/types';
 import { ComponentProps } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -18,7 +19,8 @@ interface DriverApplicationCardProps {
 }
 
 interface CardContent {
-  icon: IconName;
+  /** An Ionicons name, or an emoji (e.g. the vehicle icon) to show as text. */
+  icon: IconName | { emoji: string };
   heading: string;
   badge: string | null;
   badgeTone: 'pending' | 'approved' | 'rejected' | null;
@@ -28,7 +30,7 @@ interface CardContent {
 function getContent(application: DriverApplication | null, driverModeReady: boolean): CardContent {
   if (!application) {
     return {
-      icon: 'car-outline',
+      icon: { emoji: getVehicleOption('tricycle').icon },
       heading: 'Become a TriGo Driver',
       badge: null,
       badgeTone: null,
@@ -90,7 +92,11 @@ export function DriverApplicationCard({
     <View style={styles.card}>
       <View style={styles.header}>
         <View style={styles.iconWrap}>
-          <Ionicons name={content.icon} size={22} color={colors.primary} />
+          {typeof content.icon === 'string' ? (
+            <Ionicons name={content.icon} size={22} color={colors.primary} />
+          ) : (
+            <Text style={styles.emojiIcon}>{content.icon.emoji}</Text>
+          )}
         </View>
         <View style={styles.headerText}>
           <Text style={styles.heading}>{content.heading}</Text>
@@ -160,6 +166,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
+  },
+  emojiIcon: {
+    fontSize: 22,
   },
   headerText: {
     flex: 1,

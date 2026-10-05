@@ -1,16 +1,8 @@
+import { Avatar } from '@/components/ui/Avatar';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { router } from 'expo-router';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-
-function getInitials(fullName: string): string {
-  return fullName
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
-}
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export function HomeHeader() {
   const { passenger } = useAuth();
@@ -19,13 +11,7 @@ export function HomeHeader() {
   return (
     <View style={styles.container}>
       <View style={styles.profileSection}>
-        {passenger?.profileImage ? (
-          <Image source={{ uri: passenger.profileImage }} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarFallback}>
-            <Text style={styles.avatarInitials}>{getInitials(fullName)}</Text>
-          </View>
-        )}
+        <Avatar name={fullName} imageUri={passenger?.profileImage ?? null} size={48} />
         <View>
           <Text style={styles.greeting}>Hello,</Text>
           <Text style={styles.name} numberOfLines={1}>
@@ -57,23 +43,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     gap: spacing.sm,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-  },
-  avatarFallback: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    ...typography.label,
-    color: colors.primary,
   },
   greeting: {
     ...typography.caption,
