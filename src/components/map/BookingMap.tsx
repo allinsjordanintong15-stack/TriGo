@@ -13,7 +13,14 @@ import {
   NativeUserLocation,
 } from '@maplibre/maplibre-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  LayoutChangeEvent,
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 // Outline only: the service area is the default focus, not a limit on panning or selection.
 // GeoJSON rings are [longitude, latitude] and must be closed (first point repeated last).
@@ -23,6 +30,10 @@ const SERVICE_AREA_RING = (() => {
   );
   return [...ring, ring[0]];
 })();
+
+/** Room around the fitted route; the top also clears the pins, which stand above their point. */
+const ROUTE_FIT_PADDING = { top: 60, right: 40, bottom: 80, left: 40 };
+const PREVIEW_FIT_PADDING = { top: 48, right: 32, bottom: 20, left: 32 };
 
 const SERVICE_AREA_SHAPE: GeoJSON.Feature<GeoJSON.Polygon> = {
   type: 'Feature',
@@ -72,6 +83,7 @@ export function BookingMap({
   const cameraRef = useRef<CameraRef>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapFailed, setMapFailed] = useState(false);
+  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
   // Pull the map's centre and framing down below UI floating over its top edge,
   // so Trinidad and the pickup/destination markers are not hidden behind it.
   const contentInset = useMemo(
@@ -103,7 +115,8 @@ export function BookingMap({
   }, [pickupLocation, destination, routeCoordinates]);
 
   useEffect(() => {
-    if (!mapReady || !cameraRef.current) {
+    // A preview only ever frames its route; moving to the region would fight that fit.
+    if (!mapReady || !cameraRef.current || !interactive) {
       return;
     }
 
@@ -113,10 +126,21 @@ export function BookingMap({
       duration: 500,
     });
     // Re-centre once the overlays have been measured so the view settles between them.
-  }, [mapReady, region.latitude, region.longitude, topOverlayHeight > 0, bottomOverlayHeight > 0]);
+  }, [
+    mapReady,
+    interactive,
+    region.latitude,
+    region.longitude,
+    topOverlayHeight > 0,
+    bottomOverlayHeight > 0,
+  ]);
 
   useEffect(() => {
     if (!mapReady || !cameraRef.current || !pickupLocation || !destination) {
+      return;
+    }
+    // Fitting before layout uses the wrong viewport size, leaving the route off-screen.
+    if (mapSize.width === 0 || mapSize.height === 0) {
       return;
     }
 
@@ -138,8 +162,8 @@ export function BookingMap({
       ],
       {
         // contentInset already keeps the floating overlay clear; this is extra breathing room.
-        padding: { top: 60, right: 40, bottom: 80, left: 40 },
-        duration: 500,
+        padding: interactive ? ROUTE_FIT_PADDING : PREVIEW_FIT_PADDING,
+        duration: interactive ? 500 : 0,
       },
     );
   }, [
@@ -149,7 +173,17 @@ export function BookingMap({
     routeCoordinates,
     topOverlayHeight,
     bottomOverlayHeight,
+    interactive,
+    mapSize.width,
+    mapSize.height,
   ]);
+
+  function handleLayout(event: LayoutChangeEvent) {
+    const { width, height } = event.nativeEvent.layout;
+    setMapSize((size) =>
+      size.width === width && size.height === height ? size : { width, height },
+    );
+  }
 
   function handleMapReady() {
     setMapReady(true);
@@ -163,7 +197,10 @@ export function BookingMap({
   }
 
   return (
-    <View style={[styles.container, edgeToEdge ? styles.containerEdgeToEdge : null]}>
+    <View
+      style={[styles.container, edgeToEdge ? styles.containerEdgeToEdge : null]}
+      onLayout={handleLayout}
+    >
       <Map
         style={styles.map}
         mapStyle={MAP_STYLE_URL}

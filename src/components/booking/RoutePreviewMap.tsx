@@ -1,5 +1,6 @@
 import { BookingMap } from '@/components/map/BookingMap';
 import { TRINIDAD_BOHOL_REGION } from '@/constants/map';
+import { radius } from '@/constants/theme';
 import { Location } from '@/types';
 import { StyleSheet, View } from 'react-native';
 
@@ -36,5 +37,8 @@ export function RoutePreviewMap({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
+    // Clip the map to the card on Android too (BookingMap only clips on iOS).
+    borderRadius: radius.lg,
+    overflow: 'hidden',
   },
 });

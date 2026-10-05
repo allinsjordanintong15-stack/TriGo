@@ -1,4 +1,5 @@
 import { MAP_DELTA } from '@/constants/map';
+import { TRIGO_SERVICE_AREA } from '@/constants/serviceArea';
 import {
   distanceFromServiceAreaCenterKm,
   getServiceAreaLabel,
@@ -58,9 +59,15 @@ export async function getCurrentCoordinates(): Promise<{
  * Readable label for a point, never a Plus Code. Tries the device geocoder's street,
  * place name and barangay first, then a nearby place from ORS, then "Pinned location".
  * Only the label comes from here; callers keep the exact coordinates.
+ *
+ * Inside the service area the town is always "Trinidad": geocoders' admin boundaries
+ * disagree with the official one near the border (e.g. Bongbong labelled San Miguel).
  */
 export async function reverseGeocode(latitude: number, longitude: number): Promise<string> {
   let parts: PlaceParts | null = null;
+  const serviceAreaTown = isWithinTrigoServiceArea(latitude, longitude)
+    ? TRIGO_SERVICE_AREA.name
+    : undefined;
 
   try {
     const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
@@ -85,7 +92,8 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
     }
 
     if (place) {
-      parts = getPlaceParts(place);
+      const placeParts = getPlaceParts(place);
+      parts = { ...placeParts, town: serviceAreaTown ?? placeParts.town };
       const label = formatLocationLabel(parts);
       if (label) {
         return label;
@@ -97,7 +105,10 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
     }
   }
 
-  return (await reverseGeocodeWithOrs(latitude, longitude)) ?? formatPinnedLocationLabel(parts);
+  return (
+    (await reverseGeocodeWithOrs(latitude, longitude, serviceAreaTown)) ??
+    formatPinnedLocationLabel(parts)
+  );
 }
 
 export async function resolveLocation(

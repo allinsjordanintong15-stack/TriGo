@@ -17,6 +17,7 @@ import {
 } from '@/services/bookingService';
 import { OutOfAreaRequest } from '@/types';
 import { buildConfirmationQuote } from '@/utils/booking';
+import { formatPhilippinePeso } from '@/utils/fare';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -144,9 +145,9 @@ export default function BookingConfirmationScreen() {
       ) : null}
 
       <StickyActionBar
-        totalLabel={isOutOfAreaConfirmation ? 'Agreed fare' : 'Fare'}
-        total={total}
-        buttonTitle="Confirm Booking"
+        buttonTitle={
+          total !== null ? `Confirm Booking · ${formatPhilippinePeso(total)}` : 'Confirm Booking'
+        }
         loading={loading}
         disabled={waitingForAgreedFare}
         onPress={handleConfirm}
@@ -165,6 +166,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   mapCard: {
+    marginTop: spacing.sm,
     borderRadius: radius.lg,
     backgroundColor: colors.white,
     ...shadow.card,
