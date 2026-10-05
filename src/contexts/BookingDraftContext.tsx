@@ -1,6 +1,7 @@
 import { DEFAULT_FARE_SETTINGS } from '@/constants';
 import { OUT_OF_AREA_FARE_SETTINGS } from '@/constants/outOfAreaFareSettings';
 import { fetchFareConfig, TriGoFareConfig } from '@/services/fareService';
+import { RoadRoute } from '@/services/routingService';
 import { Location, TripQuote, VehicleType } from '@/types';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
@@ -11,6 +12,8 @@ export interface BookingDraftContextValue {
   destination: Location | null;
   vehicleType: VehicleType | null;
   tripQuote: TripQuote | null;
+  /** Road route behind `tripQuote`, kept in memory for the confirmation preview only. */
+  tripRoute: RoadRoute | null;
   activeOutOfAreaRequestId: string | null;
   activeBookingId: string | null;
   selectionMode: LocationSelectionMode;
@@ -19,6 +22,7 @@ export interface BookingDraftContextValue {
   setDestination: (location: Location | null) => void;
   setVehicleType: (vehicleType: VehicleType | null) => void;
   setTripQuote: (quote: TripQuote | null) => void;
+  setTripRoute: (route: RoadRoute | null) => void;
   setActiveOutOfAreaRequestId: (requestId: string | null) => void;
   setActiveBookingId: (bookingId: string | null) => void;
   setSelectionMode: (mode: LocationSelectionMode) => void;
@@ -39,6 +43,7 @@ export function BookingDraftProvider({ children }: { children: ReactNode }) {
   const [destination, setDestination] = useState<Location | null>(null);
   const [vehicleType, setVehicleType] = useState<VehicleType | null>(null);
   const [tripQuote, setTripQuote] = useState<TripQuote | null>(null);
+  const [tripRoute, setTripRoute] = useState<RoadRoute | null>(null);
   const [activeOutOfAreaRequestId, setActiveOutOfAreaRequestId] = useState<string | null>(null);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState<LocationSelectionMode>(null);
@@ -65,6 +70,7 @@ export function BookingDraftProvider({ children }: { children: ReactNode }) {
       destination,
       vehicleType,
       tripQuote,
+      tripRoute,
       activeOutOfAreaRequestId,
       activeBookingId,
       selectionMode,
@@ -73,6 +79,7 @@ export function BookingDraftProvider({ children }: { children: ReactNode }) {
       setDestination,
       setVehicleType,
       setTripQuote,
+      setTripRoute,
       setActiveOutOfAreaRequestId,
       setActiveBookingId,
       setSelectionMode,
@@ -81,6 +88,7 @@ export function BookingDraftProvider({ children }: { children: ReactNode }) {
         setDestination(null);
         setVehicleType(null);
         setTripQuote(null);
+        setTripRoute(null);
         setActiveOutOfAreaRequestId(null);
         setActiveBookingId(null);
         setSelectionMode(null);
@@ -91,6 +99,7 @@ export function BookingDraftProvider({ children }: { children: ReactNode }) {
       destination,
       vehicleType,
       tripQuote,
+      tripRoute,
       activeOutOfAreaRequestId,
       activeBookingId,
       selectionMode,

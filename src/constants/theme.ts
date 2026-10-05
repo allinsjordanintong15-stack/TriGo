@@ -3,6 +3,9 @@ export const colors = {
   primaryDark: '#0F3D26',
   primaryLight: '#E8F3EC',
   accent: '#C9A66B',
+  // Alias of accent, for places that mean "TriGo gold" (e.g. the destination pin).
+  gold: '#C9A66B',
+  goldLight: '#F5EDE0',
   error: '#D32F2F',
   errorBackground: '#FFEBEE',
   background: '#FAFAF8',
@@ -21,6 +24,22 @@ export const spacing = {
   md: 16,
   lg: 24,
   xl: 32,
+} as const;
+
+export const radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+} as const;
+
+export const shadow = {
+  card: {
+    shadowColor: '#000000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
 } as const;
 
 export const typography = {

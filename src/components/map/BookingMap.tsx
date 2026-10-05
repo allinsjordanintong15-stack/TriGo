@@ -36,7 +36,8 @@ interface BookingMapProps {
   destination: Location | null;
   selectionMode: LocationSelectionMode;
   loading?: boolean;
-  onMapPress: (latitude: number, longitude: number) => void;
+  /** Called on tap and long-press; not needed when the map is not interactive. */
+  onMapPress?: (latitude: number, longitude: number) => void;
   /** Height of UI floating over the top of the map, kept clear when fitting the route. */
   topOverlayHeight?: number;
   /** Height of UI floating over the bottom of the map (e.g. a bottom sheet). */
@@ -49,6 +50,8 @@ interface BookingMapProps {
   routeCoordinates?: [number, number][] | null;
   /** Show a notice that the road route could not be loaded and the line is direct. */
   routeUnavailable?: boolean;
+  /** When false, the map is a static preview: no panning, zooming, rotating, or taps. */
+  interactive?: boolean;
 }
 
 export function BookingMap({
@@ -64,6 +67,7 @@ export function BookingMap({
   edgeToEdge = false,
   routeCoordinates = null,
   routeUnavailable = false,
+  interactive = true,
 }: BookingMapProps) {
   const cameraRef = useRef<CameraRef>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -153,7 +157,9 @@ export function BookingMap({
   }
 
   function handlePress(longitude: number, latitude: number) {
-    onMapPress(latitude, longitude);
+    if (interactive) {
+      onMapPress?.(latitude, longitude);
+    }
   }
 
   return (
@@ -166,6 +172,11 @@ export function BookingMap({
         onDidFailLoadingMap={() => setMapFailed(true)}
         onPress={(event) => handlePress(...event.nativeEvent.lngLat)}
         onLongPress={(event) => handlePress(...event.nativeEvent.lngLat)}
+        dragPan={interactive}
+        touchZoom={interactive}
+        doubleTapZoom={interactive}
+        doubleTapHoldZoom={interactive}
+        touchRotate={interactive}
         touchPitch={false}
         compass={false}
         logo={false}

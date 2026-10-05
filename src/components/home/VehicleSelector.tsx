@@ -1,11 +1,7 @@
 import { colors, spacing, typography } from '@/constants/theme';
+import { VEHICLE_OPTIONS } from '@/constants/vehicles';
 import { VehicleType } from '@/types';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-
-const VEHICLE_OPTIONS: { type: VehicleType; label: string; icon: string }[] = [
-  { type: 'tricycle', label: 'Tricycle', icon: '🛺' },
-  { type: 'motorcycle', label: 'Motorcycle', icon: '🏍️' },
-];
 
 interface VehicleSelectorProps {
   selected: VehicleType | null;

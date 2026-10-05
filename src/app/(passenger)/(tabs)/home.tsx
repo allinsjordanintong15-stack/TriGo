@@ -77,6 +77,7 @@ export default function PassengerHomeScreen() {
     setDestination,
     setVehicleType,
     setTripQuote,
+    setTripRoute,
     setActiveOutOfAreaRequestId,
     setSelectionMode,
   } = useBookingDraft();
@@ -333,6 +334,8 @@ export default function PassengerHomeScreen() {
     if (!quote) return;
 
     setTripQuote(quote);
+    // A quote is only built when roadRoute is set, so this is the route it was priced on.
+    setTripRoute(roadRoute);
 
     if (quote.isOutOfArea) {
       setPendingQuote(quote);

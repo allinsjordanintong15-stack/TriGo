@@ -11,6 +11,8 @@ const ROUTE_TIMEOUT_MS = 8000;
 export interface RoadRoute {
   /** Road distance along the route, in km rounded to 2 decimals. */
   distanceKm: number;
+  /** Estimated driving time from ORS, in whole minutes. Display only; never stored. */
+  durationMin: number;
   /** Road path as [longitude, latitude] pairs, from pickup to destination. */
   coordinates: [number, number][];
 }
@@ -45,14 +47,20 @@ function parseRoute(body: unknown): RoadRoute | null {
   }
 
   const { summary } = feature.properties;
-  // ORS leaves `distance` out of the summary when pickup and destination are the same point.
+  // ORS leaves `distance` and `duration` out of the summary when pickup and destination
+  // are the same point.
   const distanceMeters = isRecord(summary) ? (summary.distance ?? 0) : null;
   if (typeof distanceMeters !== 'number' || !Number.isFinite(distanceMeters)) {
     return null;
   }
+  const durationSeconds = isRecord(summary) ? (summary.duration ?? 0) : 0;
 
   return {
     distanceKm: Math.round((distanceMeters / 1000) * 100) / 100,
+    durationMin:
+      typeof durationSeconds === 'number' && Number.isFinite(durationSeconds)
+        ? Math.round(durationSeconds / 60)
+        : 0,
     // ORS may add elevation as a third value; keep only [longitude, latitude].
     coordinates: coordinates.map(([longitude, latitude]) => [longitude, latitude]),
   };
@@ -123,7 +131,7 @@ async function requestRoute(
       console.log(
         '[TriGo Route] ORS 200',
         route
-          ? { distanceKm: route.distanceKm, points: route.coordinates.length, radiuses }
+          ? { distanceKm: route.distanceKm, durationMin: route.durationMin, points: route.coordinates.length, radiuses }
           : 'response had no usable route',
       );
     }
