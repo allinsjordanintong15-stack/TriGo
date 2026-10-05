@@ -41,7 +41,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-trigo-rules \"npm run test:rules:run\"",
+    "test:rules": "firebase emulators:exec --only firestore,storage --project demo-trigo-rules \"npm run test:rules:run\"",
     "test:rules:run": "node --test --test-concurrency=1 \"tests/rules/**/*.test.ts\""
   },
   "private": true

@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Cloud Storage rules for TriGo.
-// Publish in Firebase Console → Storage → Rules (Storage must be enabled first).
+// Deployed from this repo: npx firebase-tools deploy --only storage (see firebase.json).
 
 service firebase.storage {
   match /b/{bucket}/o {
@@ -30,6 +30,24 @@ service firebase.storage {
         );
 
       allow delete: if false;
+    }
+
+    // ─── Passenger profile photo ───────────────────────────────────────────
+    // profileImages/{uid}/avatar.jpg — one file per passenger, overwritten on change and
+    // deleted on remove. The app shows it through its download URL (which carries its own
+    // token), and only the owner can read users/{uid}.profileImage, so reads stay owner-only.
+    match /profileImages/{uid}/avatar.jpg {
+      allow read: if request.auth != null
+        && request.auth.uid == uid;
+
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)')
+        && firestore.get(/databases/(default)/documents/users/$(uid)).data.role == 'passenger';
+
+      allow delete: if request.auth != null
+        && request.auth.uid == uid;
     }
 
     // Deny everything else by default.

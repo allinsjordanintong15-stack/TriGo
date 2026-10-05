@@ -85,13 +85,42 @@ service cloud.firestore {
         && request.resource.data.fullName is string
         && request.resource.data.mobileNumber is string;
 
-      // Passengers may update their own profile but cannot change role or uid.
+      // Profile photo: removed (null) or the download URL of the owner's own avatar,
+      // profileImages/{uid}/avatar.jpg in Cloud Storage.
+      function isValidProfileImage(uid) {
+        let image = request.resource.data.profileImage;
+        return image == null
+          || (
+            image is string
+            && image.size() <= 1024
+            && image.matches(
+              'https://firebasestorage[.]googleapis[.]com/v0/b/[^/]+/o/profileImages%2F'
+                + uid + '%2Favatar[.]jpg[?].*'
+            )
+          );
+      }
+
+      // Passengers may update their own profile but cannot change role, uid or email.
+      // Every client write to users/{uid} after registration is one of these branches:
+      //   - Edit Profile (authService.updatePassengerProfile): fullName, mobileNumber
+      //   - Profile photo: profileImage only
       allow update: if isOwner(userId)
         && isPassenger()
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
         && request.resource.data.role == resource.data.role
-        && request.resource.data.role == 'passenger';
+        && request.resource.data.role == 'passenger'
+        && (
+          (
+            onlyChanged(['fullName', 'mobileNumber', 'updatedAt'])
+            && request.resource.data.fullName is string
+            && request.resource.data.mobileNumber is string
+          )
+          || (
+            onlyChanged(['profileImage', 'updatedAt'])
+            && isValidProfileImage(userId)
+          )
+        );
     }
 
     // ─── Bookings ──────────────────────────────────────────────────────────
