@@ -1,6 +1,7 @@
 import { COLLECTIONS, firestore } from '@/firebase';
 import { docToOutOfAreaRequest } from '@/services/bookingService';
 import { DriverRecord, OutOfAreaRequest, VehicleType } from '@/types';
+import { calculateDistanceKmFromCoords } from '@/utils/distance';
 import {
   collection,
   doc,
@@ -9,6 +10,7 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -175,6 +177,57 @@ export function subscribeToDriverActiveRequests(
         snapshot.docs
           .map((d) => docToOutOfAreaRequest(d.id, d.data()))
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
+      );
+    },
+    (error) => onError(error),
+  );
+}
+
+export interface OpenOutOfAreaRequest {
+  request: OutOfAreaRequest;
+  /** Straight-line distance from the driver to the pickup. */
+  distanceToPickupKm: number;
+}
+
+/**
+ * Open (searching, unexpired) out-of-area requests for the driver's vehicle type whose
+ * pickup is within `searchRadiusKm` of the driver, nearest first. The query's expiry
+ * filter is fixed at subscription time, so callers should also hide requests that
+ * expire while the list is open.
+ */
+export function subscribeToOpenOutOfAreaRequests(
+  vehicleType: VehicleType,
+  driverLocation: { latitude: number; longitude: number },
+  searchRadiusKm: number,
+  onUpdate: (requests: OpenOutOfAreaRequest[]) => void,
+  onError: (error: Error) => void,
+): () => void {
+  const openQuery = query(
+    collection(firestore, COLLECTIONS.outOfAreaRequests),
+    where('status', '==', 'searching'),
+    where('vehicleType', '==', vehicleType),
+    where('expiresAt', '>', Timestamp.now()),
+  );
+
+  return onSnapshot(
+    openQuery,
+    (snapshot) => {
+      onUpdate(
+        snapshot.docs
+          .map((d) => {
+            const request = docToOutOfAreaRequest(d.id, d.data());
+            return {
+              request,
+              distanceToPickupKm: calculateDistanceKmFromCoords(
+                driverLocation.latitude,
+                driverLocation.longitude,
+                request.pickupLocation.latitude,
+                request.pickupLocation.longitude,
+              ),
+            };
+          })
+          .filter((item) => item.distanceToPickupKm <= searchRadiusKm)
+          .sort((a, b) => a.distanceToPickupKm - b.distanceToPickupKm),
       );
     },
     (error) => onError(error),

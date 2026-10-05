@@ -20,7 +20,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function OutOfAreaSearchScreen() {
   const insets = useSafeAreaInsets();
-  const { tripQuote, activeOutOfAreaRequestId, setActiveOutOfAreaRequestId } = useBookingDraft();
+  const { tripQuote, activeOutOfAreaRequestId, setActiveOutOfAreaRequestId, fareConfig } =
+    useBookingDraft();
+  const searchRadiusKm = fareConfig.outOfArea.driverSearchRadiusKm;
   const [request, setRequest] = useState<OutOfAreaRequest | null>(null);
   const [driverCount, setDriverCount] = useState(0);
   const [loadingDrivers, setLoadingDrivers] = useState(true);
@@ -62,6 +64,7 @@ export default function OutOfAreaSearchScreen() {
         const drivers = await findNearbyAvailableDrivers(
           tripQuote!.pickupLocation,
           tripQuote!.vehicleType,
+          searchRadiusKm,
         );
         setDriverCount(drivers.length);
       } catch (err) {
@@ -76,7 +79,7 @@ export default function OutOfAreaSearchScreen() {
     }
 
     searchDrivers();
-  }, [tripQuote]);
+  }, [tripQuote, searchRadiusKm]);
 
   async function handleCancel() {
     if (!activeOutOfAreaRequestId) return;
@@ -132,11 +135,13 @@ export default function OutOfAreaSearchScreen() {
         ) : (
           <>
             <Text style={styles.statusTitle}>
-              {getDriverSearchStatusMessage(driverCount)}
+              {driverCount === 0
+                ? 'No drivers nearby yet'
+                : getDriverSearchStatusMessage(driverCount)}
             </Text>
             <Text style={styles.statusNote}>
               {driverCount === 0
-                ? 'No drivers are available right now. Your request stays active while we wait for a nearby driver.'
+                ? `No available drivers within ${searchRadiusKm} km of your pickup right now. Your request stays open and drivers who come online nearby can still see it.`
                 : 'Waiting for a driver to review and accept your request.'}
             </Text>
           </>

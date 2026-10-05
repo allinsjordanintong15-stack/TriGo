@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-// Firestore rules tests for out-of-area requests (passenger create).
+// Firestore rules tests for out-of-area requests (passenger create, driver read).
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
@@ -14,12 +14,17 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import {
+  collection,
   doc,
+  getDoc,
+  getDocs,
+  query,
   serverTimestamp,
   setDoc,
   setLogLevel,
   Timestamp,
   type DocumentData,
+  where,
   type Firestore,
 } from 'firebase/firestore';
 
@@ -31,6 +36,9 @@ setLogLevel('error');
 const PASSENGER = 'passenger1';
 const OTHER_PASSENGER = 'passenger2';
 const DRIVER = 'driver1';
+const OTHER_DRIVER = 'driver2';
+const MOTORCYCLE_DRIVER = 'driver3';
+const UNVERIFIED_DRIVER = 'driver4';
 const REQUEST = 'request1';
 
 const MINUTE_MS = 60 * 1000;
@@ -71,6 +79,38 @@ function newRequest(overrides: DocumentData = {}): DocumentData {
   };
 }
 
+function driverRecord(overrides: DocumentData = {}): DocumentData {
+  return {
+    isVerified: true,
+    isOnline: true,
+    isAvailable: true,
+    vehicleType: 'tricycle',
+    currentBookingId: null,
+    ...overrides,
+  };
+}
+
+/** A stored request (rules disabled), as it looks after a valid create. */
+async function seedRequest(id: string, overrides: DocumentData = {}): Promise<void> {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const firestore = context.firestore() as unknown as Firestore;
+    await setDoc(
+      doc(firestore, 'outOfAreaRequests', id),
+      newRequest({ createdAt: Timestamp.now(), updatedAt: Timestamp.now(), ...overrides }),
+    );
+  });
+}
+
+/** The query driverService.subscribeToOpenOutOfAreaRequests runs. */
+function openRequestsQuery(uid: string, vehicleType: string) {
+  return query(
+    collection(db(uid), 'outOfAreaRequests'),
+    where('status', '==', 'searching'),
+    where('vehicleType', '==', vehicleType),
+    where('expiresAt', '>', Timestamp.now()),
+  );
+}
+
 function createRequest(uid: string | null, data: DocumentData) {
   return setDoc(doc(db(uid), 'outOfAreaRequests', REQUEST), data);
 }
@@ -92,14 +132,16 @@ beforeEach(async () => {
     const firestore = context.firestore() as unknown as Firestore;
     await setDoc(doc(firestore, 'users', PASSENGER), { uid: PASSENGER, role: 'passenger' });
     await setDoc(doc(firestore, 'users', OTHER_PASSENGER), { uid: OTHER_PASSENGER, role: 'passenger' });
-    await setDoc(doc(firestore, 'users', DRIVER), { uid: DRIVER, role: 'driver' });
-    await setDoc(doc(firestore, 'drivers', DRIVER), {
-      isVerified: true,
-      isOnline: true,
-      isAvailable: true,
-      vehicleType: 'tricycle',
-      currentBookingId: null,
-    });
+    for (const uid of [DRIVER, OTHER_DRIVER, MOTORCYCLE_DRIVER, UNVERIFIED_DRIVER]) {
+      await setDoc(doc(firestore, 'users', uid), { uid, role: 'driver' });
+    }
+    await setDoc(doc(firestore, 'drivers', DRIVER), driverRecord());
+    await setDoc(doc(firestore, 'drivers', OTHER_DRIVER), driverRecord());
+    await setDoc(doc(firestore, 'drivers', MOTORCYCLE_DRIVER), driverRecord({ vehicleType: 'motorcycle' }));
+    await setDoc(
+      doc(firestore, 'drivers', UNVERIFIED_DRIVER),
+      driverRecord({ isVerified: false, isOnline: false, isAvailable: false }),
+    );
   });
 });
 
@@ -186,5 +228,61 @@ describe('out-of-area request: create', () => {
 
   it('denies a driver-role account', async () => {
     await assertFails(createRequest(DRIVER, newRequest({ passengerId: DRIVER })));
+  });
+});
+
+describe('out-of-area request: read', () => {
+  beforeEach(async () => {
+    await seedRequest(REQUEST);
+  });
+
+  it('allows a verified driver with a matching vehicle to list open requests', async () => {
+    await assertSucceeds(getDocs(openRequestsQuery(DRIVER, 'tricycle')));
+  });
+
+  it('allows a verified driver with a matching vehicle to read an open request', async () => {
+    await assertSucceeds(getDoc(doc(db(DRIVER), 'outOfAreaRequests', REQUEST)));
+  });
+
+  it('denies listing open requests for a different vehicle type', async () => {
+    await assertFails(getDocs(openRequestsQuery(MOTORCYCLE_DRIVER, 'tricycle')));
+  });
+
+  it('denies reading an open request for a different vehicle type', async () => {
+    await assertFails(getDoc(doc(db(MOTORCYCLE_DRIVER), 'outOfAreaRequests', REQUEST)));
+  });
+
+  it('denies an unverified driver listing open requests', async () => {
+    await assertFails(getDocs(openRequestsQuery(UNVERIFIED_DRIVER, 'tricycle')));
+  });
+
+  it('allows the passenger to read their own request', async () => {
+    await assertSucceeds(getDoc(doc(db(PASSENGER), 'outOfAreaRequests', REQUEST)));
+  });
+
+  it("denies a passenger reading someone else's request", async () => {
+    await assertFails(getDoc(doc(db(OTHER_PASSENGER), 'outOfAreaRequests', REQUEST)));
+  });
+
+  it('denies a driver listing without the status filter', async () => {
+    await assertFails(
+      getDocs(query(collection(db(DRIVER), 'outOfAreaRequests'), where('vehicleType', '==', 'tricycle'))),
+    );
+  });
+
+  it('denies a driver listing without the vehicleType filter', async () => {
+    await assertFails(
+      getDocs(query(collection(db(DRIVER), 'outOfAreaRequests'), where('status', '==', 'searching'))),
+    );
+  });
+
+  it('allows the driver handling a request to read it', async () => {
+    await seedRequest(REQUEST, { status: 'negotiating', driverId: DRIVER });
+    await assertSucceeds(getDoc(doc(db(DRIVER), 'outOfAreaRequests', REQUEST)));
+  });
+
+  it("denies another driver reading a request they aren't handling", async () => {
+    await seedRequest(REQUEST, { status: 'negotiating', driverId: DRIVER });
+    await assertFails(getDoc(doc(db(OTHER_DRIVER), 'outOfAreaRequests', REQUEST)));
   });
 });

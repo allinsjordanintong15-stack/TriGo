@@ -235,9 +235,15 @@ service cloud.firestore {
       allow read: if isSignedIn()
         && resource.data.passengerId == request.auth.uid;
 
-      // Verified drivers can review open requests and the ones they are handling.
+      // Verified drivers see open requests for their own vehicle type
+      // (driverService.subscribeToOpenOutOfAreaRequests filters on status and vehicleType).
       allow read: if isVerifiedDriver()
-        && (resource.data.status == 'searching' || resource.data.driverId == request.auth.uid);
+        && resource.data.status == 'searching'
+        && resource.data.vehicleType == driverDoc().data.vehicleType;
+
+      // A verified driver can always read the requests they are handling.
+      allow read: if isVerifiedDriver()
+        && resource.data.driverId == request.auth.uid;
 
       // Verified driver accepts an open, unexpired request and proposes a fare
       // (see fareAgreementService.createProposal). The passenger still has to agree.
