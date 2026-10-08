@@ -6,7 +6,7 @@
     "@expo/vector-icons": "^15.1.1",
     "@maplibre/maplibre-react-native": "^11.4.0",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "expo": "~56.0.22",
+    "expo": "~56.0.23",
     "expo-constants": "~56.0.23",
     "expo-dev-client": "~56.0.27",
     "expo-font": "~56.0.7",
