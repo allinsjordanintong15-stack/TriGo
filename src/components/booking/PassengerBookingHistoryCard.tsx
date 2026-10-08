@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
+import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { Booking } from '@/types';
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, spacing, typography } from '@/constants/theme';
 import { getDisplayFare } from '@/utils/booking';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -37,21 +37,11 @@ export function PassengerBookingHistoryCard({
         <Text style={styles.fare}>{formatPhilippinePeso(getDisplayFare(booking))}</Text>
       </View>
 
-      <View style={styles.route}>
-        <View style={styles.routePoints}>
-          <View style={styles.dot} />
-          <View style={styles.line} />
-          <Ionicons name="location" color={colors.primary} size={12} />
-        </View>
-        <View style={styles.routeText}>
-          <Text style={styles.address} numberOfLines={1}>
-            {booking.pickupLocation.address}
-          </Text>
-          <Text style={styles.address} numberOfLines={1}>
-            {booking.destination.address}
-          </Text>
-        </View>
-      </View>
+      <RouteTimeline
+        compact
+        pickupAddress={booking.pickupLocation.address}
+        destinationAddress={booking.destination.address}
+      />
 
       <View style={styles.metaRow}>
         <Text style={styles.meta}>{vehicleLabel}</Text>
@@ -65,7 +55,7 @@ export function PassengerBookingHistoryCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.md,
   },
@@ -82,35 +72,6 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontWeight: '700',
     color: colors.primary,
-  },
-  route: {
-    flexDirection: 'row',
-  },
-  routePoints: {
-    width: 16,
-    alignItems: 'center',
-    marginRight: spacing.sm,
-    paddingTop: 4,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-  },
-  line: {
-    flex: 1,
-    width: 2,
-    backgroundColor: colors.border,
-    marginVertical: 2,
-  },
-  routeText: {
-    flex: 1,
-  },
-  address: {
-    ...typography.body,
-    color: colors.text,
-    marginBottom: 2,
   },
   metaRow: {
     flexDirection: 'row',

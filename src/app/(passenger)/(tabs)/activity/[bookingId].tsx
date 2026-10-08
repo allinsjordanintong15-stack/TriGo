@@ -1,84 +1,129 @@
+import { DriverCard } from '@/components/booking/DriverCard';
+import { FareCard } from '@/components/booking/FareCard';
+import { RouteTimeline } from '@/components/booking/RouteTimeline';
+import { StatusHeader } from '@/components/booking/StatusHeader';
+import { TripStatsRow } from '@/components/booking/TripStatsRow';
+import { LoadingScreen } from '@/components/LoadingScreen';
+import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { LoadingScreen } from '@/components/LoadingScreen';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
-import { StatusBadge } from '@/components/ui/StatusBadge';
-import { colors, spacing, typography } from '@/constants/theme';
-import { subscribeToBooking } from '@/services/bookingService';
-import { Booking } from '@/types';
-import { formatPhilippinePeso } from '@/utils/fare';
-import { formatPaymentMethod, getBookingDisplay } from '@/utils/bookingStatus';
-import { useLocalSearchParams } from 'expo-router';
+import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
+import { BookingServiceError, subscribeToBooking } from '@/services/bookingService';
+import { getDriverRecord } from '@/services/driverService';
+import { Booking, DriverRecord } from '@/types';
+import {
+  formatPaymentMethod,
+  formatStepTime,
+  getPassengerStatusHeader,
+  isActiveBookingStatus,
+} from '@/utils/bookingStatus';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function formatDateTime(value: Date | null): string {
-  if (!value) return '—';
-  return value.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+const LOAD_ERROR_MESSAGE = 'Unable to load this booking. Check your connection and try again.';
+
+type LoadError = 'not_found' | 'failed' | null;
+
+function formatDate(value: Date): string {
+  return value.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-interface DetailRowProps {
+/** Short, readable stand-in for the Firestore ID, e.g. "Ref: 7KQ2XA". */
+function formatBookingReference(bookingId: string): string {
+  return `Ref: ${bookingId.slice(-6).toUpperCase()}`;
+}
+
+interface TimelineEntry {
   label: string;
-  value: string;
-  highlight?: boolean;
+  time: Date;
+  cancelled?: boolean;
 }
 
-function DetailRow({ label, value, highlight }: DetailRowProps) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text
-        style={[
-          styles.rowValue,
-          highlight ? styles.rowValueHighlight : null,
-        ]}
-        numberOfLines={3}
-      >
-        {value}
-      </Text>
-    </View>
-  );
+/** Steps the booking actually reached, in order, ending in Completed or Cancelled. */
+function getTimelineEntries(booking: Booking): TimelineEntry[] {
+  const entries: { label: string; time: Date | null; cancelled?: boolean }[] = [
+    { label: 'Requested', time: booking.createdAt },
+    { label: 'Accepted', time: booking.acceptedAt },
+    { label: 'Driver arrived', time: booking.arrivedAt },
+    { label: 'Trip started', time: booking.startedAt },
+    { label: 'Completed', time: booking.completedAt },
+    {
+      label:
+        booking.cancelledBy === 'driver'
+          ? 'Cancelled by driver'
+          : booking.cancelledBy === 'passenger'
+            ? 'Cancelled by you'
+            : 'Cancelled',
+      time: booking.cancelledAt,
+      cancelled: true,
+    },
+  ];
+  return entries.filter((entry): entry is TimelineEntry => entry.time !== null);
 }
 
 export default function BookingDetailScreen() {
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ bookingId?: string }>();
   const bookingId = params.bookingId ?? '';
   const goBack = useScreenBack();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState<LoadError>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [assignedDriverRecord, setAssignedDriverRecord] = useState<DriverRecord | null>(null);
 
   useEffect(() => {
     if (!bookingId) {
+      setLoadError('not_found');
       setLoading(false);
       return;
     }
 
+    setLoading(true);
     const unsubscribe = subscribeToBooking(
       bookingId,
       (updated) => {
         setBooking(updated);
         setLoading(false);
-        setError('');
+        setLoadError(null);
       },
       (err) => {
-        setError(err.message ?? 'Unable to load this booking.');
+        // subscribeToBooking only raises BookingServiceError when the document is missing;
+        // anything else (permissions, network) can be retried.
+        setLoadError(err instanceof BookingServiceError ? 'not_found' : 'failed');
         setLoading(false);
       },
     );
 
     return unsubscribe;
-  }, [bookingId]);
+  }, [bookingId, retryCount]);
 
-  if (loading) {
+  // Same driver details as the live status screen (drivers/{uid}).
+  const assignedDriverId = booking?.driverId ?? null;
+  useEffect(() => {
+    if (!assignedDriverId) {
+      setAssignedDriverRecord(null);
+      return;
+    }
+
+    let active = true;
+    getDriverRecord(assignedDriverId)
+      .then((record) => {
+        if (active) setAssignedDriverRecord(record);
+      })
+      .catch(() => {
+        // Driver details are optional; the card then shows "Driver assigned".
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [assignedDriverId]);
+
+  const retry = () => setRetryCount((count) => count + 1);
+
+  if (loading && !booking) {
     return (
       <View style={styles.container}>
         <ScreenHeader title="Booking Details" onBack={goBack} />
@@ -87,111 +132,135 @@ export default function BookingDetailScreen() {
     );
   }
 
-  if (error || !booking) {
+  if (loadError === 'not_found' || (!booking && loadError === null)) {
+    return (
+      <View style={styles.container}>
+        <ScreenHeader title="Booking Details" onBack={goBack} />
+        <EmptyState icon="alert-circle-outline" title="Booking not found" />
+      </View>
+    );
+  }
+
+  if (!booking) {
     return (
       <View style={styles.container}>
         <ScreenHeader title="Booking Details" onBack={goBack} />
         <View style={styles.content}>
-          <ErrorBanner message={error || 'Booking not found.'} />
-          <EmptyState icon="alert-circle-outline" title="Booking not found" />
+          <ErrorBanner message={LOAD_ERROR_MESSAGE} />
+          <Button title="Retry" variant="secondary" onPress={retry} />
         </View>
       </View>
     );
   }
 
-  const status = getBookingDisplay(booking, 'passenger');
-  const vehicleLabel =
-    booking.vehicleType.charAt(0).toUpperCase() + booking.vehicleType.slice(1);
-  const hasAgreedFare = booking.agreedFare !== null && booking.agreedFare !== booking.estimatedFare;
-  const hasFinalFare = booking.finalFare !== null;
-  const timeline = [
-    { label: 'Driver Accepted', value: booking.acceptedAt },
-    { label: 'Driver Arrived', value: booking.arrivedAt },
-    { label: 'Trip Started', value: booking.startedAt },
-    { label: 'Completed', value: booking.completedAt },
-    {
-      label:
-        booking.cancelledBy === 'driver'
-          ? 'Cancelled by Driver'
-          : booking.cancelledBy === 'passenger'
-            ? 'Cancelled by You'
-            : 'Cancelled',
-      value: booking.cancelledAt,
-    },
-  ].filter((entry): entry is { label: string; value: Date } => entry.value !== null);
+  const header = getPassengerStatusHeader(booking);
+  const isActive = isActiveBookingStatus(booking.status);
+  const isOutOfArea = booking.bookingType === 'out_of_area';
+  const isCompleted = booking.status === 'completed';
+  const assignedDriver =
+    assignedDriverRecord && assignedDriverRecord.driverId === booking.driverId
+      ? assignedDriverRecord
+      : null;
+  const timeline = getTimelineEntries(booking);
+  const bookingDate = formatDate(booking.createdAt);
+
+  const loadedBookingId = booking.bookingId;
+  function openLiveStatus() {
+    router.push({
+      pathname: '/(passenger)/booking/status',
+      params: { bookingId: loadedBookingId },
+    });
+  }
 
   return (
     <View style={styles.container}>
       <ScreenHeader title="Booking Details" onBack={goBack} />
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + spacing.xl },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.statusCard}>
-          <StatusBadge status={booking.status} />
-          <Text style={styles.statusMessage}>{status.message}</Text>
-        </View>
-
-        <View style={styles.card}>
-          <DetailRow label="Booking ID" value={booking.bookingId} />
-          <DetailRow label="Date" value={formatDateTime(booking.createdAt)} />
-          <DetailRow label="Pickup" value={booking.pickupLocation.address} />
-          <DetailRow label="Destination" value={booking.destination.address} />
-          <DetailRow label="Vehicle" value={vehicleLabel} />
-          <DetailRow label="Distance" value={`${booking.distanceKm.toFixed(2)} km`} />
-          <DetailRow
-            label="Estimated Fare"
-            value={formatPhilippinePeso(booking.estimatedFare)}
-          />
-          {hasAgreedFare ? (
-            <DetailRow
-              label="Agreed Fare"
-              value={formatPhilippinePeso(booking.agreedFare as number)}
-              highlight
-            />
-          ) : null}
-          {hasFinalFare ? (
-            <DetailRow
-              label="Final Fare"
-              value={formatPhilippinePeso(booking.finalFare as number)}
-              highlight
-            />
-          ) : null}
-          {booking.status === 'completed' ? (
-            <DetailRow label="Payment Method" value={formatPaymentMethod(booking.paymentMethod)} />
-          ) : null}
-          <DetailRow
-            label="Driver"
-            value={
-              booking.driverId
-                ? 'Driver assigned'
-                : booking.status === 'completed'
-                  ? 'No driver recorded'
-                  : 'Awaiting driver assignment'
-            }
-          />
-        </View>
-
-        {timeline.length > 0 ? (
-          <View style={styles.card}>
-            {timeline.map((entry) => (
-              <DetailRow key={entry.label} label={entry.label} value={formatDateTime(entry.value)} />
-            ))}
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Live updates stopped (e.g. connection lost); what was loaded stays visible. */}
+        {loadError === 'failed' ? (
+          <View>
+            <ErrorBanner message={LOAD_ERROR_MESSAGE} />
+            <Button title="Retry" variant="secondary" onPress={retry} />
           </View>
         ) : null}
 
-        {booking.bookingType === 'out_of_area' ? (
-          <Text style={styles.note}>
-            This was an out-of-area trip. The agreed fare above was confirmed with the driver.
+        <View style={styles.card}>
+          <StatusHeader
+            title={header.title}
+            message={header.message}
+            pulsing={booking.status === 'pending'}
+            tone={booking.status === 'cancelled' ? 'cancelled' : isActive ? 'active' : 'done'}
+          />
+          <Text style={styles.reference}>
+            {formatBookingReference(booking.bookingId)} · {bookingDate}
           </Text>
-        ) : null}
+          {isActive ? (
+            <Button title="View live status" onPress={openLiveStatus} style={styles.liveButton} />
+          ) : null}
+        </View>
+
+        {booking.driverId ? <DriverCard driver={assignedDriver} /> : null}
+
+        <View style={styles.card}>
+          <RouteTimeline
+            pickupAddress={booking.pickupLocation.address}
+            destinationAddress={booking.destination.address}
+          />
+        </View>
+
+        <TripStatsRow distanceKm={booking.distanceKm} vehicleType={booking.vehicleType} />
+
+        <FareCard
+          estimatedFare={
+            isOutOfArea ? booking.estimatedFare : (booking.finalFare ?? booking.estimatedFare)
+          }
+          agreedFare={isOutOfArea ? (booking.finalFare ?? booking.agreedFare) : null}
+          isOutOfArea={isOutOfArea}
+          label={isCompleted ? 'Final fare' : undefined}
+          footer={
+            isCompleted && booking.paymentMethod ? (
+              <Text style={styles.payment}>
+                Payment: {formatPaymentMethod(booking.paymentMethod)}
+              </Text>
+            ) : null
+          }
+        />
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Timeline</Text>
+          {timeline.map((entry, index) => {
+            const entryDate = formatDate(entry.time);
+            return (
+              <View key={entry.label} style={styles.timelineRow}>
+                <View style={styles.timelineMarker}>
+                  <View
+                    style={[
+                      styles.timelineDot,
+                      entry.cancelled ? styles.timelineDotCancelled : null,
+                    ]}
+                  />
+                  {index < timeline.length - 1 ? <View style={styles.timelineLine} /> : null}
+                </View>
+                <Text
+                  style={[styles.timelineLabel, entry.cancelled ? styles.timelineCancelled : null]}
+                >
+                  {entry.label}
+                </Text>
+                <Text style={styles.timelineTime}>
+                  {/* Only repeat the date when a step falls on a different day. */}
+                  {entryDate === bookingDate ? '' : `${entryDate}, `}
+                  {formatStepTime(entry.time)}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
       </ScrollView>
     </View>
   );
 }
+
+const TIMELINE_DOT = 10;
 
 const styles = StyleSheet.create({
   container: {
@@ -199,49 +268,75 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
-  statusCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    alignItems: 'flex-start',
-    gap: spacing.xs,
-  },
-  statusMessage: {
-    ...typography.caption,
-    color: colors.textSecondary,
+    padding: spacing.lg,
+    gap: spacing.md,
   },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    ...shadow.card,
   },
-  row: {
-    paddingVertical: spacing.sm,
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-  },
-  rowLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginBottom: 2,
-  },
-  rowValue: {
-    ...typography.body,
-    color: colors.text,
-  },
-  rowValueHighlight: {
-    color: colors.primary,
-    fontWeight: '700',
-  },
-  note: {
+  reference: {
     ...typography.caption,
     color: colors.textMuted,
-    lineHeight: 18,
-    marginTop: spacing.xs,
+    marginTop: spacing.md,
+  },
+  liveButton: {
+    marginTop: spacing.md,
+  },
+  payment: {
+    ...typography.body,
+    color: colors.text,
+    fontWeight: '600',
+    marginTop: spacing.md,
+  },
+  cardTitle: {
+    ...typography.label,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  timelineRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    minHeight: 32,
+  },
+  timelineMarker: {
+    width: TIMELINE_DOT,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    marginRight: spacing.sm,
+    paddingTop: 5,
+  },
+  timelineDot: {
+    width: TIMELINE_DOT,
+    height: TIMELINE_DOT,
+    borderRadius: TIMELINE_DOT / 2,
+    backgroundColor: colors.primary,
+  },
+  timelineDotCancelled: {
+    backgroundColor: colors.error,
+  },
+  timelineLine: {
+    flex: 1,
+    width: 2,
+    marginVertical: 2,
+    backgroundColor: colors.border,
+  },
+  timelineLabel: {
+    ...typography.body,
+    fontSize: 14,
+    color: colors.text,
+    flex: 1,
+  },
+  timelineCancelled: {
+    color: colors.error,
+    fontWeight: '600',
+  },
+  timelineTime: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginLeft: spacing.sm,
+    lineHeight: 20,
   },
 });

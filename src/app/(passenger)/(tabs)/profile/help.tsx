@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, spacing, typography } from '@/constants/theme';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,14 +18,14 @@ const HELP_TOPICS: { question: string; answer: string }[] = [
       'TriGo mainly serves Trinidad, Bohol. If your pickup or destination is outside Trinidad, you can still send an out-of-area trip request. A driver reviews it, and you and the driver agree on the fare before the booking is confirmed.',
   },
   {
-    question: 'How is the fare estimated?',
+    question: 'How is the fare set?',
     answer:
-      'Trips within Trinidad use the standard TriGo estimate based on vehicle type and distance. The estimate is not a fixed fare. Out-of-area trips use the fare you agree on with the driver.',
+      'Trips within Trinidad use the standard TriGo fare, based on vehicle type and road distance. It is fixed: you pay the fare shown before you book. Out-of-area trips use the fare you agree on with the driver.',
   },
   {
     question: 'Can I cancel a ride?',
     answer:
-      'Yes. While a ride is still pending or the driver has not started the trip, open the booking status or Ride History and tap Cancel Ride.',
+      'Yes, until the trip starts. Open your booking (from Activity, tap the booking, then View live status) and tap Cancel Booking on the booking status screen.',
   },
   {
     question: 'How do I become a TriGo driver?',
@@ -103,10 +103,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   card: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     marginBottom: spacing.lg,
     overflow: 'hidden',
   },

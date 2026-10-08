@@ -1,4 +1,5 @@
 import { PassengerBookingHistoryCard } from '@/components/booking/PassengerBookingHistoryCard';
+import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { LoadingScreen } from '@/components/LoadingScreen';
@@ -10,34 +11,40 @@ import { Booking, BookingStatus } from '@/types';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const LOAD_ERROR_MESSAGE = 'Unable to load your bookings. Check your connection and try again.';
 
 function isPastStatus(status: BookingStatus): boolean {
   return status === 'completed' || status === 'cancelled';
 }
 
 export default function ActivityScreen() {
-  const insets = useSafeAreaInsets();
   const { passenger } = useAuth();
+  const passengerId = passenger?.uid ?? null;
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [error, setError] = useState('');
+  const [retryCount, setRetryCount] = useState(0);
+
+  // A different account starts from an empty list; a retry keeps what is already shown.
+  useEffect(() => {
+    setBookings(null);
+  }, [passengerId]);
 
   useEffect(() => {
-    if (!passenger) return;
-    setBookings(null);
+    if (!passengerId) return;
     setError('');
 
     const unsubscribe = subscribeToPassengerBookings(
-      passenger.uid,
+      passengerId,
       (updated) => {
         setBookings(updated);
         setError('');
       },
-      (err) => setError(err.message ?? 'Unable to load your bookings.'),
+      () => setError(LOAD_ERROR_MESSAGE),
     );
 
     return unsubscribe;
-  }, [passenger]);
+  }, [passengerId, retryCount]);
 
   const active = (bookings ?? []).filter((b) => !isPastStatus(b.status));
   const past = (bookings ?? []).filter((b) => isPastStatus(b.status));
@@ -49,12 +56,14 @@ export default function ActivityScreen() {
   return (
     <View style={styles.container}>
       <ScreenHeader title="Activity" />
-      {bookings === null ? (
-        <LoadingScreen />
-      ) : error ? (
-        <View style={styles.content}>
+      {error ? (
+        <View style={styles.errorWrap}>
           <ErrorBanner message={error} />
+          <Button title="Retry" variant="secondary" onPress={() => setRetryCount((n) => n + 1)} />
         </View>
+      ) : null}
+      {bookings === null ? (
+        error ? null : <LoadingScreen />
       ) : bookings.length === 0 ? (
         <EmptyState
           icon="car-outline"
@@ -62,13 +71,7 @@ export default function ActivityScreen() {
           message="Your trips and ride history will appear here."
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: insets.bottom + spacing.xl },
-          ]}
-          showsVerticalScrollIndicator={false}
-        >
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {active.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Current</Text>
@@ -106,6 +109,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+  },
+  errorWrap: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
