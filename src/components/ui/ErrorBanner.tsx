@@ -1,4 +1,4 @@
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, spacing, typography } from '@/constants/theme';
 import { StyleSheet, Text, View } from 'react-native';
 
 interface ErrorBannerProps {
@@ -18,7 +18,7 @@ export function ErrorBanner({ message }: ErrorBannerProps) {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.errorBackground,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
     borderLeftWidth: 4,

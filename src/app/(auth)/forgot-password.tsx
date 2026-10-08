@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { TextInputField } from '@/components/ui/TextInputField';
 import { AuthServiceError, sendPasswordReset } from '@/services/authService';
-import { colors, spacing, typography } from '@/constants/theme';
-import { useState } from 'react';
+import { colors, radius, spacing, typography } from '@/constants/theme';
+import { useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { validateEmail } from '@/validations/auth';
 
@@ -15,8 +15,11 @@ export default function ForgotPasswordScreen() {
   const [formError, setFormError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  // Blocks a second tap that lands before the loading state re-renders the button.
+  const submitting = useRef(false);
 
   async function handleResetPassword() {
+    if (submitting.current || successMessage) return;
     setFormError('');
     setFieldError('');
     setSuccessMessage('');
@@ -27,6 +30,7 @@ export default function ForgotPasswordScreen() {
       return;
     }
 
+    submitting.current = true;
     setLoading(true);
 
     try {
@@ -41,6 +45,7 @@ export default function ForgotPasswordScreen() {
         setFormError('Unable to send reset email. Please try again.');
       }
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   }
@@ -69,6 +74,8 @@ export default function ForgotPasswordScreen() {
         autoComplete="email"
         placeholder="you@example.com"
         editable={!successMessage}
+        returnKeyType="send"
+        onSubmitEditing={handleResetPassword}
       />
 
       <View style={styles.spacer} />
@@ -86,7 +93,7 @@ export default function ForgotPasswordScreen() {
 const styles = StyleSheet.create({
   successBanner: {
     backgroundColor: colors.primaryLight,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
     borderLeftWidth: 4,

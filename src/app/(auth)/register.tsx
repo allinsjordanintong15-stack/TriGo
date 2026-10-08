@@ -1,14 +1,16 @@
 import { AuthLink } from '@/components/auth/AuthLink';
 import { AuthScreenLayout } from '@/components/auth/AuthScreenLayout';
+import { PasswordField } from '@/components/auth/PasswordField';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { TextInputField } from '@/components/ui/TextInputField';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthServiceError, registerPassenger } from '@/services/authService';
 import { colors, spacing, typography } from '@/constants/theme';
+import { logFirebaseError } from '@/utils/errors';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 export default function RegisterScreen() {
   const { refreshProfile } = useAuth();
@@ -21,8 +23,12 @@ export default function RegisterScreen() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Blocks a second tap that lands before the loading state re-renders the button.
+  const submitting = useRef(false);
 
   async function handleRegister() {
+    if (submitting.current) return;
+    submitting.current = true;
     setFormError('');
     setFieldErrors({});
     setLoading(true);
@@ -44,9 +50,11 @@ export default function RegisterScreen() {
         }
         setFormError(error.message);
       } else {
+        logFirebaseError('RegisterScreen', error);
         setFormError('Unable to create your account. Please try again.');
       }
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   }
@@ -73,6 +81,7 @@ export default function RegisterScreen() {
         textContentType="name"
         autoComplete="name"
         placeholder="Juan Dela Cruz"
+        returnKeyType="next"
       />
 
       <TextInputField
@@ -84,6 +93,7 @@ export default function RegisterScreen() {
         textContentType="emailAddress"
         autoComplete="email"
         placeholder="you@example.com"
+        returnKeyType="next"
       />
 
       <TextInputField
@@ -97,38 +107,37 @@ export default function RegisterScreen() {
         placeholder="09171234567"
       />
 
-      <View>
-        <TextInputField
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
-          error={fieldErrors.password}
-          secureTextEntry={!showPassword}
-          textContentType="newPassword"
-          autoComplete="password-new"
-          placeholder="At least 8 characters"
-        />
-        <Pressable
-          style={styles.showPassword}
-          onPress={() => setShowPassword((current) => !current)}
-        >
-          <Text style={styles.showPasswordText}>{showPassword ? 'Hide' : 'Show'}</Text>
-        </Pressable>
-      </View>
+      <PasswordField
+        label="Password"
+        value={password}
+        onChangeText={setPassword}
+        error={fieldErrors.password}
+        visible={showPassword}
+        onToggleVisible={() => setShowPassword((current) => !current)}
+        textContentType="newPassword"
+        autoComplete="password-new"
+        placeholder="At least 8 characters"
+        returnKeyType="next"
+      />
 
       <Text style={styles.hint}>
         Password must include uppercase, lowercase, and a number.
       </Text>
 
-      <TextInputField
+      {/* Follows the Password field's eye toggle. */}
+      <PasswordField
         label="Confirm Password"
         value={confirmPassword}
         onChangeText={setConfirmPassword}
         error={fieldErrors.confirmPassword}
-        secureTextEntry={!showPassword}
+        visible={showPassword}
+        onToggleVisible={() => setShowPassword((current) => !current)}
+        showToggle={false}
         textContentType="newPassword"
         autoComplete="password-new"
         placeholder="Re-enter your password"
+        returnKeyType="go"
+        onSubmitEditing={handleRegister}
       />
 
       <View style={styles.spacer} />
@@ -139,17 +148,6 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  showPassword: {
-    position: 'absolute',
-    right: spacing.md,
-    top: 38,
-    padding: spacing.xs,
-  },
-  showPasswordText: {
-    ...typography.caption,
-    color: colors.primary,
-    fontWeight: '600',
-  },
   hint: {
     ...typography.caption,
     color: colors.textMuted,

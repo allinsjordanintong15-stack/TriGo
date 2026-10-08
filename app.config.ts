@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: 'trigo',
   version: '1.0.0',
   orientation: 'portrait',
-  icon: './assets/icon.png',
+  icon: './assets/images/icon.png',
   userInterfaceStyle: 'light',
   ios: {
     supportsTablet: true,
@@ -19,17 +19,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     ...config.android,
     package: config.android?.package ?? 'com.trigo.passenger',
-      adaptiveIcon: {
-        backgroundColor: '#E8F3EC',
-      foregroundImage: './assets/android-icon-foreground.png',
-      backgroundImage: './assets/android-icon-background.png',
-      monochromeImage: './assets/android-icon-monochrome.png',
+    adaptiveIcon: {
+      foregroundImage: './assets/images/adaptive-icon.png',
+      backgroundColor: '#1B5E3A',
     },
     predictiveBackGestureEnabled: false,
     permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'CAMERA'],
   },
   web: {
-    favicon: './assets/favicon.png',
+    favicon: './assets/images/icon.png',
   },
   plugins: [
     'expo-router',
@@ -51,6 +49,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     '@maplibre/maplibre-react-native',
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/images/splash-icon.png',
+        backgroundColor: '#1B5E3A',
+        imageWidth: 200,
+        resizeMode: 'contain',
+      },
+    ],
   ],
    experiments: {
     typedRoutes: true,

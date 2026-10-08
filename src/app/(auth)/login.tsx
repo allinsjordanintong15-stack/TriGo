@@ -1,5 +1,6 @@
 import { AuthLink } from '@/components/auth/AuthLink';
 import { AuthScreenLayout } from '@/components/auth/AuthScreenLayout';
+import { PasswordField } from '@/components/auth/PasswordField';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { TextInputField } from '@/components/ui/TextInputField';
@@ -9,8 +10,8 @@ import { colors, spacing, typography } from '@/constants/theme';
 import { logFirebaseError } from '@/utils/errors';
 import { getRoleHomeHref } from '@/utils/roleRoutes';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 export default function LoginScreen() {
   const { refreshProfile } = useAuth();
@@ -20,8 +21,12 @@ export default function LoginScreen() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Blocks a second tap that lands before the loading state re-renders the button.
+  const submitting = useRef(false);
 
   async function handleLogin() {
+    if (submitting.current) return;
+    submitting.current = true;
     setFormError('');
     setFieldErrors({});
     setLoading(true);
@@ -41,6 +46,7 @@ export default function LoginScreen() {
         setFormError('Unable to log in. Please try again.');
       }
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   }
@@ -67,26 +73,22 @@ export default function LoginScreen() {
         textContentType="emailAddress"
         autoComplete="email"
         placeholder="you@example.com"
+        returnKeyType="next"
       />
 
-      <View>
-        <TextInputField
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
-          error={fieldErrors.password}
-          secureTextEntry={!showPassword}
-          textContentType="password"
-          autoComplete="password"
-          placeholder="Enter your password"
-        />
-        <Pressable
-          style={styles.showPassword}
-          onPress={() => setShowPassword((current) => !current)}
-        >
-          <Text style={styles.showPasswordText}>{showPassword ? 'Hide' : 'Show'}</Text>
-        </Pressable>
-      </View>
+      <PasswordField
+        label="Password"
+        value={password}
+        onChangeText={setPassword}
+        error={fieldErrors.password}
+        visible={showPassword}
+        onToggleVisible={() => setShowPassword((current) => !current)}
+        textContentType="password"
+        autoComplete="password"
+        placeholder="Enter your password"
+        returnKeyType="go"
+        onSubmitEditing={handleLogin}
+      />
 
       <View style={styles.forgotPasswordRow}>
         <AuthLink href="/(auth)/forgot-password" label="Forgot Password?" />
@@ -100,17 +102,6 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  showPassword: {
-    position: 'absolute',
-    right: spacing.md,
-    top: 38,
-    padding: spacing.xs,
-  },
-  showPasswordText: {
-    ...typography.caption,
-    color: colors.primary,
-    fontWeight: '600',
-  },
   forgotPasswordRow: {
     alignItems: 'flex-end',
     marginBottom: spacing.sm,

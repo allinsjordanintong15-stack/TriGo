@@ -1,4 +1,5 @@
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, spacing, typography } from '@/constants/theme';
+import { ReactNode } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,24 +11,30 @@ import {
 interface TextInputFieldProps extends TextInputProps {
   label: string;
   error?: string;
+  /** Shown inside the field on the right, e.g. a show/hide password button. */
+  rightAccessory?: ReactNode;
 }
 
 export function TextInputField({
   label,
   error,
+  rightAccessory,
   style,
   ...props
 }: TextInputFieldProps) {
   return (
     <View style={styles.wrapper}>
       <Text style={styles.label}>{label}</Text>
-      <RNTextInput
-        style={[styles.input, error ? styles.inputError : null, style]}
-        placeholderTextColor={colors.textMuted}
-        autoCapitalize="none"
-        autoCorrect={false}
-        {...props}
-      />
+      <View style={[styles.field, error ? styles.fieldError : null]}>
+        <RNTextInput
+          style={[styles.input, style]}
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          {...props}
+        />
+        {rightAccessory ? <View style={styles.accessory}>{rightAccessory}</View> : null}
+      </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
@@ -42,18 +49,26 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: spacing.sm,
   },
-  input: {
+  field: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.background,
+  },
+  fieldError: {
+    borderColor: colors.error,
+  },
+  input: {
+    flex: 1,
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
     fontSize: 16,
     color: colors.text,
-    backgroundColor: colors.background,
   },
-  inputError: {
-    borderColor: colors.error,
+  accessory: {
+    paddingRight: spacing.sm,
   },
   error: {
     ...typography.caption,

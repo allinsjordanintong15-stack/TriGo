@@ -45,6 +45,12 @@ export const shadow = {
 } as const;
 
 export const typography = {
+  // Brand wordmark on the sign-in screens.
+  display: {
+    fontSize: 40,
+    fontWeight: '800' as const,
+    letterSpacing: -0.5,
+  },
   title: {
     fontSize: 28,
     fontWeight: '700' as const,

@@ -1,4 +1,4 @@
-import { colors, typography } from '@/constants/theme';
+import { colors, radius, typography } from '@/constants/theme';
 import {
   ActivityIndicator,
   Pressable,
@@ -54,7 +54,7 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: 12,
+    borderRadius: radius.md,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
