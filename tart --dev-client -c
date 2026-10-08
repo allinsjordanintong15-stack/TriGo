@@ -1,0 +1,18 @@
+[33mcommit a4b3a2422a10f2de51602778b7a95e6cd89dc305[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m
+Author: ajintong-15 <allinsjordanintong15@gmail.com>
+Date:   Thu Oct 8 19:40:17 2026 +0800
+
+    feat(brand): add TriGo app icon, splash and in-app logo
+
+[1mdiff --git a/package.json b/package.json[m
+[1mindex e995e36..ca258ed 100644[m
+[1m--- a/package.json[m
+[1m+++ b/package.json[m
+[36m@@ -14,6 +14,7 @@[m
+     "expo-linking": "~56.0.18",[m
+     "expo-location": "~56.0.26",[m
+     "expo-router": "~56.2.21",[m
+[32m+[m[32m    "expo-splash-screen": "~56.0.15",[m
+     "expo-status-bar": "~56.0.4",[m
+     "firebase": "^12.17.1",[m
+     "react": "19.2.3",[m

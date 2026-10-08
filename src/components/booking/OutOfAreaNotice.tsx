@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/Button';
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, spacing, typography } from '@/constants/theme';
 import { getServiceAreaLabel } from '@/services/serviceAreaService';
 import { Modal, StyleSheet, Text, View } from 'react-native';
 
@@ -81,8 +81,8 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
     padding: spacing.lg,
     paddingBottom: spacing.xl,
   },

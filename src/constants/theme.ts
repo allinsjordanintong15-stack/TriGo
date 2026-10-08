@@ -32,6 +32,8 @@ export const radius = {
   sm: 8,
   md: 12,
   lg: 16,
+  // Top corners of bottom sheets.
+  xl: 24,
 } as const;
 
 export const shadow = {
@@ -41,6 +43,22 @@ export const shadow = {
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
+  },
+  // Controls floating over the map (location card, round map buttons).
+  floating: {
+    shadowColor: colors.primaryDark,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  // Bottom sheets; the shadow falls upward onto the content behind them.
+  sheet: {
+    shadowColor: colors.primaryDark,
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -3 },
+    elevation: 12,
   },
 } as const;
 

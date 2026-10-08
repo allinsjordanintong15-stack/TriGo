@@ -8,7 +8,7 @@ import { BookingMap } from '@/components/map/BookingMap';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { MapRegion, TRINIDAD_BOHOL_REGION } from '@/constants/map';
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -31,6 +31,7 @@ import {
   isLocationWithinServiceArea,
 } from '@/services/serviceAreaService';
 import { Location } from '@/types';
+import { formatPhilippinePeso } from '@/utils/fare';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -139,6 +140,23 @@ export default function PassengerHomeScreen() {
   const roadRoute =
     routeState.status === 'road' && routeState.key === currentRouteKey ? routeState.route : null;
 
+  // Preview of the fare the confirmation screen will show: the same buildTripQuote on
+  // the same road route. Hidden until the route for the current points has loaded.
+  let previewFare: number | null = null;
+  if (pickupLocation && destination && vehicleType && roadRoute) {
+    try {
+      previewFare = buildTripQuote(
+        pickupLocation,
+        destination,
+        vehicleType,
+        roadRoute.distanceKm,
+        fareConfig.fares,
+      ).standardEstimatedFare;
+    } catch {
+      previewFare = null;
+    }
+  }
+
   // Fetch the road route when the pickup or destination coordinates change (not on
   // address-only updates or re-renders); ignore results for stale points.
   const pickupLatitude = pickupLocation?.latitude;
@@ -161,7 +179,7 @@ export default function PassengerHomeScreen() {
     const key = routeKey(pickup, dropoff);
 
     if (lastRoadRoute.current?.key === key) {
-      setRouteState({ status: 'road', key, route: lastRoadRoute.current.route });
+setRouteState({ status: 'road', key, route: lastRoadRoute.current.route });
       return;
     }
 
@@ -529,10 +547,13 @@ export default function PassengerHomeScreen() {
                 <HomeHeader />
 
                 <Text style={styles.heading}>Where are you going?</Text>
-                <Text style={styles.serviceAreaNote}>
-                  Service area: {getServiceAreaLabel()}. Trips to or from other places can be sent as
-                  out-of-area requests.
-                </Text>
+                {/* The out-of-area hint below already explains the service area. */}
+                {!tripIsOutOfArea ? (
+                  <Text style={styles.serviceAreaNote}>
+                    Service area: {getServiceAreaLabel()}. Trips to or from other places can be sent
+                    as out-of-area requests.
+                  </Text>
+                ) : null}
 
                 <ErrorBanner message={formError} />
 
@@ -553,7 +574,12 @@ export default function PassengerHomeScreen() {
                 ) : null}
 
                 <VehicleSelector selected={vehicleType} onSelect={setVehicleType} />
+              </ScrollView>
+            ) : null}
 
+            {/* Kept outside the scroll view so the Book button is always on screen. */}
+            {!sheetCollapsed ? (
+              <View style={styles.sheetFooter}>
                 {routeState.status === 'unavailable' ? (
                   <View style={styles.routeError}>
                     <ErrorBanner message={ROAD_ROUTE_UNAVAILABLE_MESSAGE} />
@@ -568,6 +594,17 @@ export default function PassengerHomeScreen() {
                   </View>
                 ) : null}
 
+                {previewFare !== null && roadRoute ? (
+                  <Text style={styles.farePreview} numberOfLines={1}>
+                    Fare{' '}
+                    <Text style={styles.farePreviewAmount}>
+                      {formatPhilippinePeso(previewFare)}
+                    </Text>
+                    {` · ${roadRoute.distanceKm.toFixed(2)} km`}
+                    {roadRoute.durationMin > 0 ? ` · ~${roadRoute.durationMin} min` : ''}
+                  </Text>
+                ) : null}
+
                 <Button
                   title={tripIsOutOfArea ? 'Request Out-of-Area Ride' : 'Book a Ride'}
                   onPress={handleBookRide}
@@ -575,7 +612,7 @@ export default function PassengerHomeScreen() {
                   loading={routeState.status === 'loading'}
                   disabled={routeState.status === 'unavailable'}
                 />
-              </ScrollView>
+              </View>
             ) : null}
           </View>
         ) : null}
@@ -608,17 +645,12 @@ const styles = StyleSheet.create({
     left: spacing.md,
     right: spacing.md,
     backgroundColor: colors.white,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     paddingHorizontal: spacing.sm,
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs,
     zIndex: 5,
-    // Floating shadow (elevation on Android, shadow* on iOS).
-    elevation: 8,
-    shadowColor: colors.primaryDark,
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    ...shadow.floating,
   },
   currentLocationButton: {
     position: 'absolute',
@@ -632,12 +664,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.white,
     zIndex: 4,
-    // Floating shadow (elevation on Android, shadow* on iOS).
-    elevation: 6,
-    shadowColor: colors.primaryDark,
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    ...shadow.floating,
   },
   currentLocationButtonPressed: {
     backgroundColor: colors.primaryLight,
@@ -648,15 +675,10 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
     zIndex: 6,
-    // Floating shadow (elevation on Android, shadow* on iOS).
-    elevation: 12,
-    shadowColor: colors.primaryDark,
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: -3 },
+    ...shadow.sheet,
   },
   sheetHandleArea: {
     alignItems: 'center',
@@ -688,7 +710,24 @@ const styles = StyleSheet.create({
   panelContent: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
+  },
+  sheetFooter: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  farePreview: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  farePreviewAmount: {
+    fontWeight: '700',
+    color: colors.primary,
   },
   heading: {
     ...typography.title,
@@ -707,7 +746,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: colors.accent,
     padding: spacing.sm,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     marginBottom: spacing.sm,
   },
   outOfAreaHintTitle: {

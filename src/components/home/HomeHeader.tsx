@@ -1,6 +1,7 @@
 import { Avatar } from '@/components/ui/Avatar';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -12,7 +13,8 @@ export function HomeHeader() {
     <View style={styles.container}>
       <View style={styles.profileSection}>
         <Avatar name={fullName} imageUri={passenger?.profileImage ?? null} size={48} />
-        <View>
+        {/* Takes the remaining width so long names end in an ellipsis before the bell. */}
+        <View style={styles.nameBlock}>
           <Text style={styles.greeting}>Hello,</Text>
           <Text style={styles.name} numberOfLines={1}>
             {fullName}
@@ -21,11 +23,16 @@ export function HomeHeader() {
       </View>
 
       <Pressable
-        style={styles.notificationButton}
+        style={({ pressed }) => [
+          styles.notificationButton,
+          pressed ? styles.notificationButtonPressed : null,
+        ]}
         onPress={() => router.navigate('/notifications')}
+        accessibilityRole="button"
         accessibilityLabel="Notifications"
+        hitSlop={4}
       >
-        <Text style={styles.notificationIcon}>🔔</Text>
+        <Ionicons name="notifications-outline" size={22} color={colors.primary} />
       </Pressable>
     </View>
   );
@@ -36,6 +43,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.sm,
     marginBottom: spacing.md,
   },
   profileSection: {
@@ -43,6 +51,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     gap: spacing.sm,
+  },
+  nameBlock: {
+    flex: 1,
   },
   greeting: {
     ...typography.caption,
@@ -52,7 +63,6 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontWeight: '700',
     color: colors.text,
-    maxWidth: 220,
   },
   notificationButton: {
     width: 44,
@@ -62,7 +72,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  notificationIcon: {
-    fontSize: 20,
+  notificationButtonPressed: {
+    opacity: 0.7,
   },
 });

@@ -1,6 +1,7 @@
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, spacing, typography } from '@/constants/theme';
 import { VEHICLE_OPTIONS } from '@/constants/vehicles';
 import { VehicleType } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 interface VehicleSelectorProps {
@@ -20,7 +21,18 @@ export function VehicleSelector({ selected, onSelect }: VehicleSelectorProps) {
               key={option.type}
               style={[styles.card, isSelected ? styles.cardSelected : null]}
               onPress={() => onSelect(option.type)}
+              accessibilityRole="radio"
+              accessibilityLabel={option.label}
+              accessibilityState={{ selected: isSelected, checked: isSelected }}
             >
+              {isSelected ? (
+                <Ionicons
+                  name="checkmark-circle"
+                  size={20}
+                  color={colors.primary}
+                  style={styles.check}
+                />
+              ) : null}
               <Text style={styles.icon}>{option.icon}</Text>
               <Text style={[styles.label, isSelected ? styles.labelSelected : null]}>
                 {option.label}
@@ -49,17 +61,23 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    borderWidth: 1,
+    // Same border width in both states so selecting a card does not shift the layout.
+    borderWidth: 2,
     borderColor: colors.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.sm,
     alignItems: 'center',
-    backgroundColor: colors.background,
+    backgroundColor: colors.white,
   },
   cardSelected: {
     borderColor: colors.primary,
     backgroundColor: colors.primaryLight,
+  },
+  check: {
+    position: 'absolute',
+    top: spacing.xs,
+    right: spacing.xs,
   },
   icon: {
     fontSize: 28,
