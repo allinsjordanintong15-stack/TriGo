@@ -317,6 +317,12 @@ describe('standard booking: T1 accept', () => {
     await assertFails(acceptBatch(DRIVER));
   });
 
+  it('denies a driver reserved by an out-of-area proposal, even if marked available', async () => {
+    // isAvailable is left true so only the currentRequestId check can deny it.
+    await seed({ [`drivers/${DRIVER}`]: driverRecord({ currentRequestId: 'request1' }) });
+    await assertFails(acceptBatch(DRIVER));
+  });
+
   it('denies accepting a booking another driver already accepted', async () => {
     await seed({ [`bookings/${BOOKING}`]: newBooking({ status: 'accepted', driverId: OTHER_DRIVER }) });
     await assertFails(acceptBatch(DRIVER));

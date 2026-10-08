@@ -40,6 +40,7 @@ export function docToDriverRecord(driverId: string, data: DocumentData): DriverR
         ? { latitude: location.latitude, longitude: location.longitude }
         : null,
     currentBookingId: typeof data.currentBookingId === 'string' ? data.currentBookingId : null,
+    currentRequestId: typeof data.currentRequestId === 'string' ? data.currentRequestId : null,
   };
 }
 
@@ -80,8 +81,10 @@ export async function goOnline(
   try {
     await updateDoc(doc(firestore, COLLECTIONS.drivers, driverRecord.driverId), {
       isOnline: true,
-      // A driver with a trip in progress comes back online but stays unavailable.
-      isAvailable: !hasActiveTrip && !driverRecord.currentBookingId,
+      // A driver with a trip in progress or a pending fare proposal comes back online but
+      // stays unavailable.
+      isAvailable:
+        !hasActiveTrip && !driverRecord.currentBookingId && !driverRecord.currentRequestId,
       currentLocation: { latitude: location.latitude, longitude: location.longitude },
       updatedAt: serverTimestamp(),
     });
@@ -118,6 +121,10 @@ export async function becomeAvailable(driverRecord: DriverRecord): Promise<void>
 
   if (driverRecord.currentBookingId) {
     throw new DriverServiceError('Finish or cancel your current trip first.');
+  }
+
+  if (driverRecord.currentRequestId) {
+    throw new DriverServiceError('Withdraw your fare proposal first, or wait for the passenger.');
   }
 
   try {

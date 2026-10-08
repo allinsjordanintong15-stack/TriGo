@@ -121,6 +121,11 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
       if (driver.currentBookingId) {
         throw new DriverBookingServiceError('You already have an active trip.');
       }
+      if (driver.currentRequestId) {
+        throw new DriverBookingServiceError(
+          'You have a pending out-of-area fare proposal. Withdraw it first.',
+        );
+      }
       if (!driver.isOnline || !driver.isAvailable) {
         throw new DriverBookingServiceError('Go online and be available to accept rides.');
       }

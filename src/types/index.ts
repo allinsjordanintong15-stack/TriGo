@@ -172,6 +172,12 @@ export interface DriverRecord {
   currentLocation: { latitude: number; longitude: number } | null;
   /** The booking this driver is assigned to; set on accept, cleared when the trip ends. */
   currentBookingId: string | null;
+  /**
+   * The out-of-area request this driver has proposed a fare on. Set with the proposal,
+   * cleared when the driver withdraws or the request no longer holds them. While set the
+   * driver is unavailable for other bookings and requests.
+   */
+  currentRequestId: string | null;
 }
 
 export interface Booking {

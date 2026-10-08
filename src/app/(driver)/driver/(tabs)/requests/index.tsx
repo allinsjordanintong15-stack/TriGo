@@ -13,7 +13,7 @@ import { Booking } from '@/types';
 import { calculateDistanceKm } from '@/utils/distance';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function DriverRequestsScreen() {
@@ -158,6 +158,12 @@ export default function DriverRequestsScreen() {
       'Finish or resolve your current trip on the Home tab before accepting another request.',
       'car-outline',
     );
+  } else if (driverRecord?.currentRequestId) {
+    body = renderGate(
+      'Fare proposal pending',
+      'Waiting for the passenger to respond. Open it from the Home tab to withdraw.',
+      'car-outline',
+    );
   } else if (!isOnline) {
     body = renderGate(
       'You are offline',
@@ -196,7 +202,10 @@ export default function DriverRequestsScreen() {
               distanceToPickupKm={distanceToPickupKm}
               now={now}
               onPress={() =>
-                Alert.alert('Coming soon', 'Proposing a fare for out-of-area trips is coming soon.')
+                router.push({
+                  pathname: '/driver/requests/out-of-area/[requestId]',
+                  params: { requestId: request.requestId },
+                })
               }
             />
           ))

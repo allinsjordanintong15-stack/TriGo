@@ -183,12 +183,14 @@ export default function DriverHomeScreen() {
   const isOnline = driverRecord?.isOnline === true;
   const activeBooking = activeBookings[0] ?? null;
   const activeRequest = activeRequests[0] ?? null;
-  // Only offer this once active trips have loaded and no booking is linked, so it never
-  // shows mid-trip (Firestore rules also refuse availability while currentBookingId is set).
+  // Only offer this once active trips have loaded and no booking or fare proposal is
+  // linked, so it never shows mid-trip (Firestore rules also refuse availability while
+  // currentBookingId or currentRequestId is set).
   const canBecomeAvailable =
     isOnline &&
     driverRecord?.isAvailable === false &&
     !driverRecord.currentBookingId &&
+    !driverRecord.currentRequestId &&
     loaded &&
     !hasActiveTrip;
 
@@ -338,7 +340,15 @@ export default function DriverHomeScreen() {
                   <Text style={styles.moreRequests}>Tap to view trip details</Text>
                 </Pressable>
               ) : activeRequest ? (
-                <View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    router.push({
+                      pathname: '/driver/requests/out-of-area/[requestId]',
+                      params: { requestId: activeRequest.requestId },
+                    })
+                  }
+                >
                   <Text style={styles.requestBadge}>
                     {ACTIVE_REQUEST_LABELS[activeRequest.status] ?? 'Out-of-area request'}
                   </Text>
@@ -372,7 +382,10 @@ export default function DriverHomeScreen() {
                       {activeRequests.length > 2 ? 's' : ''}
                     </Text>
                   ) : null}
-                </View>
+                  <Text style={styles.moreRequests}>
+                    {activeRequest.status === 'accepted' ? 'Tap to view details' : 'Tap to view or withdraw'}
+                  </Text>
+                </Pressable>
               ) : (
                 <Text style={styles.emptyText}>No active trip or request right now.</Text>
               )}

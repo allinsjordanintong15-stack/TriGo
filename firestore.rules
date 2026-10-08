@@ -29,6 +29,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/bookings/$(id);
     }
 
+    function requestPath(id) {
+      return /databases/$(database)/documents/outOfAreaRequests/$(id);
+    }
+
     function driverDoc() {
       return get(driverPath(request.auth.uid));
     }
@@ -158,9 +162,10 @@ service cloud.firestore {
         && request.resource.data.distanceKm is number
         && request.resource.data.estimatedFare is number;
 
-      // T1 accept: a verified driver who is online, available, not on another trip and has
-      // the requested vehicle type claims an open standard booking. The same commit must
-      // mark the driver unavailable and link drivers/{uid}.currentBookingId to this booking.
+      // T1 accept: a verified driver who is online, available, not on another trip, not
+      // reserved by an out-of-area proposal and has the requested vehicle type claims an
+      // open standard booking. The same commit must mark the driver unavailable and link
+      // drivers/{uid}.currentBookingId to this booking.
       allow update: if isVerifiedDriver()
         && resource.data.get('bookingType', 'standard') == 'standard'
         && resource.data.status == 'pending'
@@ -169,6 +174,7 @@ service cloud.firestore {
         && driverDoc().data.isOnline == true
         && driverDoc().data.isAvailable == true
         && driverDoc().data.get('currentBookingId', null) == null
+        && driverDoc().data.get('currentRequestId', null) == null
         && driverDoc().data.vehicleType == resource.data.vehicleType
         && request.resource.data.status == 'accepted'
         && request.resource.data.driverId == request.auth.uid
@@ -245,27 +251,51 @@ service cloud.firestore {
       allow read: if isVerifiedDriver()
         && resource.data.driverId == request.auth.uid;
 
-      // Verified driver accepts an open, unexpired request and proposes a fare
-      // (see fareAgreementService.createProposal). The passenger still has to agree.
+      // Propose (fareAgreementService.createProposal): a verified driver who is online,
+      // available, not on a trip, not already reserved and has the requested vehicle type
+      // claims an open, unexpired request with a fare. The same commit must reserve the
+      // driver (drivers/{uid}.currentRequestId = this request, not available). The
+      // passenger still has to accept.
       allow update: if isVerifiedDriver()
         && resource.data.status == 'searching'
         && resource.data.driverId == null
         && resource.data.passengerId != request.auth.uid
-        && (resource.data.expiresAt == null || request.time < resource.data.expiresAt)
+        && resource.data.expiresAt is timestamp
+        && request.time < resource.data.expiresAt
+        && driverDoc().data.isOnline == true
+        && driverDoc().data.isAvailable == true
+        && driverDoc().data.get('currentBookingId', null) == null
+        && driverDoc().data.get('currentRequestId', null) == null
+        && driverDoc().data.vehicleType == resource.data.vehicleType
         && request.resource.data.status == 'negotiating'
         && request.resource.data.driverId == request.auth.uid
+        && request.resource.data.fareAgreement is map
+        && request.resource.data.fareAgreement.keys().hasAll([
+          'standardEstimatedFare', 'driverProposedFare', 'agreedFare',
+          'agreedByPassenger', 'agreedByDriver', 'agreedAt'
+        ])
+        && request.resource.data.fareAgreement.keys().hasOnly([
+          'standardEstimatedFare', 'driverProposedFare', 'agreedFare',
+          'agreedByPassenger', 'agreedByDriver', 'agreedAt'
+        ])
         && request.resource.data.fareAgreement.driverProposedFare is number
         && request.resource.data.fareAgreement.driverProposedFare > 0
         && request.resource.data.fareAgreement.agreedFare == request.resource.data.fareAgreement.driverProposedFare
         && request.resource.data.fareAgreement.standardEstimatedFare == resource.data.standardEstimatedFare
         && request.resource.data.fareAgreement.agreedByDriver == true
         && request.resource.data.fareAgreement.agreedByPassenger == false
+        && request.resource.data.fareAgreement.agreedAt == null
         && request.resource.data.suggestedAgreementFare == request.resource.data.fareAgreement.driverProposedFare
+        && request.resource.data.updatedAt == request.time
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt']);
+          .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt'])
+        && getAfter(driverPath(request.auth.uid)).data.get('currentRequestId', null) == requestId
+        && getAfter(driverPath(request.auth.uid)).data.isAvailable == false;
 
-      // The driver handling a request may withdraw before the passenger agrees,
-      // returning it to the open pool. Declining an open request needs no write.
+      // Withdraw (fareAgreementService.withdrawProposal): the driver handling a request
+      // returns it to the open pool before the passenger agrees and releases their own
+      // reservation in the same commit. Allowed after expiry too, so a driver is never
+      // stuck. Declining an open request needs no write.
       allow update: if isVerifiedDriver()
         && resource.data.driverId == request.auth.uid
         && resource.data.status in ['negotiating', 'driver_interested']
@@ -273,8 +303,10 @@ service cloud.firestore {
         && request.resource.data.driverId == null
         && request.resource.data.suggestedAgreementFare == null
         && request.resource.data.fareAgreement == null
+        && request.resource.data.updatedAt == request.time
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt']);
+          .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt'])
+        && getAfter(driverPath(request.auth.uid)).data.get('currentRequestId', null) == null;
 
       // Passenger opens a request (bookingService.createOutOfAreaRequest): exactly these
       // fields, no driver or fare agreement yet, server timestamps, and an expiry within
@@ -402,19 +434,48 @@ service cloud.firestore {
           );
       }
 
+      // currentRequestId may only be set in the commit that proposes a fare on that request
+      // (searching → negotiating with this driver), and only cleared once the request no
+      // longer holds this driver (withdrawn, declined, cancelled, expired or rejected).
+      function isValidCurrentRequestChange() {
+        let before = resource.data.get('currentRequestId', null);
+        let after = request.resource.data.get('currentRequestId', null);
+        return before == after
+          || (
+            before == null
+            && after is string
+            && get(requestPath(after)).data.status == 'searching'
+            && getAfter(requestPath(after)).data.status == 'negotiating'
+            && getAfter(requestPath(after)).data.driverId == request.auth.uid
+          )
+          || (
+            before != null
+            && after == null
+            && (
+              getAfter(requestPath(before)).data.driverId != request.auth.uid
+              || !(getAfter(requestPath(before)).data.status
+                in ['driver_interested', 'negotiating', 'accepted'])
+            )
+          );
+      }
+
       allow read: if isSignedIn()
         && resource.data.isVerified == true;
 
       // A driver can always read their own record, including while pending verification.
       allow read: if isOwner(driverId);
 
-      // A driver controls only their own duty status, position and current-trip link.
-      // Admin-managed fields (isVerified, name, vehicle, rating) cannot be changed from the
-      // app. Being available requires being online, an unverified driver can only be
-      // offline, and a driver linked to a booking is never available.
+      // A driver controls only their own duty status, position, current-trip link and
+      // proposal reservation. Admin-managed fields (isVerified, name, vehicle, rating)
+      // cannot be changed from the app. Being available requires being online, an
+      // unverified driver can only be offline, and a driver linked to a booking or
+      // reserved by a proposal is never available.
       allow update: if isOwner(driverId)
         && isDriver()
-        && onlyChanged(['isOnline', 'isAvailable', 'currentLocation', 'currentBookingId', 'updatedAt'])
+        && onlyChanged([
+          'isOnline', 'isAvailable', 'currentLocation', 'currentBookingId', 'currentRequestId',
+          'updatedAt'
+        ])
         && request.resource.data.isOnline is bool
         && request.resource.data.isAvailable is bool
         && (!request.resource.data.isAvailable || request.resource.data.isOnline)
@@ -433,7 +494,12 @@ service cloud.firestore {
           request.resource.data.get('currentBookingId', null) == null
           || request.resource.data.isAvailable == false
         )
-        && isValidCurrentBookingChange();
+        && (
+          request.resource.data.get('currentRequestId', null) == null
+          || request.resource.data.isAvailable == false
+        )
+        && isValidCurrentBookingChange()
+        && isValidCurrentRequestChange();
 
       // Driver records are created and removed by TriGo admins only.
       allow create, delete: if false;

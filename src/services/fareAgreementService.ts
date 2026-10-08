@@ -1,8 +1,8 @@
 import { OUT_OF_AREA_FARE_SETTINGS } from '@/constants/outOfAreaFareSettings';
 import { COLLECTIONS, firestore } from '@/firebase';
-import { FareAgreement } from '@/types';
+import { DriverRecord, FareAgreement } from '@/types';
 import { calculateFareDifference } from '@/utils/fare';
-import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export class FareAgreementServiceError extends Error {
   constructor(message: string) {
@@ -73,8 +73,10 @@ export function validateDriverProposedFare(
 }
 
 /**
- * Called when a driver expresses interest with a proposed fare.
- * Driver-side will trigger this in a later phase.
+ * The driver proposes a fare on an open request. One batch claims the request
+ * (negotiating, with the proposal) and reserves the driver (currentRequestId, not
+ * available); Firestore rules require both in the same commit. The passenger still has
+ * to accept.
  */
 export async function createProposal(input: FareProposalInput): Promise<FareAgreement> {
   if (!OUT_OF_AREA_FARE_SETTINGS.allowDriverNegotiation) {
@@ -99,16 +101,76 @@ export async function createProposal(input: FareProposalInput): Promise<FareAgre
     agreedAt: null,
   };
 
-  const requestRef = doc(firestore, COLLECTIONS.outOfAreaRequests, input.requestId);
-  await updateDoc(requestRef, {
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, COLLECTIONS.outOfAreaRequests, input.requestId), {
     status: 'negotiating',
     driverId: input.driverId,
     suggestedAgreementFare: input.driverProposedFare,
     fareAgreement,
     updatedAt: serverTimestamp(),
   });
+  batch.update(doc(firestore, COLLECTIONS.drivers, input.driverId), {
+    currentRequestId: input.requestId,
+    isAvailable: false,
+    updatedAt: serverTimestamp(),
+  });
+
+  try {
+    await batch.commit();
+  } catch (error) {
+    if ((error as { code?: string }).code === 'permission-denied') {
+      // Taken by another driver, cancelled or expired, or this driver is no longer
+      // online, available and free.
+      throw new FareAgreementServiceError(
+        'Unable to send your proposal. The request may have been taken or expired, or you are no longer online and available.',
+      );
+    }
+    throw new FareAgreementServiceError(
+      'Unable to send your proposal. Please check your internet connection and try again.',
+    );
+  }
 
   return fareAgreement;
+}
+
+/**
+ * The driver withdraws a proposal the passenger has not accepted yet. One batch returns
+ * the request to the open pool and releases the driver (available again if still online
+ * and verified).
+ */
+export async function withdrawProposal(
+  requestId: string,
+  driverRecord: DriverRecord,
+): Promise<void> {
+  const canBeAvailable = driverRecord.isOnline && driverRecord.isVerified;
+
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, COLLECTIONS.outOfAreaRequests, requestId), {
+    status: 'searching',
+    driverId: null,
+    suggestedAgreementFare: null,
+    fareAgreement: null,
+    updatedAt: serverTimestamp(),
+  });
+  batch.update(doc(firestore, COLLECTIONS.drivers, driverRecord.driverId), {
+    currentRequestId: null,
+    isOnline: canBeAvailable,
+    isAvailable: canBeAvailable,
+    updatedAt: serverTimestamp(),
+  });
+
+  try {
+    await batch.commit();
+  } catch (error) {
+    if ((error as { code?: string }).code === 'permission-denied') {
+      throw new FareAgreementServiceError(
+        'Unable to withdraw. The passenger may have already accepted or cancelled this request.',
+      );
+    }
+    throw new FareAgreementServiceError(
+      'Unable to withdraw your proposal. Please check your internet connection and try again.',
+    );
+  }
 }
 
 export async function acceptProposal(
