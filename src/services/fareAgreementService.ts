@@ -173,6 +173,23 @@ export async function withdrawProposal(
   }
 }
 
+/**
+ * Release the driver from a request that no longer holds them (declined, cancelled,
+ * expired, or taken by someone else): clear `currentRequestId` and become available again
+ * if still online and verified. Only the driver record changes; Firestore rules check the
+ * request's state.
+ */
+export async function releaseOutOfAreaRequest(driverRecord: DriverRecord): Promise<void> {
+  const canBeAvailable = driverRecord.isOnline && driverRecord.isVerified;
+
+  await updateDoc(doc(firestore, COLLECTIONS.drivers, driverRecord.driverId), {
+    currentRequestId: null,
+    isOnline: canBeAvailable,
+    isAvailable: canBeAvailable,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function acceptProposal(
   requestId: string,
   currentAgreement: FareAgreement,

@@ -21,6 +21,12 @@ import {
 } from '@/services/fareAgreementService';
 import { OutOfAreaRequest } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
+import {
+  getProposalState,
+  isProposalOutcome,
+  PROPOSAL_OUTCOME_TEXT,
+  ProposalState,
+} from '@/utils/outOfAreaProposal';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -53,7 +59,7 @@ export default function OutOfAreaProposalScreen() {
   const params = useLocalSearchParams<{ requestId?: string }>();
   const requestId = params.requestId ?? '';
   const { driverRecord, canPerformDriverActions } = useDriverAccess();
-  const { hasActiveTrip } = useDriverActivity();
+  const { hasActiveTrip, finishedProposal, dismissFinishedProposal } = useDriverActivity();
 
   const [request, setRequest] = useState<OutOfAreaRequest | null>(null);
   const [loading, setLoading] = useState(true);
@@ -80,8 +86,7 @@ export default function OutOfAreaProposalScreen() {
         setLoading(false);
       },
       () => {
-        // Once another driver takes it (or it is cancelled), this driver can no longer
-        // read the request.
+        // Once another driver takes it, this driver can no longer read the request.
         setUnavailable(true);
         setLoading(false);
       },
@@ -94,7 +99,14 @@ export default function OutOfAreaProposalScreen() {
     return () => clearInterval(timer);
   }, []);
 
-  const header = <ScreenHeader title="Out-of-Area Request" onBack={goBackToRequests} />;
+  const finished = finishedProposal?.requestId === requestId ? finishedProposal : null;
+
+  function leave() {
+    if (finished) dismissFinishedProposal();
+    goBackToRequests();
+  }
+
+  const header = <ScreenHeader title="Out-of-Area Request" onBack={leave} />;
 
   if (loading) {
     return (
@@ -106,31 +118,42 @@ export default function OutOfAreaProposalScreen() {
   }
 
   const driverId = driverRecord?.driverId ?? null;
-  const isMine = request !== null && driverId !== null && request.driverId === driverId;
-  const isExpired = request?.expiresAt ? request.expiresAt.getTime() <= now : false;
+  const visibleRequest = unavailable ? null : request;
+  // This driver's proposal: reserved on it, or (older proposals) named on the request.
+  const isMine =
+    driverId !== null &&
+    (driverRecord?.currentRequestId === requestId || visibleRequest?.driverId === driverId);
   const isOpen =
-    request !== null &&
-    request.status === 'searching' &&
-    request.driverId === null &&
-    request.expiresAt !== null &&
-    !isExpired;
+    visibleRequest !== null &&
+    visibleRequest.status === 'searching' &&
+    visibleRequest.driverId === null &&
+    visibleRequest.expiresAt !== null &&
+    visibleRequest.expiresAt.getTime() > now;
 
-  if (!request || unavailable || (!isOpen && !isMine)) {
+  const state: ProposalState | 'open' =
+    isMine && driverId
+      ? getProposalState(visibleRequest, driverId, now)
+      : finished
+        ? finished.outcome
+        : isOpen
+          ? 'open'
+          : 'unavailable';
+  // Details to show: the live request, or the last copy kept when the proposal ended.
+  const shown = visibleRequest ?? finished?.request ?? null;
+
+  if (!shown) {
+    const text =
+      PROPOSAL_OUTCOME_TEXT[state !== 'open' && isProposalOutcome(state) ? state : 'unavailable'];
     return (
       <View style={styles.container}>
         {header}
-        <EmptyState
-          icon="alert-circle-outline"
-          title="Request no longer available"
-          message="It may have been taken by another driver, cancelled or expired."
-        />
+        <EmptyState icon="alert-circle-outline" title={text.title} message={text.message} />
       </View>
     );
   }
 
-  const isPending = isMine && ['negotiating', 'driver_interested'].includes(request.status);
-  const proposedFare = request.fareAgreement?.driverProposedFare ?? null;
-  const { fare, error: fareError } = parseFare(fareInput, request.standardEstimatedFare);
+  const proposedFare = shown.fareAgreement?.driverProposedFare ?? null;
+  const { fare, error: fareError } = parseFare(fareInput, shown.standardEstimatedFare);
 
   // Why this driver cannot propose right now, mirroring the Firestore rule.
   let blockedReason = '';
@@ -142,7 +165,7 @@ export default function OutOfAreaProposalScreen() {
     blockedReason = 'You already have a pending fare proposal. Withdraw it first.';
   } else if (!driverRecord?.isOnline || !driverRecord.isAvailable) {
     blockedReason = 'Go online and be available on the Home tab to propose a fare.';
-  } else if (driverRecord.vehicleType !== request.vehicleType) {
+  } else if (driverRecord.vehicleType !== shown.vehicleType) {
     blockedReason = 'This request is for a different vehicle type.';
   }
 
@@ -172,12 +195,12 @@ export default function OutOfAreaProposalScreen() {
   }
 
   async function handleWithdraw() {
-    if (!request || !driverRecord) return;
+    if (!driverRecord) return;
 
     setSubmitting(true);
     setError('');
     try {
-      await withdrawProposal(request.requestId, driverRecord);
+      await withdrawProposal(requestId, driverRecord);
       setShowWithdraw(false);
       goBackToRequests();
     } catch (err) {
@@ -192,7 +215,17 @@ export default function OutOfAreaProposalScreen() {
     }
   }
 
-  const expiresLabel = formatExpiresIn(request.expiresAt, now);
+  const outcome = state !== 'open' && isProposalOutcome(state) ? state : null;
+  const badge =
+    state === 'waiting'
+      ? 'Proposal sent · waiting for passenger'
+      : state === 'accepted'
+        ? 'Passenger accepted · waiting for booking'
+        : outcome
+          ? PROPOSAL_OUTCOME_TEXT[outcome].title
+          : 'Out-of-area trip';
+  const expiresLabel =
+    state === 'open' || state === 'waiting' ? formatExpiresIn(shown.expiresAt, now) : '';
 
   return (
     <KeyboardAvoidingView
@@ -205,35 +238,41 @@ export default function OutOfAreaProposalScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {outcome ? (
+          <View style={[styles.card, styles.outcomeCard]}>
+            <Text style={styles.outcomeTitle}>{PROPOSAL_OUTCOME_TEXT[outcome].title}</Text>
+            <Text style={styles.outcomeMessage}>
+              {PROPOSAL_OUTCOME_TEXT[outcome].message}
+              {driverRecord?.currentRequestId === requestId
+                ? ' Releasing you for other requests…'
+                : ' You can take other requests again.'}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.card}>
           <View style={styles.badgeRow}>
-            <Text style={styles.badge}>
-              {isPending
-                ? 'Proposal sent · waiting for passenger'
-                : isMine && request.status === 'accepted'
-                  ? 'Fare accepted by passenger'
-                  : 'Out-of-area trip'}
-            </Text>
-            {expiresLabel && !isMine ? <Text style={styles.expires}>{expiresLabel}</Text> : null}
+            <Text style={[styles.badge, outcome ? styles.badgeMuted : null]}>{badge}</Text>
+            {expiresLabel ? <Text style={styles.expires}>{expiresLabel}</Text> : null}
           </View>
           <RouteTimeline
-            pickupAddress={request.pickupLocation.address}
-            destinationAddress={request.destination.address}
+            pickupAddress={shown.pickupLocation.address}
+            destinationAddress={shown.destination.address}
           />
         </View>
 
-        <TripStatsRow distanceKm={request.distanceKm} vehicleType={request.vehicleType} />
+        <TripStatsRow distanceKm={shown.distanceKm} vehicleType={shown.vehicleType} />
 
-        {isMine && proposedFare !== null ? (
+        {(state === 'waiting' || state === 'accepted') && proposedFare !== null ? (
           <FareCard
-            estimatedFare={request.standardEstimatedFare}
+            estimatedFare={shown.standardEstimatedFare}
             agreedFare={proposedFare}
             isOutOfArea
-            label={request.status === 'accepted' ? 'Agreed fare' : 'Your proposed fare'}
+            label={state === 'accepted' ? 'Agreed fare' : 'Your proposed fare'}
           />
         ) : (
           <FareCard
-            estimatedFare={request.standardEstimatedFare}
+            estimatedFare={shown.standardEstimatedFare}
             agreedFare={null}
             isOutOfArea={false}
             label="Reference fare"
@@ -241,7 +280,14 @@ export default function OutOfAreaProposalScreen() {
           />
         )}
 
-        {isOpen ? (
+        {state === 'accepted' ? (
+          <Text style={styles.hint}>
+            The passenger accepted your fare. The booking will appear here once it is created; you
+            stay reserved for this trip until then.
+          </Text>
+        ) : null}
+
+        {state === 'open' ? (
           <View style={styles.card}>
             <TextInputField
               label="Your fare (₱)"
@@ -250,7 +296,7 @@ export default function OutOfAreaProposalScreen() {
                 setFareInput(text);
                 setError('');
               }}
-              placeholder={request.standardEstimatedFare.toFixed(2)}
+              placeholder={shown.standardEstimatedFare.toFixed(2)}
               keyboardType="decimal-pad"
               maxLength={9}
               error={fareError}
@@ -262,11 +308,11 @@ export default function OutOfAreaProposalScreen() {
           </View>
         ) : null}
 
-        {isOpen && blockedReason ? <ErrorBanner message={blockedReason} /> : null}
+        {state === 'open' && blockedReason ? <ErrorBanner message={blockedReason} /> : null}
         <ErrorBanner message={error} />
       </ScrollView>
 
-      {isOpen ? (
+      {state === 'open' ? (
         <StickyActionBar
           buttonTitle={
             fare !== null ? `Send Proposal · ${formatPhilippinePeso(fare)}` : 'Send Proposal'
@@ -275,13 +321,15 @@ export default function OutOfAreaProposalScreen() {
           disabled={fare === null || Boolean(blockedReason)}
           loading={submitting}
         />
-      ) : isPending ? (
+      ) : state === 'waiting' ? (
         <StickyActionBar
           buttonTitle="Withdraw proposal"
           variant="secondary"
           onPress={() => setShowWithdraw(true)}
           loading={submitting}
         />
+      ) : outcome ? (
+        <StickyActionBar buttonTitle="Back to requests" onPress={leave} />
       ) : null}
 
       <ConfirmationDialog
@@ -342,6 +390,25 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     overflow: 'hidden',
     flexShrink: 1,
+  },
+  badgeMuted: {
+    color: colors.textSecondary,
+    backgroundColor: colors.border,
+  },
+  outcomeCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.gold,
+  },
+  outcomeTitle: {
+    ...typography.label,
+    fontSize: 16,
+    color: colors.primaryDark,
+  },
+  outcomeMessage: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    lineHeight: 22,
   },
   expires: {
     ...typography.caption,

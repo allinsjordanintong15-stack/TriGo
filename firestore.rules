@@ -434,9 +434,24 @@ service cloud.firestore {
           );
       }
 
+      // A request holds the driver who proposed on it while the passenger may still answer
+      // (an unexpired proposal) and once the passenger accepted. Requests without
+      // expiresAt (created before expiry was required) hold until withdrawn.
+      function requestHoldsDriver(data) {
+        return data.driverId == request.auth.uid
+          && (
+            data.status == 'accepted'
+            || (
+              data.status in ['driver_interested', 'negotiating']
+              && (data.get('expiresAt', null) == null || request.time < data.expiresAt)
+            )
+          );
+      }
+
       // currentRequestId may only be set in the commit that proposes a fare on that request
       // (searching → negotiating with this driver), and only cleared once the request no
-      // longer holds this driver (withdrawn, declined, cancelled, expired or rejected).
+      // longer holds this driver: withdrawn or declined (back to searching), cancelled,
+      // expired (status or past expiresAt), rejected, or taken by another driver.
       function isValidCurrentRequestChange() {
         let before = resource.data.get('currentRequestId', null);
         let after = request.resource.data.get('currentRequestId', null);
@@ -451,11 +466,7 @@ service cloud.firestore {
           || (
             before != null
             && after == null
-            && (
-              getAfter(requestPath(before)).data.driverId != request.auth.uid
-              || !(getAfter(requestPath(before)).data.status
-                in ['driver_interested', 'negotiating', 'accepted'])
-            )
+            && !requestHoldsDriver(getAfter(requestPath(before)).data)
           );
       }
 

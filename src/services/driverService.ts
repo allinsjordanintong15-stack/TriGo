@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { docToOutOfAreaRequest } from '@/services/bookingService';
 import { DriverRecord, OutOfAreaRequest, VehicleType } from '@/types';
@@ -13,6 +14,7 @@ import {
   Timestamp,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 
 export class DriverServiceError extends Error {
@@ -95,14 +97,46 @@ export async function goOnline(
   }
 }
 
-/** Take the driver off duty; they will no longer appear in passenger driver searches. */
-export async function goOffline(driverId: string): Promise<void> {
+/**
+ * Take the driver off duty; they will no longer appear in passenger driver searches.
+ * A driver with a pending fare proposal (`currentRequestId`) withdraws it in the same
+ * batch. If the request no longer holds them it is just released; if the passenger
+ * already accepted, the reservation stays and only the duty status changes.
+ */
+export async function goOffline(
+  driverId: string,
+  currentRequestId: string | null = null,
+): Promise<void> {
+  const driverRef = doc(firestore, COLLECTIONS.drivers, driverId);
+  const offline = { isOnline: false, isAvailable: false, updatedAt: serverTimestamp() };
+
+  if (currentRequestId) {
+    try {
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, COLLECTIONS.outOfAreaRequests, currentRequestId), {
+        status: 'searching',
+        driverId: null,
+        suggestedAgreementFare: null,
+        fareAgreement: null,
+        updatedAt: serverTimestamp(),
+      });
+      batch.update(driverRef, { ...offline, currentRequestId: null });
+      await batch.commit();
+      return;
+    } catch {
+      // Not withdrawable: the request may already have released this driver.
+    }
+
+    try {
+      await updateDoc(driverRef, { ...offline, currentRequestId: null });
+      return;
+    } catch {
+      // Still held (e.g. the passenger accepted): go offline and keep the reservation.
+    }
+  }
+
   try {
-    await updateDoc(doc(firestore, COLLECTIONS.drivers, driverId), {
-      isOnline: false,
-      isAvailable: false,
-      updatedAt: serverTimestamp(),
-    });
+    await updateDoc(driverRef, offline);
   } catch {
     throw new DriverServiceError(
       'Unable to go offline. Please check your internet connection and try again.',
@@ -165,29 +199,37 @@ export async function getDriverRecord(driverId: string): Promise<DriverRecord | 
   return snapshot.exists() && data ? docToDriverRecord(snapshot.id, data) : null;
 }
 
-/** Out-of-area requests this driver is currently handling (fare proposed or accepted). */
-export function subscribeToDriverActiveRequests(
-  driverId: string,
-  onUpdate: (requests: OutOfAreaRequest[]) => void,
-  onError: (error: Error) => void,
-): () => void {
-  const activeQuery = query(
-    collection(firestore, COLLECTIONS.outOfAreaRequests),
-    where('driverId', '==', driverId),
-    where('status', 'in', ['negotiating', 'accepted']),
+// ─── Hidden out-of-area requests ────────────────────────────────────────────
+// When a passenger declines this driver's fare the request goes back to searching. It is
+// hidden for this driver, on this device, so it does not reappear in their list.
+
+const hiddenRequestsKey = (driverId: string) => `trigo.driver.${driverId}.hiddenRequests`;
+const MAX_HIDDEN_TRACKED = 200;
+
+export async function getHiddenRequestIds(driverId: string): Promise<string[]> {
+  try {
+    const stored = await AsyncStorage.getItem(hiddenRequestsKey(driverId));
+    const parsed: unknown = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function hideOutOfAreaRequest(driverId: string, requestId: string): Promise<string[]> {
+  const current = await getHiddenRequestIds(driverId);
+  const updated = [requestId, ...current.filter((id) => id !== requestId)].slice(
+    0,
+    MAX_HIDDEN_TRACKED,
   );
 
-  return onSnapshot(
-    activeQuery,
-    (snapshot) => {
-      onUpdate(
-        snapshot.docs
-          .map((d) => docToOutOfAreaRequest(d.id, d.data()))
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
-      );
-    },
-    (error) => onError(error),
-  );
+  try {
+    await AsyncStorage.setItem(hiddenRequestsKey(driverId), JSON.stringify(updated));
+  } catch {
+    // Still hidden for this session via the returned list.
+  }
+
+  return updated;
 }
 
 export interface OpenOutOfAreaRequest {

@@ -17,14 +17,15 @@ export default function DriverLayout() {
     !driverRecord.isVerified &&
     (driverRecord.isOnline || driverRecord.isAvailable);
   const driverId = driverRecord?.driverId ?? null;
+  const currentRequestId = driverRecord?.currentRequestId ?? null;
 
   useEffect(() => {
     if (mustGoOffline && driverId) {
-      goOffline(driverId).catch(() => {
+      goOffline(driverId, currentRequestId).catch(() => {
         // Retried on the next record update; passenger search also filters isVerified.
       });
     }
-  }, [mustGoOffline, driverId]);
+  }, [mustGoOffline, driverId, currentRequestId]);
 
   if (isLoading || (isAuthenticated && !driverRecordLoaded)) {
     return <LoadingScreen />;

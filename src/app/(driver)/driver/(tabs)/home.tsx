@@ -15,10 +15,15 @@ import {
   goOnline,
 } from '@/services/driverService';
 import { getCurrentCoordinates, LocationServiceError } from '@/services/locationService';
-import { OutOfAreaRequest } from '@/types';
+import { formatExpiresIn } from '@/components/driver/OutOfAreaRequestCard';
 import { formatPhilippinePeso } from '@/utils/fare';
+import {
+  isProposalOutcome,
+  PROPOSAL_OUTCOME_TEXT,
+  ProposalState,
+} from '@/utils/outOfAreaProposal';
 import { router, useFocusEffect } from 'expo-router';
-import { ComponentProps, useCallback, useState } from 'react';
+import { ComponentProps, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -55,10 +60,12 @@ const ACCESS_STATUS_CONTENT: Record<
   },
 };
 
-const ACTIVE_REQUEST_LABELS: Partial<Record<OutOfAreaRequest['status'], string>> = {
-  negotiating: 'Fare proposed · waiting for passenger',
-  accepted: 'Fare accepted by passenger',
-};
+function getProposalLabel(state: ProposalState | null): string {
+  if (state === null) return 'Fare proposal';
+  if (state === 'waiting') return 'Fare proposed · waiting for passenger';
+  if (state === 'accepted') return 'Passenger accepted · waiting for booking';
+  return `${PROPOSAL_OUTCOME_TEXT[state].title} · releasing you…`;
+}
 
 function formatVehicleType(vehicleType: string): string {
   return vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) : '—';
@@ -92,8 +99,26 @@ export default function DriverHomeScreen() {
   const { status, driverRecord, canPerformDriverActions } = useDriverAccess();
   const [updatingDuty, setUpdatingDuty] = useState(false);
   const [error, setError] = useState('');
-  const { activeBookings, activeRequests, loaded, hasActiveTrip } = useDriverActivity();
+  const {
+    activeBookings,
+    loaded,
+    hasActiveTrip,
+    heldRequest,
+    proposalState,
+    finishedProposal,
+    dismissFinishedProposal,
+  } = useDriverActivity();
   const driverId = driverRecord?.driverId ?? null;
+  const [now, setNow] = useState(() => Date.now());
+
+  // Ticks the proposal countdown while waiting for the passenger.
+  const isWaitingForPassenger = proposalState === 'waiting';
+  useEffect(() => {
+    if (!isWaitingForPassenger) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isWaitingForPassenger]);
   // null while loading; refreshed whenever the tab gains focus so finished trips count.
   const [completedToday, setCompletedToday] = useState<number | null>(null);
   const [completedTodayError, setCompletedTodayError] = useState(false);
@@ -166,7 +191,8 @@ export default function DriverHomeScreen() {
     setError('');
 
     try {
-      await goOffline(driverRecord.driverId);
+      // A pending fare proposal is withdrawn in the same commit.
+      await goOffline(driverRecord.driverId, driverRecord.currentRequestId);
     } catch (err) {
       setError(
         err instanceof DriverServiceError ? err.message : 'Unable to go offline. Please try again.',
@@ -182,7 +208,13 @@ export default function DriverHomeScreen() {
   const profileImage = driverRecord?.profileImage ?? driver?.profileImage ?? null;
   const isOnline = driverRecord?.isOnline === true;
   const activeBooking = activeBookings[0] ?? null;
-  const activeRequest = activeRequests[0] ?? null;
+  const reservedRequestId = driverRecord?.currentRequestId ?? null;
+  const proposedFare =
+    heldRequest?.agreedFare ?? heldRequest?.fareAgreement?.driverProposedFare ?? null;
+  const finishedOutcome =
+    finishedProposal && isProposalOutcome(finishedProposal.outcome)
+      ? finishedProposal.outcome
+      : null;
   // Only offer this once active trips have loaded and no booking or fare proposal is
   // linked, so it never shows mid-trip (Firestore rules also refuse availability while
   // currentBookingId or currentRequestId is set).
@@ -254,7 +286,9 @@ export default function DriverHomeScreen() {
                     ? 'Available for trips. New ride requests appear in the Requests tab.'
                     : hasActiveTrip
                       ? 'On a trip — not receiving new requests until it ends.'
-                      : 'Online but not available for new trips.'
+                      : reservedRequestId
+                        ? 'Fare proposal pending — not receiving new requests until it ends.'
+                        : 'Online but not available for new trips.'
                   : canPerformDriverActions
                     ? 'Go online to become available for bookings in Trinidad, Bohol.'
                     : 'You can go online once your account is verified.'}
@@ -339,53 +373,67 @@ export default function DriverHomeScreen() {
                   </View>
                   <Text style={styles.moreRequests}>Tap to view trip details</Text>
                 </Pressable>
-              ) : activeRequest ? (
+              ) : reservedRequestId ? (
                 <Pressable
                   accessibilityRole="button"
                   onPress={() =>
                     router.push({
                       pathname: '/driver/requests/out-of-area/[requestId]',
-                      params: { requestId: activeRequest.requestId },
+                      params: { requestId: reservedRequestId },
                     })
                   }
                 >
-                  <Text style={styles.requestBadge}>
-                    {ACTIVE_REQUEST_LABELS[activeRequest.status] ?? 'Out-of-area request'}
-                  </Text>
-                  <View style={styles.field}>
-                    <Text style={styles.fieldLabel}>Pickup</Text>
-                    <Text style={styles.fieldValue} numberOfLines={2}>
-                      {activeRequest.pickupLocation.address}
-                    </Text>
+                  <View style={styles.proposalBadgeRow}>
+                    <Text style={styles.requestBadge}>{getProposalLabel(proposalState)}</Text>
+                    {proposalState === 'waiting' && heldRequest ? (
+                      <Text style={styles.countdown}>
+                        {formatExpiresIn(heldRequest.expiresAt, now)}
+                      </Text>
+                    ) : null}
                   </View>
-                  <View style={styles.field}>
-                    <Text style={styles.fieldLabel}>Destination</Text>
-                    <Text style={styles.fieldValue} numberOfLines={2}>
-                      {activeRequest.destination.address}
-                    </Text>
-                  </View>
-                  <View style={[styles.field, styles.fieldLast]}>
-                    <Text style={styles.fieldLabel}>
-                      {activeRequest.agreedFare !== null ? 'Agreed fare' : 'Your proposed fare'}
-                    </Text>
-                    <Text style={styles.fareValue}>
-                      {formatPhilippinePeso(
-                        activeRequest.agreedFare ??
-                          activeRequest.fareAgreement?.driverProposedFare ??
-                          0,
-                      )}
-                    </Text>
-                  </View>
-                  {activeRequests.length > 1 ? (
-                    <Text style={styles.moreRequests}>
-                      +{activeRequests.length - 1} more active request
-                      {activeRequests.length > 2 ? 's' : ''}
-                    </Text>
+                  {heldRequest ? (
+                    <>
+                      <View style={styles.field}>
+                        <Text style={styles.fieldLabel}>Pickup</Text>
+                        <Text style={styles.fieldValue} numberOfLines={2}>
+                          {heldRequest.pickupLocation.address}
+                        </Text>
+                      </View>
+                      <View style={styles.field}>
+                        <Text style={styles.fieldLabel}>Destination</Text>
+                        <Text style={styles.fieldValue} numberOfLines={2}>
+                          {heldRequest.destination.address}
+                        </Text>
+                      </View>
+                      {proposedFare !== null ? (
+                        <View style={[styles.field, styles.fieldLast]}>
+                          <Text style={styles.fieldLabel}>
+                            {proposalState === 'accepted' ? 'Agreed fare' : 'Your proposed fare'}
+                          </Text>
+                          <Text style={styles.fareValue}>{formatPhilippinePeso(proposedFare)}</Text>
+                        </View>
+                      ) : null}
+                    </>
                   ) : null}
                   <Text style={styles.moreRequests}>
-                    {activeRequest.status === 'accepted' ? 'Tap to view details' : 'Tap to view or withdraw'}
+                    {proposalState === 'waiting' ? 'Tap to view or withdraw' : 'Tap to view details'}
                   </Text>
                 </Pressable>
+              ) : finishedProposal && finishedOutcome ? (
+                <View>
+                  <Text style={styles.requestBadge}>
+                    {PROPOSAL_OUTCOME_TEXT[finishedOutcome].title}
+                  </Text>
+                  <Text style={styles.outcomeMessage}>
+                    {PROPOSAL_OUTCOME_TEXT[finishedOutcome].message}
+                    {finishedProposal.request
+                      ? ` (${finishedProposal.request.destination.address})`
+                      : ''}
+                  </Text>
+                  <Pressable accessibilityRole="button" onPress={dismissFinishedProposal}>
+                    <Text style={styles.linkText}>Dismiss</Text>
+                  </Pressable>
+                </View>
               ) : (
                 <Text style={styles.emptyText}>No active trip or request right now.</Text>
               )}
@@ -431,6 +479,24 @@ export default function DriverHomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  proposalBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  countdown: {
+    ...typography.caption,
+    fontWeight: '600',
+    color: colors.error,
+    fontVariant: ['tabular-nums'],
+  },
+  outcomeMessage: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: spacing.sm,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

@@ -603,18 +603,124 @@ describe('out-of-area request: driver withdraws a proposal', () => {
     );
   });
 
-  for (const outcome of ['declined', 'cancelled'] as const) {
-    it(`allows the driver to release themselves once the passenger ${outcome}`, async () => {
-      await seedProposal(
-        outcome === 'declined' ? WITHDRAW_UPDATE : { status: 'cancelled' },
-      );
-      await assertSucceeds(
-        updateDoc(doc(db(DRIVER), 'drivers', DRIVER), {
-          currentRequestId: null,
-          isAvailable: true,
-          updatedAt: serverTimestamp(),
-        }),
-      );
+});
+
+// ─── Release (Step 4): driver-only update clearing currentRequestId ─────────
+
+/** releaseOutOfAreaRequest: clear the reservation, available again while online. */
+function releaseUpdate(uid: string) {
+  return updateDoc(doc(db(uid), 'drivers', uid), {
+    currentRequestId: null,
+    isOnline: true,
+    isAvailable: true,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** goOffline while reserved: withdraw + go offline in one batch. */
+function offlineWithdrawBatch(uid: string) {
+  const firestore = db(uid);
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, 'outOfAreaRequests', REQUEST), {
+    ...WITHDRAW_UPDATE,
+    updatedAt: serverTimestamp(),
+  });
+  batch.update(doc(firestore, 'drivers', uid), {
+    currentRequestId: null,
+    isOnline: false,
+    isAvailable: false,
+    updatedAt: serverTimestamp(),
+  });
+  return batch.commit();
+}
+
+describe('out-of-area request: driver release', () => {
+  const releasePaths: [string, DocumentData][] = [
+    ['the passenger declined (back to searching)', WITHDRAW_UPDATE],
+    ['the passenger cancelled', { status: 'cancelled' }],
+    ['the request has status expired', { status: 'expired' }],
+    ['the request was rejected', { status: 'rejected' }],
+    ['the proposal is still negotiating past expiresAt', { expiresAt: expiresInMinutes(-1) }],
+    [
+      'driver_interested past expiresAt',
+      { status: 'driver_interested', expiresAt: expiresInMinutes(-1) },
+    ],
+    [
+      'another driver now holds the request',
+      { driverId: OTHER_DRIVER, fareAgreement: fareAgreement(700), suggestedAgreementFare: 700 },
+    ],
+  ];
+
+  for (const [label, requestState] of releasePaths) {
+    it(`allows release when ${label}`, async () => {
+      await seedProposal(requestState);
+      await assertSucceeds(releaseUpdate(DRIVER));
+      const driver = await readAsAdmin(`drivers/${DRIVER}`);
+      if (driver?.currentRequestId !== null || driver?.isAvailable !== true) {
+        throw new Error('driver was not released');
+      }
     });
   }
+
+  it('denies release while still negotiating and unexpired', async () => {
+    await seedProposal();
+    await assertFails(releaseUpdate(DRIVER));
+  });
+
+  it('denies release after the passenger accepted, even past expiresAt', async () => {
+    await seedProposal({
+      status: 'accepted',
+      agreedFare: PROPOSED_FARE,
+      expiresAt: expiresInMinutes(-1),
+    });
+    await assertFails(releaseUpdate(DRIVER));
+  });
+
+  it('denies releasing while staying available on a different reservation', async () => {
+    await seedProposal({ status: 'cancelled' });
+    await assertFails(
+      updateDoc(doc(db(DRIVER), 'drivers', DRIVER), {
+        currentRequestId: 'other-request',
+        isAvailable: true,
+        updatedAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('allows going offline while reserved by withdrawing in the same batch', async () => {
+    await seedProposal();
+    await assertSucceeds(offlineWithdrawBatch(DRIVER));
+    const request = await readAsAdmin(`outOfAreaRequests/${REQUEST}`);
+    const driver = await readAsAdmin(`drivers/${DRIVER}`);
+    if (request?.status !== 'searching' || driver?.currentRequestId !== null) {
+      throw new Error('offline withdraw did not release');
+    }
+    if (driver?.isOnline !== false || driver?.isAvailable !== false) {
+      throw new Error('driver is not offline');
+    }
+  });
+
+  it('allows going offline with a release once the passenger declined', async () => {
+    await seedProposal(WITHDRAW_UPDATE);
+    await assertSucceeds(
+      updateDoc(doc(db(DRIVER), 'drivers', DRIVER), {
+        currentRequestId: null,
+        isOnline: false,
+        isAvailable: false,
+        updatedAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('keeps an accepted driver reserved when going offline', async () => {
+    await seedProposal({ status: 'accepted', agreedFare: PROPOSED_FARE });
+    await assertFails(offlineWithdrawBatch(DRIVER));
+    await assertSucceeds(
+      updateDoc(doc(db(DRIVER), 'drivers', DRIVER), {
+        isOnline: false,
+        isAvailable: false,
+        updatedAt: serverTimestamp(),
+      }),
+    );
+  });
 });

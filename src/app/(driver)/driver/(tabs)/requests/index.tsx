@@ -1,5 +1,6 @@
 import { DriverRequestCard } from '@/components/driver/DriverRequestCard';
 import { OutOfAreaRequestCard } from '@/components/driver/OutOfAreaRequestCard';
+import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
@@ -19,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function DriverRequestsScreen() {
   const insets = useSafeAreaInsets();
   const { status, driverRecord, canPerformDriverActions } = useDriverAccess();
-  const { hasActiveTrip } = useDriverActivity();
+  const { hasActiveTrip, hiddenRequestIds } = useDriverActivity();
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [declinedIds, setDeclinedIds] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -84,9 +85,13 @@ export default function DriverRequestsScreen() {
   const visibleOutOfAreaRequests = useMemo(
     () =>
       (outOfAreaRequests ?? []).filter(
-        ({ request }) => request.expiresAt !== null && request.expiresAt.getTime() > now,
+        ({ request }) =>
+          request.expiresAt !== null &&
+          request.expiresAt.getTime() > now &&
+          // The passenger declined this driver's fare on it.
+          !hiddenRequestIds.includes(request.requestId),
       ),
-    [outOfAreaRequests, now],
+    [outOfAreaRequests, now, hiddenRequestIds],
   );
 
   useEffect(() => {
@@ -141,7 +146,11 @@ export default function DriverRequestsScreen() {
       });
   }, [bookings, declinedIds, driverRecord?.currentLocation]);
 
-  function renderGate(title: string, message: string, icon: 'shield-outline' | 'power-outline' | 'car-outline') {
+  function renderGate(
+    title: string,
+    message: string,
+    icon: 'shield-outline' | 'power-outline' | 'car-outline' | 'time-outline',
+  ) {
     return <EmptyState icon={icon} title={title} message={message} />;
   }
 
@@ -159,10 +168,24 @@ export default function DriverRequestsScreen() {
       'car-outline',
     );
   } else if (driverRecord?.currentRequestId) {
-    body = renderGate(
-      'Fare proposal pending',
-      'Waiting for the passenger to respond. Open it from the Home tab to withdraw.',
-      'car-outline',
+    const reservedRequestId = driverRecord.currentRequestId;
+    body = (
+      <View style={styles.gateWithAction}>
+        {renderGate(
+          'You have a pending proposal',
+          'New requests appear again once the passenger responds, the request ends, or you withdraw.',
+          'time-outline',
+        )}
+        <Button
+          title="Open proposal"
+          onPress={() =>
+            router.push({
+              pathname: '/driver/requests/out-of-area/[requestId]',
+              params: { requestId: reservedRequestId },
+            })
+          }
+        />
+      </View>
     );
   } else if (!isOnline) {
     body = renderGate(
@@ -253,6 +276,12 @@ export default function DriverRequestsScreen() {
 }
 
 const styles = StyleSheet.create({
+  gateWithAction: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

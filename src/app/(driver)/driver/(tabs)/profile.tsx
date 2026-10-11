@@ -52,7 +52,7 @@ export default function DriverProfileScreen() {
     // Go off duty first — after sign-out the driver can no longer update their record.
     const goOffDuty =
       driverRecord?.isOnline || driverRecord?.isAvailable
-        ? goOffline(driverRecord.driverId).catch(() => undefined)
+        ? goOffline(driverRecord.driverId, driverRecord.currentRequestId).catch(() => undefined)
         : Promise.resolve();
 
     goOffDuty
@@ -74,7 +74,7 @@ export default function DriverProfileScreen() {
     setError('');
     const goOffDuty =
       driverRecord?.isOnline || driverRecord?.isAvailable
-        ? goOffline(driverRecord.driverId)
+        ? goOffline(driverRecord.driverId, driverRecord.currentRequestId)
         : Promise.resolve();
 
     goOffDuty
