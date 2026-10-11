@@ -13,8 +13,9 @@ import {
   getDriverSearchStatusMessage,
 } from '@/services/driverSearchService';
 import { OutOfAreaRequest } from '@/types';
+import { getPassengerOfferState, PASSENGER_OFFER_TEXT } from '@/utils/outOfAreaProposal';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -27,6 +28,9 @@ export default function OutOfAreaSearchScreen() {
   const [driverCount, setDriverCount] = useState(0);
   const [loadingDrivers, setLoadingDrivers] = useState(true);
   const [error, setError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+  // The offer last opened automatically, so coming back to this screen does not reopen it.
+  const shownOfferKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (!activeOutOfAreaRequestId) return;
@@ -36,11 +40,15 @@ export default function OutOfAreaSearchScreen() {
       (updatedRequest) => {
         setRequest(updatedRequest);
 
+        // Pushed (not replaced) so the offer and confirmation screens can return here.
+        const offerKey = getOfferKey(updatedRequest);
         if (
-          updatedRequest.status === 'negotiating' &&
-          updatedRequest.fareAgreement
+          offerKey !== null &&
+          offerKey !== shownOfferKey.current &&
+          getPassengerOfferState(updatedRequest, Date.now()) === 'open'
         ) {
-          router.replace('/(passenger)/booking/agreement');
+          shownOfferKey.current = offerKey;
+          router.push('/(passenger)/booking/agreement');
         }
       },
       (err) => {
@@ -54,6 +62,12 @@ export default function OutOfAreaSearchScreen() {
 
     return unsubscribe;
   }, [activeOutOfAreaRequestId]);
+
+  // Notices when the request expires while the passenger waits here.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!tripQuote) return;
@@ -81,11 +95,19 @@ export default function OutOfAreaSearchScreen() {
     searchDrivers();
   }, [tripQuote, searchRadiusKm]);
 
+  const offerState = request ? getPassengerOfferState(request, now) : null;
+  const isExpired = offerState === 'expired';
+
   async function handleCancel() {
     if (!activeOutOfAreaRequestId) return;
 
     try {
-      await cancelOutOfAreaRequest(activeOutOfAreaRequestId);
+      if (isExpired) {
+        // Nothing left to wait for: close it where the rules still allow, then leave.
+        await cancelOutOfAreaRequest(activeOutOfAreaRequestId).catch(() => {});
+      } else {
+        await cancelOutOfAreaRequest(activeOutOfAreaRequestId);
+      }
       setActiveOutOfAreaRequestId(null);
       router.dismissTo('/home');
     } catch (err) {
@@ -121,6 +143,13 @@ export default function OutOfAreaSearchScreen() {
 
       <ErrorBanner message={error} />
 
+      {isExpired ? (
+        <View style={styles.expiredCard}>
+          <Text style={styles.statusTitle}>{PASSENGER_OFFER_TEXT.expired.title}</Text>
+          <Text style={styles.statusNote}>{PASSENGER_OFFER_TEXT.expired.message}</Text>
+        </View>
+      ) : null}
+
       <TripSummaryCard
         quote={tripQuote}
         bookingTypeLabel="Out-of-Area Trip Request"
@@ -128,35 +157,56 @@ export default function OutOfAreaSearchScreen() {
         fareNote={null}
       />
 
-      <View style={styles.statusCard}>
-        {loadingDrivers ? (
-          <>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.statusText}>Searching for available drivers…</Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.statusTitle}>
-              {driverCount === 0
-                ? 'No drivers nearby yet'
-                : getDriverSearchStatusMessage(driverCount)}
-            </Text>
-            <Text style={styles.statusNote}>
-              {driverCount === 0
-                ? `No available drivers within ${searchRadiusKm} km of your pickup right now. Your request stays open and drivers who come online nearby can still see it.`
-                : 'Waiting for a driver to review and accept your request.'}
-            </Text>
-          </>
-        )}
+      {!isExpired ? (
+        <View style={styles.statusCard}>
+          {loadingDrivers ? (
+            <>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.statusText}>Searching for available drivers…</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.statusTitle}>
+                {driverCount === 0
+                  ? 'No drivers nearby yet'
+                  : getDriverSearchStatusMessage(driverCount)}
+              </Text>
+              <Text style={styles.statusNote}>
+                {driverCount === 0
+                  ? `No available drivers within ${searchRadiusKm} km of your pickup right now. Your request stays open and drivers who come online nearby can still see it.`
+                  : 'Waiting for a driver to review and accept your request.'}
+              </Text>
+            </>
+          )}
 
-        {request ? (
-          <Text style={styles.requestId}>Request status: {formatRequestStatus(request.status)}</Text>
-        ) : null}
-      </View>
+          {request ? (
+            <Text style={styles.requestId}>Request status: {formatRequestStatus(request.status)}</Text>
+          ) : null}
+        </View>
+      ) : null}
 
-      <Button title="Cancel Request" variant="secondary" onPress={handleCancel} />
+      {offerState === 'open' ? (
+        <View style={styles.offerButton}>
+          <Button
+            title="View Driver's Offer"
+            onPress={() => router.push('/(passenger)/booking/agreement')}
+          />
+        </View>
+      ) : null}
+
+      <Button
+        title={isExpired ? 'Back to Home' : 'Cancel Request'}
+        variant="secondary"
+        onPress={handleCancel}
+      />
     </ScrollView>
   );
+}
+
+/** Identifies one offer: a driver proposing again later counts as a new offer. */
+function getOfferKey(request: OutOfAreaRequest): string | null {
+  if (!request.driverId || !request.fareAgreement) return null;
+  return `${request.driverId}:${request.updatedAt?.getTime() ?? ''}`;
 }
 
 function formatRequestStatus(status: OutOfAreaRequest['status']): string {
@@ -221,6 +271,16 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  expiredCard: {
+    backgroundColor: colors.goldLight,
+    borderRadius: 16,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  offerButton: {
+    marginBottom: spacing.sm,
   },
   requestId: {
     ...typography.caption,

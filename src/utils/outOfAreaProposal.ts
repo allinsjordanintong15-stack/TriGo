@@ -58,3 +58,41 @@ export const PROPOSAL_OUTCOME_TEXT: Record<ProposalOutcome, { title: string; mes
     message: 'This request was taken or closed.',
   },
 };
+
+/**
+ * Where the driver's offer stands for the passenger:
+ * - open: the passenger can still accept (negotiating, before expiresAt)
+ * - expired: past expiresAt (or no expiry, on old requests); the rules deny accepting
+ * - withdrawn: no offer on the request any more (the driver withdrew)
+ * - accepted / cancelled: the request is closed
+ */
+export type PassengerOfferState = 'open' | 'expired' | 'withdrawn' | 'accepted' | 'cancelled';
+
+export function getPassengerOfferState(request: OutOfAreaRequest, now: number): PassengerOfferState {
+  if (request.status === 'accepted') return 'accepted';
+  if (request.status === 'cancelled' || request.status === 'rejected') return 'cancelled';
+  if (request.status === 'expired') return 'expired';
+  if (request.expiresAt === null || request.expiresAt.getTime() <= now) return 'expired';
+  if (request.status !== 'negotiating' || !request.fareAgreement || !request.driverId) {
+    return 'withdrawn';
+  }
+  return 'open';
+}
+
+export const PASSENGER_OFFER_TEXT: Record<
+  Exclude<PassengerOfferState, 'open' | 'accepted'>,
+  { title: string; message: string }
+> = {
+  expired: {
+    title: 'Request expired',
+    message: 'Your request expired before the booking was confirmed. Please request a new ride.',
+  },
+  withdrawn: {
+    title: 'Offer no longer available',
+    message: "The driver withdrew their offer. We'll keep looking for another driver.",
+  },
+  cancelled: {
+    title: 'Request closed',
+    message: 'This request is no longer open.',
+  },
+};

@@ -1,7 +1,8 @@
 /// <reference types="node" />
 
 // Firestore rules tests for out-of-area requests (passenger create, driver read, driver
-// propose and withdraw with the drivers/{uid}.currentRequestId reservation).
+// propose and withdraw with the drivers/{uid}.currentRequestId reservation, passenger
+// accept + bookings/{requestId} create in one batch, driver claim and passenger cancel).
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
@@ -16,6 +17,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -668,11 +670,7 @@ describe('out-of-area request: driver release', () => {
   });
 
   it('denies release after the passenger accepted, even past expiresAt', async () => {
-    await seedProposal({
-      status: 'accepted',
-      agreedFare: PROPOSED_FARE,
-      expiresAt: expiresInMinutes(-1),
-    });
+    await seedAcceptedWithBooking({ expiresAt: expiresInMinutes(-1) });
     await assertFails(releaseUpdate(DRIVER));
   });
 
@@ -713,7 +711,7 @@ describe('out-of-area request: driver release', () => {
   });
 
   it('keeps an accepted driver reserved when going offline', async () => {
-    await seedProposal({ status: 'accepted', agreedFare: PROPOSED_FARE });
+    await seedAcceptedWithBooking();
     await assertFails(offlineWithdrawBatch(DRIVER));
     await assertSucceeds(
       updateDoc(doc(db(DRIVER), 'drivers', DRIVER), {
@@ -722,5 +720,501 @@ describe('out-of-area request: driver release', () => {
         updatedAt: serverTimestamp(),
       }),
     );
+  });
+});
+
+// ─── Passenger accepts the fare and books (Step 5) ─────────────────────────
+
+/** The fare agreement acceptProposalAndCreateBooking writes on both documents. */
+function acceptedFareAgreement(overrides: DocumentData = {}): DocumentData {
+  return fareAgreement(PROPOSED_FARE, {
+    agreedByPassenger: true,
+    agreedAt: serverTimestamp(),
+    ...overrides,
+  });
+}
+
+/** Request fields acceptProposalAndCreateBooking writes. */
+function acceptUpdate(overrides: DocumentData = {}): DocumentData {
+  return {
+    status: 'accepted',
+    agreedFare: PROPOSED_FARE,
+    fareAgreement: acceptedFareAgreement(),
+    updatedAt: serverTimestamp(),
+    ...overrides,
+  };
+}
+
+/** bookings/{requestId} as acceptProposalAndCreateBooking writes it (copied from the request). */
+function outOfAreaBooking(overrides: DocumentData = {}): DocumentData {
+  return {
+    passengerId: PASSENGER,
+    driverId: null,
+    vehicleType: 'tricycle',
+    bookingType: 'out_of_area',
+    pickupLocation: location('Poblacion, Trinidad'),
+    destination: location('Tagbilaran City'),
+    distanceKm: 48.5,
+    estimatedFare: 520,
+    driverProposedFare: PROPOSED_FARE,
+    agreedFare: PROPOSED_FARE,
+    fareAgreement: acceptedFareAgreement(),
+    finalFare: null,
+    status: 'pending',
+    outOfAreaRequestId: REQUEST,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    acceptedAt: null,
+    arrivedAt: null,
+    startedAt: null,
+    completedAt: null,
+    cancelledAt: null,
+    paymentMethod: null,
+    cancelledBy: null,
+    cancellationReason: null,
+    ...overrides,
+  };
+}
+
+interface AcceptAndBookOptions {
+  bookingId?: string;
+  booking?: DocumentData | null;
+  requestUpdate?: DocumentData | null;
+}
+
+/** Accept + create booking in one batch; null leaves that write out. */
+function acceptAndBookBatch(uid: string, options: AcceptAndBookOptions = {}) {
+  const { bookingId = REQUEST, booking = outOfAreaBooking(), requestUpdate = acceptUpdate() } =
+    options;
+  const firestore = db(uid);
+  const batch = writeBatch(firestore);
+  if (requestUpdate) {
+    batch.update(doc(firestore, 'outOfAreaRequests', REQUEST), requestUpdate);
+  }
+  if (booking) {
+    batch.set(doc(firestore, 'bookings', bookingId), booking);
+  }
+  return batch.commit();
+}
+
+describe('out-of-area request: passenger accepts and books', () => {
+  beforeEach(async () => {
+    await seedProposal();
+  });
+
+  it('allows accepting the fare and creating the booking in one batch', async () => {
+    await assertSucceeds(acceptAndBookBatch(PASSENGER));
+    const request = await readAsAdmin(`outOfAreaRequests/${REQUEST}`);
+    const booking = await readAsAdmin(`bookings/${REQUEST}`);
+    if (request?.status !== 'accepted' || booking?.status !== 'pending') {
+      throw new Error('request was not accepted or booking was not created');
+    }
+    if (booking?.driverId !== null || booking?.agreedFare !== PROPOSED_FARE) {
+      throw new Error('booking was not created unassigned with the agreed fare');
+    }
+  });
+
+  it('keeps the agreed driver reserved after the passenger accepted', async () => {
+    await assertSucceeds(acceptAndBookBatch(PASSENGER));
+    await assertFails(releaseUpdate(DRIVER));
+  });
+
+  it('denies creating the booking without accepting in the same batch', async () => {
+    await assertFails(acceptAndBookBatch(PASSENGER, { requestUpdate: null }));
+  });
+
+  it('denies accepting without creating the booking', async () => {
+    await assertFails(acceptAndBookBatch(PASSENGER, { booking: null }));
+  });
+
+  const bookingChanges: [string, DocumentData][] = [
+    ['a changed agreedFare', { agreedFare: 700 }],
+    ['a changed driverProposedFare', { driverProposedFare: 700 }],
+    ['a changed estimatedFare', { estimatedFare: 400 }],
+    ['a changed distanceKm', { distanceKm: 10 }],
+    ['a changed pickupLocation', { pickupLocation: location('Ubay') }],
+    ['a changed destination', { destination: location('Ubay') }],
+    ['a changed vehicleType', { vehicleType: 'motorcycle' }],
+    ['a driverId set by the passenger', { driverId: DRIVER }],
+    ['a status other than pending', { status: 'accepted' }],
+    ['bookingType standard', { bookingType: 'standard' }],
+    ['a different outOfAreaRequestId', { outOfAreaRequestId: 'other-request' }],
+    [
+      'a fare agreement that differs from the request',
+      { fareAgreement: acceptedFareAgreement({ agreedFare: 700 }) },
+    ],
+    ['a finalFare', { finalFare: PROPOSED_FARE }],
+    ['an extra field', { promoCode: 'FREE' }],
+    ['a client-chosen createdAt', { createdAt: Timestamp.now() }],
+  ];
+
+  for (const [label, change] of bookingChanges) {
+    it(`denies a booking with ${label}`, async () => {
+      await assertFails(acceptAndBookBatch(PASSENGER, { booking: outOfAreaBooking(change) }));
+    });
+  }
+
+  it('denies an agreedFare different from the proposal on both documents', async () => {
+    const agreement = acceptedFareAgreement({ agreedFare: 700 });
+    await assertFails(
+      acceptAndBookBatch(PASSENGER, {
+        booking: outOfAreaBooking({ agreedFare: 700, fareAgreement: agreement }),
+        requestUpdate: acceptUpdate({ agreedFare: 700, fareAgreement: agreement }),
+      }),
+    );
+  });
+
+  it('denies a client-chosen agreedAt', async () => {
+    const agreement = acceptedFareAgreement({ agreedAt: Timestamp.now() });
+    await assertFails(
+      acceptAndBookBatch(PASSENGER, {
+        booking: outOfAreaBooking({ fareAgreement: agreement }),
+        requestUpdate: acceptUpdate({ fareAgreement: agreement }),
+      }),
+    );
+  });
+
+  it('denies a booking id other than the request id', async () => {
+    await assertFails(acceptAndBookBatch(PASSENGER, { bookingId: 'booking-2' }));
+  });
+
+  it('denies a second booking for an already accepted request', async () => {
+    await assertSucceeds(acceptAndBookBatch(PASSENGER));
+    await assertFails(acceptAndBookBatch(PASSENGER));
+    await assertFails(setDoc(doc(db(PASSENGER), 'bookings', 'booking-2'), outOfAreaBooking()));
+  });
+
+  it('denies accepting and booking an expired request', async () => {
+    await seedProposal({ expiresAt: expiresInMinutes(-1) });
+    await assertFails(acceptAndBookBatch(PASSENGER));
+  });
+
+  it('denies accepting after expiry even without a booking', async () => {
+    await seedProposal({ expiresAt: expiresInMinutes(-1) });
+    await assertFails(acceptAndBookBatch(PASSENGER, { booking: null }));
+  });
+
+  it('denies a request without an expiry', async () => {
+    await seedProposal({ expiresAt: null });
+    await assertFails(acceptAndBookBatch(PASSENGER));
+  });
+
+  it('denies a request that is back to searching (no offer)', async () => {
+    await seedProposal(WITHDRAW_UPDATE);
+    await assertFails(acceptAndBookBatch(PASSENGER));
+  });
+
+  it('denies a cancelled request', async () => {
+    await seedProposal({ status: 'cancelled' });
+    await assertFails(acceptAndBookBatch(PASSENGER));
+  });
+
+  it("denies accepting and booking another passenger's request", async () => {
+    await assertFails(
+      acceptAndBookBatch(OTHER_PASSENGER, {
+        booking: outOfAreaBooking({ passengerId: OTHER_PASSENGER }),
+      }),
+    );
+  });
+
+  it('denies the agreed driver creating the booking', async () => {
+    await assertFails(acceptAndBookBatch(DRIVER));
+  });
+
+  it('denies an out-of-area booking created on its own through the standard path', async () => {
+    await assertFails(
+      setDoc(
+        doc(db(PASSENGER), 'bookings', 'booking-2'),
+        outOfAreaBooking({ outOfAreaRequestId: null }),
+      ),
+    );
+  });
+
+  it('allows the passenger to cancel the pending out-of-area booking', async () => {
+    await assertSucceeds(acceptAndBookBatch(PASSENGER));
+    await assertSucceeds(
+      updateDoc(doc(db(PASSENGER), 'bookings', REQUEST), {
+        status: 'cancelled',
+        cancelledBy: 'passenger',
+        cancelledAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }),
+    );
+  });
+});
+
+// ─── Driver claims the booking; passenger cancels (Step 6 + Step 7 cancel) ──
+
+/** REQUEST accepted with DRIVER reserved for it, and its pending booking at bookings/{REQUEST}. */
+async function seedAcceptedWithBooking(
+  requestOverrides: DocumentData = {},
+  bookingOverrides: DocumentData = {},
+): Promise<void> {
+  await seedProposal({
+    status: 'accepted',
+    agreedFare: PROPOSED_FARE,
+    fareAgreement: fareAgreement(PROPOSED_FARE, {
+      agreedByPassenger: true,
+      agreedAt: Timestamp.now(),
+    }),
+    ...requestOverrides,
+  });
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const firestore = context.firestore() as unknown as Firestore;
+    await setDoc(doc(firestore, 'bookings', REQUEST), outOfAreaBooking(bookingOverrides));
+  });
+}
+
+const CLAIM_BOOKING_UPDATE = {
+  status: 'accepted',
+  acceptedAt: serverTimestamp(),
+  updatedAt: serverTimestamp(),
+};
+
+/** claimOutOfAreaBooking: booking claimed + reservation moved to currentBookingId. */
+function claimBatch(
+  uid: string,
+  bookingUpdate: DocumentData = { ...CLAIM_BOOKING_UPDATE, driverId: uid },
+  driverUpdate: DocumentData | null = {
+    currentBookingId: REQUEST,
+    currentRequestId: null,
+    isAvailable: false,
+  },
+) {
+  const firestore = db(uid);
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, 'bookings', REQUEST), bookingUpdate);
+  if (driverUpdate) {
+    batch.update(doc(firestore, 'drivers', uid), { ...driverUpdate, updatedAt: serverTimestamp() });
+  }
+  return batch.commit();
+}
+
+const PASSENGER_CANCEL_UPDATE = {
+  status: 'cancelled',
+  cancelledBy: 'passenger',
+  cancelledAt: serverTimestamp(),
+  updatedAt: serverTimestamp(),
+};
+
+/** bookingService.cancelBooking on a pending out-of-area booking: booking + request. */
+function passengerCancelBatch(options: { booking?: boolean; request?: boolean } = {}) {
+  const { booking = true, request = true } = options;
+  const firestore = db(PASSENGER);
+  const batch = writeBatch(firestore);
+  if (booking) {
+    batch.update(doc(firestore, 'bookings', REQUEST), PASSENGER_CANCEL_UPDATE);
+  }
+  if (request) {
+    batch.update(doc(firestore, 'outOfAreaRequests', REQUEST), {
+      status: 'cancelled',
+      updatedAt: serverTimestamp(),
+    });
+  }
+  return batch.commit();
+}
+
+/** releaseCancelledBooking: unlink a cancelled booking and become available. */
+function releaseBookingUpdate(uid: string) {
+  return updateDoc(doc(db(uid), 'drivers', uid), {
+    currentBookingId: null,
+    isOnline: true,
+    isAvailable: true,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+describe('out-of-area booking: agreed driver claims', () => {
+  beforeEach(async () => {
+    await seedAcceptedWithBooking();
+  });
+
+  it('allows the agreed driver to claim with the reservation moved in the same batch', async () => {
+    await assertSucceeds(claimBatch(DRIVER));
+    const booking = await readAsAdmin(`bookings/${REQUEST}`);
+    const driver = await readAsAdmin(`drivers/${DRIVER}`);
+    if (booking?.status !== 'accepted' || booking?.driverId !== DRIVER) {
+      throw new Error('booking was not claimed');
+    }
+    if (driver?.currentBookingId !== REQUEST || driver?.currentRequestId !== null) {
+      throw new Error('reservation was not moved to the booking');
+    }
+  });
+
+  it('allows the agreed driver to claim while offline', async () => {
+    await seedDriver(DRIVER, { isOnline: false, isAvailable: false, currentRequestId: REQUEST });
+    await assertSucceeds(claimBatch(DRIVER));
+  });
+
+  it('allows the agreed driver to read the unclaimed booking', async () => {
+    await assertSucceeds(getDoc(doc(db(DRIVER), 'bookings', REQUEST)));
+  });
+
+  it('denies another driver reading the unclaimed booking', async () => {
+    await assertFails(getDoc(doc(db(OTHER_DRIVER), 'bookings', REQUEST)));
+  });
+
+  it('denies claiming without the driver record update', async () => {
+    await assertFails(claimBatch(DRIVER, undefined, null));
+  });
+
+  it('denies claiming while keeping the request reservation', async () => {
+    await assertFails(
+      claimBatch(DRIVER, undefined, { currentBookingId: REQUEST, isAvailable: false }),
+    );
+  });
+
+  it('denies claiming without linking the booking', async () => {
+    await assertFails(
+      claimBatch(DRIVER, undefined, { currentRequestId: null, isAvailable: false }),
+    );
+  });
+
+  it('denies another driver, even one reserved for this request', async () => {
+    await seedDriver(OTHER_DRIVER, { isAvailable: false, currentRequestId: REQUEST });
+    await assertFails(claimBatch(OTHER_DRIVER));
+  });
+
+  it('denies the agreed driver when not reserved for this request', async () => {
+    await seedDriver(DRIVER, { isAvailable: false, currentRequestId: 'other-request' });
+    await assertFails(claimBatch(DRIVER));
+  });
+
+  it('denies a driver already on a booking', async () => {
+    await seedDriver(DRIVER, {
+      isAvailable: false,
+      currentRequestId: REQUEST,
+      currentBookingId: 'booking-x',
+    });
+    await assertFails(claimBatch(DRIVER));
+  });
+
+  it('denies a driver with a different vehicle type', async () => {
+    await seedDriver(DRIVER, {
+      vehicleType: 'motorcycle',
+      isAvailable: false,
+      currentRequestId: REQUEST,
+    });
+    await assertFails(claimBatch(DRIVER));
+  });
+
+  it('denies claiming a booking that is not pending', async () => {
+    await seedAcceptedWithBooking({}, { status: 'cancelled' });
+    await assertFails(claimBatch(DRIVER));
+  });
+
+  it('denies claiming when the request is not accepted', async () => {
+    await seedAcceptedWithBooking({ status: 'negotiating' });
+    await assertFails(claimBatch(DRIVER));
+  });
+
+  it('denies changing the fare while claiming', async () => {
+    await assertFails(
+      claimBatch(DRIVER, { ...CLAIM_BOOKING_UPDATE, driverId: DRIVER, agreedFare: 700 }),
+    );
+  });
+
+  it('denies a client-chosen acceptedAt', async () => {
+    await assertFails(
+      claimBatch(DRIVER, { ...CLAIM_BOOKING_UPDATE, driverId: DRIVER, acceptedAt: Timestamp.now() }),
+    );
+  });
+
+  it('denies claiming on behalf of another driver', async () => {
+    await assertFails(claimBatch(DRIVER, { ...CLAIM_BOOKING_UPDATE, driverId: OTHER_DRIVER }));
+  });
+
+  it('allows completing the claimed trip only with finalFare equal to the agreed fare', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const firestore = context.firestore() as unknown as Firestore;
+      await updateDoc(doc(firestore, 'bookings', REQUEST), {
+        status: 'in_progress',
+        driverId: DRIVER,
+      });
+    });
+    const complete = (finalFare: number) =>
+      updateDoc(doc(db(DRIVER), 'bookings', REQUEST), {
+        status: 'completed',
+        completedAt: serverTimestamp(),
+        finalFare,
+        paymentMethod: 'cash',
+        updatedAt: serverTimestamp(),
+      });
+    await assertFails(complete(520));
+    await assertSucceeds(complete(PROPOSED_FARE));
+  });
+});
+
+describe('out-of-area booking: passenger cancels', () => {
+  beforeEach(async () => {
+    await seedAcceptedWithBooking();
+  });
+
+  it('allows cancelling the booking and request together before the claim', async () => {
+    await assertSucceeds(passengerCancelBatch());
+    const request = await readAsAdmin(`outOfAreaRequests/${REQUEST}`);
+    if (request?.status !== 'cancelled') throw new Error('request was not cancelled');
+  });
+
+  it('releases the driver after a cancel before the claim', async () => {
+    await assertSucceeds(passengerCancelBatch());
+    await assertSucceeds(releaseUpdate(DRIVER));
+    const driver = await readAsAdmin(`drivers/${DRIVER}`);
+    if (driver?.currentRequestId !== null || driver?.isAvailable !== true) {
+      throw new Error('driver was not released');
+    }
+  });
+
+  it('denies the claim after the passenger cancelled', async () => {
+    await assertSucceeds(passengerCancelBatch());
+    await assertFails(claimBatch(DRIVER));
+  });
+
+  it('denies cancelling the accepted request without cancelling the booking', async () => {
+    await assertFails(passengerCancelBatch({ booking: false }));
+  });
+
+  it('releases the driver even if only the booking was cancelled', async () => {
+    await assertSucceeds(passengerCancelBatch({ request: false }));
+    await assertSucceeds(releaseUpdate(DRIVER));
+  });
+
+  it('allows release of an accepted request that has no booking (older data)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const firestore = context.firestore() as unknown as Firestore;
+      await deleteDoc(doc(firestore, 'bookings', REQUEST));
+    });
+    await assertSucceeds(releaseUpdate(DRIVER));
+  });
+
+  it('denies another passenger cancelling the request', async () => {
+    const firestore = db(OTHER_PASSENGER);
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'bookings', REQUEST), PASSENGER_CANCEL_UPDATE);
+    batch.update(doc(firestore, 'outOfAreaRequests', REQUEST), {
+      status: 'cancelled',
+      updatedAt: serverTimestamp(),
+    });
+    await assertFails(batch.commit());
+  });
+
+  it('denies closing the request once the driver has claimed the booking', async () => {
+    await assertSucceeds(claimBatch(DRIVER));
+    await assertFails(passengerCancelBatch());
+  });
+
+  it('allows a cancel after the claim and releases the driver via the booking path', async () => {
+    await assertSucceeds(claimBatch(DRIVER));
+    await assertSucceeds(passengerCancelBatch({ request: false }));
+    await assertSucceeds(releaseBookingUpdate(DRIVER));
+    const driver = await readAsAdmin(`drivers/${DRIVER}`);
+    if (driver?.currentBookingId !== null || driver?.isAvailable !== true) {
+      throw new Error('driver was not released from the cancelled booking');
+    }
+  });
+
+  it('denies releasing the booking link while the claimed trip is active', async () => {
+    await assertSucceeds(claimBatch(DRIVER));
+    await assertFails(releaseBookingUpdate(DRIVER));
   });
 });

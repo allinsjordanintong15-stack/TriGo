@@ -4,7 +4,10 @@ import {
   subscribeToBooking,
   subscribeToOutOfAreaRequest,
 } from '@/services/bookingService';
-import { subscribeToDriverActiveBookings } from '@/services/driverBookingService';
+import {
+  claimOutOfAreaBooking,
+  subscribeToDriverActiveBookings,
+} from '@/services/driverBookingService';
 import {
   getHiddenRequestIds,
   hideOutOfAreaRequest,
@@ -18,6 +21,7 @@ import {
   ProposalOutcome,
   ProposalState,
 } from '@/utils/outOfAreaProposal';
+import { router } from 'expo-router';
 import {
   createContext,
   ReactNode,
@@ -232,6 +236,72 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
       if (retryTimer) clearTimeout(retryTimer);
     };
   }, [heldForCurrent, proposalState, releaseAttempt]);
+
+  // ─── Accepted proposal: claim the passenger's booking (bookings/{requestId}) ────────
+  // The passenger accepts by creating the booking unassigned; this driver claims it,
+  // which moves the reservation to currentBookingId, then opens the trip. Runs whenever
+  // the app is open, so a booking accepted while the app was closed is claimed on the next
+  // start. If the passenger cancelled the booking instead, release the reservation.
+  const acceptedRequestId =
+    proposalState === 'accepted' && heldForCurrent ? heldForCurrent.requestId : null;
+  const claimingFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!acceptedRequestId) {
+      claimingFor.current = null;
+      return;
+    }
+
+    const requestId = acceptedRequestId;
+    const request = heldForCurrent?.request ?? null;
+
+    function release(outcome: ProposalOutcome) {
+      const record = driverRecordRef.current;
+      if (!record || record.currentRequestId !== requestId) return;
+      releaseOutOfAreaRequest(record)
+        .then(() => setFinishedProposal({ requestId, outcome, request }))
+        .catch(() => {
+          // Retried on the next snapshot or app start.
+        });
+    }
+
+    return subscribeToBooking(
+      requestId,
+      (booking) => {
+        const record = driverRecordRef.current;
+        if (!record || record.currentRequestId !== requestId) return;
+
+        if (booking.status === 'cancelled') {
+          release('cancelled');
+          return;
+        }
+        if (
+          booking.status !== 'pending' ||
+          booking.driverId !== null ||
+          claimingFor.current === requestId
+        ) {
+          return;
+        }
+
+        claimingFor.current = requestId;
+        claimOutOfAreaBooking(requestId, record.driverId)
+          .then(() => {
+            router.push({ pathname: '/driver/trip/[bookingId]', params: { bookingId: requestId } });
+          })
+          .catch(() => {
+            // A passenger cancel that won the race shows up as a cancelled snapshot;
+            // anything else (e.g. offline) is retried on the next snapshot.
+            claimingFor.current = null;
+          });
+      },
+      (error) => {
+        // An accepted request without its booking (created before bookings were made in
+        // the accept commit) holds nobody: release.
+        if (error instanceof BookingServiceError) release('unavailable');
+      },
+    );
+    // heldForCurrent changes on every request snapshot; only a new accepted request matters.
+  }, [acceptedRequestId]);
 
   const dismissFinishedProposal = useCallback(() => setFinishedProposal(null), []);
 

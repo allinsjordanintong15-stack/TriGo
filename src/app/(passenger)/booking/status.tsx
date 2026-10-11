@@ -33,6 +33,9 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+/** After this long without the driver confirming, an out-of-area passenger is told they can cancel. */
+const DRIVER_CONFIRM_NOTICE_MS = 2 * 60 * 1000;
+
 export default function BookingStatusScreen() {
   const insets = useSafeAreaInsets();
   const { passenger } = useAuth();
@@ -47,6 +50,7 @@ export default function BookingStatusScreen() {
   const [assignedDriverRecord, setAssignedDriverRecord] = useState<DriverRecord | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [fetchedRoute, setFetchedRoute] = useState<FetchedRoute | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (!bookingId) {
@@ -126,6 +130,16 @@ export default function BookingStatusScreen() {
     // Only re-run when the trip's endpoints change, not on every booking snapshot.
   }, [bookingRouteKey, needsFetchedRoute]);
 
+  // An out-of-area booking waits for its agreed driver to confirm; tick while it does.
+  const awaitingDriverConfirm =
+    booking?.bookingType === 'out_of_area' && booking.status === 'pending';
+  useEffect(() => {
+    if (!awaitingDriverConfirm) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 10 * 1000);
+    return () => clearInterval(timer);
+  }, [awaitingDriverConfirm]);
+
   async function handleConfirmCancel() {
     await handleCancel();
     setShowCancelDialog(false);
@@ -188,6 +202,8 @@ export default function BookingStatusScreen() {
   const isCompleted = booking.status === 'completed';
   const route =
     contextRoute ?? (fetchedRoute?.key === bookingRouteKey ? fetchedRoute.route : null);
+  const showDriverConfirmNotice =
+    awaitingDriverConfirm && now - booking.createdAt.getTime() >= DRIVER_CONFIRM_NOTICE_MS;
 
   function goHome() {
     setActiveBookingId(null);
@@ -206,6 +222,11 @@ export default function BookingStatusScreen() {
             pulsing={booking.status === 'pending'}
             tone={booking.status === 'cancelled' ? 'cancelled' : isActive ? 'active' : 'done'}
           />
+          {showDriverConfirmNotice ? (
+            <Text style={styles.notice}>
+              Your driver hasn't confirmed yet. You can keep waiting or cancel.
+            </Text>
+          ) : null}
           <View style={styles.stepper}>
             <StatusStepper steps={getBookingProgress(booking)} />
           </View>
@@ -314,6 +335,16 @@ const styles = StyleSheet.create({
   },
   stepper: {
     marginTop: spacing.lg,
+  },
+  notice: {
+    ...typography.caption,
+    color: colors.primaryDark,
+    backgroundColor: colors.goldLight,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    marginTop: spacing.md,
+    lineHeight: 18,
+    overflow: 'hidden',
   },
   mapCard: {
     borderRadius: radius.lg,

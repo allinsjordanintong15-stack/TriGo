@@ -34,11 +34,15 @@ export function buildConfirmationQuote(
   agreedFare: number | null;
   isOutOfArea: boolean;
 } {
-  if (outOfAreaRequest?.agreedFare != null) {
+  // Before Confirm Booking the request holds the driver's offer; that fare becomes the
+  // agreed fare when the passenger confirms.
+  const agreedFare =
+    outOfAreaRequest?.agreedFare ?? outOfAreaRequest?.fareAgreement?.driverProposedFare ?? null;
+  if (outOfAreaRequest && agreedFare !== null) {
     return {
       quote: tripQuote,
       estimatedFare: outOfAreaRequest.standardEstimatedFare,
-      agreedFare: outOfAreaRequest.agreedFare,
+      agreedFare,
       isOutOfArea: true,
     };
   }

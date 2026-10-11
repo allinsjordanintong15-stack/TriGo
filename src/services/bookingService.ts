@@ -4,6 +4,11 @@ import {
   OUT_OF_AREA_FARE_SETTINGS,
 } from '@/constants/outOfAreaFareSettings';
 import { canPassengerCancelBooking } from '@/utils/booking';
+import {
+  getPassengerOfferState,
+  PASSENGER_OFFER_TEXT,
+  PassengerOfferState,
+} from '@/utils/outOfAreaProposal';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { calculateEstimatedFare } from '@/services/fareService';
 import { isOutOfAreaTrip } from '@/services/serviceAreaService';
@@ -27,10 +32,12 @@ import {
   getDoc,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   Timestamp,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 
 export class BookingServiceError extends Error {
@@ -292,56 +299,95 @@ export async function createStandardBooking(
   }
 }
 
-export async function createOutOfAreaBooking(
-  passengerId: string,
-  quote: TripQuote,
-  request: OutOfAreaRequest,
-): Promise<Booking> {
-  if (!request.agreedFare || !request.fareAgreement?.agreedByPassenger) {
-    throw new BookingServiceError(
-      'The agreed fare must be confirmed before creating your booking.',
-    );
-  }
+/** The driver's offer was withdrawn, expired or otherwise closed before the passenger confirmed. */
+export class ProposalUnavailableError extends BookingServiceError {
+  readonly state: Exclude<PassengerOfferState, 'open' | 'accepted'>;
 
+  constructor(state: Exclude<PassengerOfferState, 'open' | 'accepted'>) {
+    super(PASSENGER_OFFER_TEXT[state].message);
+    this.name = 'ProposalUnavailableError';
+    this.state = state;
+  }
+}
+
+/**
+ * The passenger accepts the driver's fare and books the trip in one batch: the request
+ * becomes accepted and bookings/{requestId} is created unassigned with the trip details
+ * and fares copied from the request. Firestore rules require both in the same commit, an
+ * open (negotiating) request and an unexpired offer.
+ */
+export async function acceptProposalAndCreateBooking(
+  passengerId: string,
+  request: OutOfAreaRequest,
+): Promise<string> {
   if (request.passengerId !== passengerId) {
     throw new BookingServiceError('You are not authorized to confirm this booking.');
   }
 
-  try {
-    const docRef = await addDoc(
-      collection(firestore, COLLECTIONS.bookings),
-      buildBookingDocument(passengerId, quote, {
+  const offerState = getPassengerOfferState(request, Date.now());
+  const proposal = request.fareAgreement;
+  if (offerState === 'accepted') {
+    throw new BookingServiceError('This fare has already been accepted.');
+  }
+  if (offerState !== 'open' || !proposal) {
+    throw new ProposalUnavailableError(offerState === 'open' ? 'withdrawn' : offerState);
+  }
+
+  // agreedAt resolves to the commit time on both documents, as the rules require.
+  const fareAgreement = {
+    standardEstimatedFare: proposal.standardEstimatedFare,
+    driverProposedFare: proposal.driverProposedFare,
+    agreedFare: proposal.driverProposedFare,
+    agreedByPassenger: true,
+    agreedByDriver: proposal.agreedByDriver,
+    agreedAt: serverTimestamp(),
+  };
+
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, COLLECTIONS.outOfAreaRequests, request.requestId), {
+    status: 'accepted',
+    agreedFare: proposal.driverProposedFare,
+    fareAgreement,
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(
+    doc(firestore, COLLECTIONS.bookings, request.requestId),
+    buildBookingDocument(
+      passengerId,
+      {
+        pickupLocation: request.pickupLocation,
+        destination: request.destination,
+        vehicleType: request.vehicleType,
+        distanceKm: request.distanceKm,
+        standardEstimatedFare: request.standardEstimatedFare,
         bookingType: 'out_of_area',
-        status: 'pending',
-        estimatedFare: request.standardEstimatedFare,
-        driverProposedFare: request.fareAgreement.driverProposedFare,
-        agreedFare: request.agreedFare,
-        fareAgreement: {
-          ...request.fareAgreement,
-          agreedAt: request.fareAgreement.agreedAt ?? new Date(),
-        },
-        // Driver assignment happens through an authorized flow (driver app / Cloud
-        // Function). The passenger must not set driverId.
+        isOutOfArea: true,
+      },
+      {
+        driverProposedFare: proposal.driverProposedFare,
+        agreedFare: proposal.driverProposedFare,
+        fareAgreement,
+        // The agreed driver claims the booking themselves; the passenger never sets driverId.
         driverId: null,
         outOfAreaRequestId: request.requestId,
-      }),
-    );
+      },
+    ),
+  );
 
-    const snapshot = await getDoc(docRef);
-    if (!snapshot.exists()) {
-      throw new BookingServiceError('Unable to create your booking. Please try again.');
-    }
-
-    return docToBooking(snapshot.id, snapshot.data());
+  try {
+    await batch.commit();
   } catch (error) {
-    if (error instanceof BookingServiceError) {
-      throw error;
+    if ((error as { code?: string }).code === 'permission-denied') {
+      // The driver withdrew, or the request expired or closed since the last snapshot.
+      const latest = getPassengerOfferState(request, Date.now());
+      throw new ProposalUnavailableError(latest === 'expired' ? 'expired' : 'withdrawn');
     }
-
     throw new BookingServiceError(
       'Unable to create your booking. Please check your internet connection and try again.',
     );
   }
+
+  return request.requestId;
 }
 
 export async function getBooking(bookingId: string): Promise<Booking | null> {
@@ -396,33 +442,63 @@ export function subscribeToBooking(
   );
 }
 
+/**
+ * The passenger cancels before the ride starts (T5). A pending out-of-area booking has not
+ * been claimed by the agreed driver yet, so its request (same id) is closed in the same
+ * commit; that lets the driver release their reservation. The transaction re-reads the
+ * booking, so if the driver claims first only the booking is cancelled and the driver is
+ * released through releaseCancelledBooking like any assigned trip.
+ */
 export async function cancelBooking(
   bookingId: string,
   passengerId: string,
 ): Promise<Booking> {
   const bookingRef = doc(firestore, COLLECTIONS.bookings, bookingId);
-  const snapshot = await getDoc(bookingRef);
 
-  if (!snapshot.exists()) {
-    throw new BookingServiceError('Booking not found.');
+  try {
+    await runTransaction(firestore, async (transaction) => {
+      const snapshot = await transaction.get(bookingRef);
+      if (!snapshot.exists()) {
+        throw new BookingServiceError('Booking not found.');
+      }
+
+      const booking = docToBooking(snapshot.id, snapshot.data());
+
+      if (booking.passengerId !== passengerId) {
+        throw new BookingServiceError('You are not authorized to cancel this booking.');
+      }
+
+      if (!canPassengerCancelBooking(booking)) {
+        throw new BookingServiceError('This booking can no longer be cancelled.');
+      }
+
+      transaction.update(bookingRef, {
+        status: 'cancelled',
+        cancelledBy: 'passenger',
+        cancelledAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Older out-of-area bookings were not stored at their request's id.
+      if (
+        booking.bookingType === 'out_of_area' &&
+        booking.status === 'pending' &&
+        booking.outOfAreaRequestId === bookingId
+      ) {
+        transaction.update(doc(firestore, COLLECTIONS.outOfAreaRequests, bookingId), {
+          status: 'cancelled',
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
+  } catch (error) {
+    if (error instanceof BookingServiceError) {
+      throw error;
+    }
+    throw new BookingServiceError(
+      'Unable to cancel booking. Please check your internet connection and try again.',
+    );
   }
-
-  const booking = docToBooking(snapshot.id, snapshot.data());
-
-  if (booking.passengerId !== passengerId) {
-    throw new BookingServiceError('You are not authorized to cancel this booking.');
-  }
-
-  if (!canPassengerCancelBooking(booking)) {
-    throw new BookingServiceError('This booking can no longer be cancelled.');
-  }
-
-  await updateDoc(bookingRef, {
-    status: 'cancelled',
-    cancelledBy: 'passenger',
-    cancelledAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
 
   const updated = await getDoc(bookingRef);
   if (!updated.exists()) {

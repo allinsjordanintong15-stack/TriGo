@@ -1,30 +1,36 @@
-import { Button } from '@/components/ui/Button';
+import { FareCard } from '@/components/booking/FareCard';
+import { RouteTimeline } from '@/components/booking/RouteTimeline';
+import { StickyActionBar } from '@/components/booking/StickyActionBar';
+import { TripStatsRow } from '@/components/booking/TripStatsRow';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { colors, spacing, typography } from '@/constants/theme';
+import { ScreenHeader } from '@/components/ui/ScreenHeader';
+import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
-import {
-  BookingServiceError,
-  subscribeToOutOfAreaRequest,
-} from '@/services/bookingService';
-import {
-  acceptProposal,
-  declineProposal,
-  summarizeFareProposal,
-} from '@/services/fareAgreementService';
+import { BookingServiceError, subscribeToOutOfAreaRequest } from '@/services/bookingService';
+import { declineProposal } from '@/services/fareAgreementService';
 import { OutOfAreaRequest } from '@/types';
-import { formatPhilippinePeso } from '@/utils/fare';
+import { getPassengerOfferState, PASSENGER_OFFER_TEXT } from '@/utils/outOfAreaProposal';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+/** How long to wait for the driver's offer before showing a way back instead of a spinner. */
+const OFFER_LOAD_TIMEOUT_MS = 15 * 1000;
+
+const SEARCH_HREF = '/(passenger)/booking/out-of-area-search';
+
+/**
+ * The driver's fare offer. Accepting only moves on to the confirmation screen; the booking
+ * is created (and the fare accepted) when the passenger taps Confirm Booking there.
+ */
 export default function FareAgreementScreen() {
-  const insets = useSafeAreaInsets();
-  const { tripQuote, activeOutOfAreaRequestId } = useBookingDraft();
+  const { tripRoute, activeOutOfAreaRequestId } = useBookingDraft();
   const [request, setRequest] = useState<OutOfAreaRequest | null>(null);
-  const [accepting, setAccepting] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [error, setError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+  const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
     if (!activeOutOfAreaRequestId) return;
@@ -34,9 +40,7 @@ export default function FareAgreementScreen() {
       setRequest,
       (err) => {
         setError(
-          err instanceof BookingServiceError
-            ? err.message
-            : 'Unable to load fare agreement.',
+          err instanceof BookingServiceError ? err.message : 'Unable to load the driver\'s offer.',
         );
       },
     );
@@ -44,39 +48,37 @@ export default function FareAgreementScreen() {
     return unsubscribe;
   }, [activeOutOfAreaRequestId]);
 
-  const agreement = request?.fareAgreement;
+  // Ticks the expiry countdown (and the switch to the expired state).
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-  const summary =
-    agreement &&
-    summarizeFareProposal(agreement.standardEstimatedFare, agreement.driverProposedFare);
+  const agreement = request?.fareAgreement ?? null;
 
-  async function handleAccept() {
-    if (!activeOutOfAreaRequestId || !agreement || accepting || declining) return;
-
-    setAccepting(true);
-    setError('');
-
-    try {
-      await acceptProposal(activeOutOfAreaRequestId, agreement);
-      router.replace('/(passenger)/booking/confirmation');
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Unable to accept the fare. Please try again.',
-      );
-    } finally {
-      setAccepting(false);
+  // Missing offer: give the snapshot a moment, then stop spinning.
+  useEffect(() => {
+    if (agreement) {
+      setTimedOut(false);
+      return;
     }
+    const timer = setTimeout(() => setTimedOut(true), OFFER_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [agreement]);
+
+  function backToSearch() {
+    router.dismissTo(SEARCH_HREF);
   }
 
   async function handleDecline() {
-    if (!activeOutOfAreaRequestId || accepting || declining) return;
+    if (!activeOutOfAreaRequestId || declining) return;
 
     setDeclining(true);
     setError('');
 
     try {
       await declineProposal(activeOutOfAreaRequestId);
-      router.replace('/(passenger)/booking/out-of-area-search');
+      backToSearch();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Unable to decline the fare. Please try again.',
@@ -86,135 +88,173 @@ export default function FareAgreementScreen() {
     }
   }
 
-  if (!tripQuote || !request || !agreement || !summary) {
+  if (!activeOutOfAreaRequestId) {
     return (
-      <View style={[styles.centered, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading fare agreement…</Text>
+      <View style={styles.screen}>
+        <ScreenHeader title="Driver's Offer" />
+        <EmptyState icon="car-outline" title="No active out-of-area request." />
+        <StickyActionBar buttonTitle="Back to Home" onPress={() => router.dismissTo('/home')} />
       </View>
     );
   }
 
+  const offerState = request ? getPassengerOfferState(request, now) : null;
+
+  if (offerState === 'accepted' && request) {
+    // Reached only by navigating back after confirming: the booking already exists.
+    return (
+      <View style={styles.screen}>
+        <ScreenHeader title="Driver's Offer" />
+        <EmptyState
+          icon="checkmark-circle-outline"
+          title="Fare accepted"
+          message="Your booking has been created."
+        />
+        <StickyActionBar
+          buttonTitle="View Booking"
+          onPress={() =>
+            router.replace({
+              pathname: '/(passenger)/booking/status',
+              params: { bookingId: request.requestId },
+            })
+          }
+        />
+      </View>
+    );
+  }
+
+  if (offerState === 'expired' || offerState === 'withdrawn' || offerState === 'cancelled') {
+    const text = PASSENGER_OFFER_TEXT[offerState];
+    return (
+      <View style={styles.screen}>
+        <ScreenHeader title="Driver's Offer" />
+        <EmptyState icon="time-outline" title={text.title} message={text.message} />
+        <StickyActionBar buttonTitle="Back to Search" onPress={backToSearch} />
+      </View>
+    );
+  }
+
+  if (!request || !agreement) {
+    return (
+      <View style={styles.screen}>
+        <ScreenHeader title="Driver's Offer" />
+        {timedOut || error ? (
+          <>
+            <EmptyState
+              icon="cloud-offline-outline"
+              title="Couldn't load the driver's offer"
+              message={error || 'Check your internet connection, then go back to your request.'}
+            />
+            <StickyActionBar buttonTitle="Back to Search" onPress={backToSearch} />
+          </>
+        ) : (
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Loading the driver's offer…</Text>
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  const expiresInMs = request.expiresAt ? request.expiresAt.getTime() - now : 0;
+
   return (
-    <ScrollView
-      contentContainerStyle={[
-        styles.container,
-        { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.lg },
-      ]}
-    >
-      <Text style={styles.title}>Out-of-Area Trip Agreement</Text>
-      <Text style={styles.subtitle}>
-        This is an out-of-area trip. Review the fare details below before confirming.
-      </Text>
+    <View style={styles.screen}>
+      <ScreenHeader title="Driver's Offer" />
 
-      <ErrorBanner message={error} />
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.card}>
+          <Text style={styles.badge}>Out-of-Area Trip</Text>
+          <RouteTimeline
+            pickupAddress={request.pickupLocation.address}
+            destinationAddress={request.destination.address}
+          />
+        </View>
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Trip Information</Text>
-        <Text style={styles.label}>Pickup</Text>
-        <Text style={styles.value}>{tripQuote.pickupLocation.address}</Text>
-        <Text style={styles.label}>Destination</Text>
-        <Text style={styles.value}>{tripQuote.destination.address}</Text>
-        <Text style={styles.label}>Vehicle</Text>
-        <Text style={styles.value}>
-          {tripQuote.vehicleType.charAt(0).toUpperCase() + tripQuote.vehicleType.slice(1)}
-        </Text>
-        <Text style={styles.label}>Distance</Text>
-        <Text style={styles.value}>{tripQuote.distanceKm.toFixed(2)} km</Text>
-      </View>
+        <TripStatsRow
+          distanceKm={request.distanceKm}
+          vehicleType={request.vehicleType}
+          durationMin={tripRoute?.durationMin ?? null}
+        />
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Fare Information</Text>
-        <Text style={styles.label}>Standard Estimated Fare</Text>
-        <Text style={styles.value}>{formatPhilippinePeso(summary.standardEstimatedFare)}</Text>
-        <Text style={styles.label}>Driver Proposed Fare</Text>
-        <Text style={styles.fareHighlight}>
-          {formatPhilippinePeso(summary.driverProposedFare)}
-        </Text>
-        <Text style={styles.label}>Additional Amount</Text>
-        <Text style={styles.value}>{formatPhilippinePeso(summary.additionalAmount)}</Text>
-        <Text style={styles.label}>Additional Percentage</Text>
-        <Text style={styles.value}>{summary.additionalPercentage}%</Text>
-      </View>
+        <FareCard
+          estimatedFare={request.standardEstimatedFare}
+          agreedFare={agreement.driverProposedFare}
+          isOutOfArea
+          agreedNote="Proposed by your driver. Accept to review and confirm your booking."
+        />
 
-      <View style={styles.notice}>
-        <Text style={styles.noticeText}>
-          This is an out-of-area trip. The final fare has been proposed by the driver and must
-          be accepted by you before the booking can proceed.
-        </Text>
-      </View>
+        <Text style={styles.expiry}>Offer expires in {formatCountdown(expiresInMs)}</Text>
+      </ScrollView>
 
-      <Button title="Accept Fare" loading={accepting} onPress={handleAccept} />
-      <View style={styles.spacer} />
-      <Button title="Decline" variant="secondary" loading={declining} onPress={handleDecline} />
-    </ScrollView>
+      {error ? (
+        <View style={styles.errorWrap}>
+          <ErrorBanner message={error} />
+        </View>
+      ) : null}
+
+      <StickyActionBar
+        buttonTitle="Accept Fare"
+        onPress={() => router.push('/(passenger)/booking/confirmation')}
+        secondaryTitle="Decline"
+        onSecondaryPress={handleDecline}
+        secondaryLoading={declining}
+      />
+    </View>
   );
 }
 
+function formatCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    paddingHorizontal: spacing.lg,
+  screen: {
+    flex: 1,
     backgroundColor: colors.background,
+  },
+  content: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  card: {
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    ...shadow.card,
+  },
+  badge: {
+    ...typography.caption,
+    color: colors.primaryDark,
+    fontWeight: '700',
+    backgroundColor: colors.goldLight,
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  expiry: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  errorWrap: {
+    paddingHorizontal: spacing.lg,
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.background,
   },
   loadingText: {
     ...typography.body,
     color: colors.textSecondary,
     marginTop: spacing.md,
   },
-  title: {
-    ...typography.title,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  subtitle: {
-    ...typography.subtitle,
-    color: colors.textSecondary,
-    marginBottom: spacing.lg,
-    lineHeight: 22,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  sectionTitle: {
-    ...typography.label,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  label: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-  },
-  value: {
-    ...typography.body,
-    color: colors.text,
-  },
-  fareHighlight: {
-    ...typography.title,
-    fontSize: 22,
-    color: colors.primary,
-    marginTop: spacing.xs,
-  },
-  notice: {
-    backgroundColor: colors.primaryLight,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  noticeText: {
-    ...typography.caption,
-    color: colors.primaryDark,
-    lineHeight: 18,
-  },
-  spacer: { height: spacing.sm },
 });

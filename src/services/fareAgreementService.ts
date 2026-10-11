@@ -190,30 +190,6 @@ export async function releaseOutOfAreaRequest(driverRecord: DriverRecord): Promi
   });
 }
 
-export async function acceptProposal(
-  requestId: string,
-  currentAgreement: FareAgreement,
-): Promise<void> {
-  const requestRef = doc(firestore, COLLECTIONS.outOfAreaRequests, requestId);
-
-  const updatedAgreement: FareAgreement = {
-    ...currentAgreement,
-    agreedFare: currentAgreement.driverProposedFare,
-    agreedByPassenger: true,
-    agreedAt: new Date(),
-  };
-
-  await updateDoc(requestRef, {
-    status: 'accepted',
-    agreedFare: updatedAgreement.agreedFare,
-    fareAgreement: {
-      ...updatedAgreement,
-      agreedAt: serverTimestamp(),
-    },
-    updatedAt: serverTimestamp(),
-  });
-}
-
 export async function declineProposal(requestId: string): Promise<void> {
   const requestRef = doc(firestore, COLLECTIONS.outOfAreaRequests, requestId);
 

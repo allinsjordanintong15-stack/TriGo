@@ -43,6 +43,8 @@ export const DRIVER_FINISHED_BOOKING_STATUSES: BookingStatus[] = ['completed', '
 const REQUEST_UNAVAILABLE_MESSAGE =
   'This ride request is no longer available. Another driver may have accepted it.';
 
+const OUT_OF_AREA_BOOKING_CLOSED_MESSAGE = 'The passenger cancelled this booking.';
+
 const TRIP_UPDATE_FAILED_MESSAGE =
   'Unable to update this trip. Please check your internet connection and try again.';
 
@@ -175,6 +177,79 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
 
     throw new DriverBookingServiceError(
       'Unable to accept this request. Please check your internet connection and try again.',
+    );
+  }
+}
+
+/**
+ * The agreed driver claims the out-of-area booking the passenger created at
+ * bookings/{requestId} when accepting their fare. The transaction re-reads the driver,
+ * request and booking, so a passenger cancel that lands first wins (the booking is no
+ * longer pending). The same commit moves the reservation from currentRequestId to
+ * currentBookingId; Firestore rules require both.
+ */
+export async function claimOutOfAreaBooking(requestId: string, driverId: string): Promise<void> {
+  const bookingRef = doc(firestore, COLLECTIONS.bookings, requestId);
+  const driverRef = doc(firestore, COLLECTIONS.drivers, driverId);
+  const requestRef = doc(firestore, COLLECTIONS.outOfAreaRequests, requestId);
+
+  try {
+    await runTransaction(firestore, async (transaction) => {
+      const driverSnapshot = await transaction.get(driverRef);
+      const driverData = driverSnapshot.data();
+      if (!driverSnapshot.exists() || !driverData) {
+        throw new DriverBookingServiceError('Your driver record could not be found.');
+      }
+      const driver = docToDriverRecord(driverSnapshot.id, driverData);
+      if (driver.currentRequestId !== requestId || driver.currentBookingId) {
+        throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
+      }
+
+      const requestSnapshot = await transaction.get(requestRef);
+      const requestData = requestSnapshot.data();
+      if (
+        !requestData ||
+        requestData.status !== 'accepted' ||
+        requestData.driverId !== driverId
+      ) {
+        throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
+      }
+
+      const bookingSnapshot = await transaction.get(bookingRef);
+      if (!bookingSnapshot.exists()) {
+        throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
+      }
+      const booking = docToBooking(bookingSnapshot.id, bookingSnapshot.data());
+      if (
+        booking.bookingType !== 'out_of_area' ||
+        booking.status !== 'pending' ||
+        booking.driverId !== null
+      ) {
+        throw new DriverBookingServiceError(OUT_OF_AREA_BOOKING_CLOSED_MESSAGE);
+      }
+
+      transaction.update(bookingRef, {
+        driverId,
+        status: 'accepted',
+        acceptedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      transaction.update(driverRef, {
+        currentBookingId: requestId,
+        currentRequestId: null,
+        isAvailable: false,
+        updatedAt: serverTimestamp(),
+      });
+    });
+  } catch (error) {
+    if (error instanceof DriverBookingServiceError) {
+      throw error;
+    }
+    if ((error as { code?: string }).code === 'permission-denied') {
+      throw new DriverBookingServiceError(OUT_OF_AREA_BOOKING_CLOSED_MESSAGE);
+    }
+    throw new DriverBookingServiceError(
+      'Unable to start this trip. Please check your internet connection and try again.',
     );
   }
 }

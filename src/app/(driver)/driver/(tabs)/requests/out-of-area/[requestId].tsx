@@ -220,7 +220,7 @@ export default function OutOfAreaProposalScreen() {
     state === 'waiting'
       ? 'Proposal sent · waiting for passenger'
       : state === 'accepted'
-        ? 'Passenger accepted · waiting for booking'
+        ? 'Passenger accepted · starting trip'
         : outcome
           ? PROPOSAL_OUTCOME_TEXT[outcome].title
           : 'Out-of-area trip';
@@ -282,8 +282,8 @@ export default function OutOfAreaProposalScreen() {
 
         {state === 'accepted' ? (
           <Text style={styles.hint}>
-            The passenger accepted your fare. The booking will appear here once it is created; you
-            stay reserved for this trip until then.
+            The passenger accepted your fare. The trip opens automatically once it is assigned to
+            you.
           </Text>
         ) : null}
 

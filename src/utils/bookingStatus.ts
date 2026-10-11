@@ -78,8 +78,8 @@ export function getPassengerStatusHeader(booking: Booking): StatusDisplay {
     case 'pending':
       return booking.bookingType === 'out_of_area'
         ? {
-            title: 'Waiting for your driver',
-            message: 'Your driver is confirming the agreed trip.',
+            title: 'Waiting for your driver to confirm',
+            message: 'Your driver is confirming the agreed trip and fare.',
           }
         : {
             title: 'Finding a driver near you…',

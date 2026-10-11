@@ -13,6 +13,8 @@ interface FareCardProps {
   fareBasisLabel?: string;
   /** Replaces the "Fare" / "Agreed fare" title, e.g. "Final fare". */
   label?: string;
+  /** Replaces the line under the agreed fare, e.g. before the passenger has accepted. */
+  agreedNote?: string;
   /** Extra content at the bottom of the card, e.g. the payment method. */
   footer?: ReactNode;
 }
@@ -23,6 +25,7 @@ export function FareCard({
   isOutOfArea,
   fareBasisLabel,
   label,
+  agreedNote = 'Agreed upon by you and the driver.',
   footer,
 }: FareCardProps) {
   if (isOutOfArea) {
@@ -37,7 +40,7 @@ export function FareCard({
             <Text style={styles.loadingText}>Loading agreed fare…</Text>
           </View>
         )}
-        <Text style={styles.note}>Agreed upon by you and the driver.</Text>
+        <Text style={styles.note}>{agreedNote}</Text>
 
         <View style={styles.divider} />
 

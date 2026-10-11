@@ -63,7 +63,7 @@ const ACCESS_STATUS_CONTENT: Record<
 function getProposalLabel(state: ProposalState | null): string {
   if (state === null) return 'Fare proposal';
   if (state === 'waiting') return 'Fare proposed · waiting for passenger';
-  if (state === 'accepted') return 'Passenger accepted · waiting for booking';
+  if (state === 'accepted') return 'Passenger accepted · starting trip';
   return `${PROPOSAL_OUTCOME_TEXT[state].title} · releasing you…`;
 }
 

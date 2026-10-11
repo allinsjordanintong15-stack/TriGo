@@ -4,20 +4,27 @@ import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { StickyActionBar } from '@/components/booking/StickyActionBar';
 import { TripStatsRow } from '@/components/booking/TripStatsRow';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
 import { useAuth } from '@/hooks/useAuth';
 import {
+  acceptProposalAndCreateBooking,
   BookingServiceError,
-  createOutOfAreaBooking,
   createStandardBooking,
+  ProposalUnavailableError,
   subscribeToOutOfAreaRequest,
 } from '@/services/bookingService';
 import { OutOfAreaRequest } from '@/types';
 import { buildConfirmationQuote } from '@/utils/booking';
 import { formatPhilippinePeso } from '@/utils/fare';
+import {
+  getPassengerOfferState,
+  PASSENGER_OFFER_TEXT,
+  PassengerOfferState,
+} from '@/utils/outOfAreaProposal';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -38,6 +45,9 @@ export default function BookingConfirmationScreen() {
   const [outOfAreaRequest, setOutOfAreaRequest] = useState<OutOfAreaRequest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Set when Confirm Booking found the driver's offer gone (withdrawn, expired, closed).
+  const [unavailable, setUnavailable] = useState<UnavailableOfferState | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (!activeOutOfAreaRequestId) return;
@@ -49,6 +59,13 @@ export default function BookingConfirmationScreen() {
     );
 
     return unsubscribe;
+  }, [activeOutOfAreaRequestId]);
+
+  // Out-of-area offers expire; re-check every few seconds while this screen is open.
+  useEffect(() => {
+    if (!activeOutOfAreaRequestId) return;
+    const timer = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(timer);
   }, [activeOutOfAreaRequestId]);
 
   if (!tripQuote) {
@@ -63,9 +80,15 @@ export default function BookingConfirmationScreen() {
   const confirmation = buildConfirmationQuote(tripQuote, outOfAreaRequest);
   const isOutOfAreaConfirmation =
     confirmation.isOutOfArea && activeOutOfAreaRequestId !== null;
-  // Out-of-area confirmations wait for the request snapshot (and its agreed fare).
+  // Out-of-area confirmations wait for the request snapshot (and the driver's fare).
   const waitingForAgreedFare = isOutOfAreaConfirmation && confirmation.agreedFare === null;
   const total = isOutOfAreaConfirmation ? confirmation.agreedFare : confirmation.estimatedFare;
+  const liveOfferState =
+    isOutOfAreaConfirmation && outOfAreaRequest && !loading
+      ? getPassengerOfferState(outOfAreaRequest, now)
+      : null;
+  const unavailableState =
+    unavailable ?? (liveOfferState && isUnavailableOffer(liveOfferState) ? liveOfferState : null);
 
   async function handleConfirm() {
     if (!passenger || !tripQuote) return;
@@ -74,21 +97,27 @@ export default function BookingConfirmationScreen() {
     setError('');
 
     try {
-      let booking;
+      let bookingId: string;
 
-      if (isOutOfAreaConfirmation && outOfAreaRequest) {
-        booking = await createOutOfAreaBooking(passenger.uid, tripQuote, outOfAreaRequest);
+      if (isOutOfAreaConfirmation) {
+        if (!outOfAreaRequest) return;
+        // Accepts the driver's fare and creates the booking in one commit.
+        bookingId = await acceptProposalAndCreateBooking(passenger.uid, outOfAreaRequest);
         setActiveOutOfAreaRequestId(null);
       } else {
-        booking = await createStandardBooking(passenger.uid, tripQuote);
+        bookingId = (await createStandardBooking(passenger.uid, tripQuote)).bookingId;
       }
 
-      setActiveBookingId(booking.bookingId);
+      setActiveBookingId(bookingId);
       router.replace({
         pathname: '/(passenger)/booking/status',
-        params: { bookingId: booking.bookingId },
+        params: { bookingId },
       });
     } catch (err) {
+      if (err instanceof ProposalUnavailableError) {
+        setUnavailable(err.state);
+        return;
+      }
       setError(
         err instanceof BookingServiceError
           ? err.message
@@ -97,6 +126,20 @@ export default function BookingConfirmationScreen() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (unavailableState) {
+    const text = PASSENGER_OFFER_TEXT[unavailableState];
+    return (
+      <View style={styles.screen}>
+        <ScreenHeader title="Confirm Out-of-Area Ride" />
+        <EmptyState icon="time-outline" title={text.title} message={text.message} />
+        <StickyActionBar
+          buttonTitle="Back to Search"
+          onPress={() => router.dismissTo('/(passenger)/booking/out-of-area-search')}
+        />
+      </View>
+    );
   }
 
   return (
@@ -135,6 +178,11 @@ export default function BookingConfirmationScreen() {
           estimatedFare={confirmation.estimatedFare}
           agreedFare={confirmation.agreedFare}
           isOutOfArea={isOutOfAreaConfirmation}
+          agreedNote={
+            isOutOfAreaConfirmation
+              ? 'Offered by your driver. Confirming accepts this fare and books your ride.'
+              : undefined
+          }
         />
       </ScrollView>
 
@@ -154,6 +202,12 @@ export default function BookingConfirmationScreen() {
       />
     </View>
   );
+}
+
+type UnavailableOfferState = Exclude<PassengerOfferState, 'open' | 'accepted'>;
+
+function isUnavailableOffer(state: PassengerOfferState): state is UnavailableOfferState {
+  return state === 'expired' || state === 'withdrawn' || state === 'cancelled';
 }
 
 const styles = StyleSheet.create({
