@@ -2,7 +2,7 @@ const tseslint = require('typescript-eslint');
 
 module.exports = [
   {
-    ignores: ['node_modules/**', '.expo/**', 'expo-env.d.ts', '**/*.config.js', 'babel.config.js', 'metro.config.js'],
+    ignores: ['node_modules/**', '.expo/**', 'admin/**', 'expo-env.d.ts', '**/*.config.js', 'babel.config.js', 'metro.config.js'],
   },
   ...tseslint.configs.recommended,
   {
