@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
+import logo from '../assets/logo.png';
 import { useAuth } from '../auth/AuthContext';
+import { PasswordInput } from '../components/PasswordInput';
 
 export function LoginPage() {
   const { admin, loading, error, signIn, clearError } = useAuth();
@@ -28,8 +30,11 @@ export function LoginPage() {
   return (
     <div className="center-screen">
       <form className="card login-card" onSubmit={handleSubmit} noValidate>
-        <h1 className="brand">TriGo</h1>
-        <p className="muted">Admin sign in</p>
+        <div className="login-header">
+          <img src={logo} alt="TriGo logo" className="login-logo" width={96} height={96} />
+          <h1 className="brand">TriGo Admin</h1>
+          <p className="muted">Sign in to continue</p>
+        </div>
 
         {error && (
           <div className="alert-error" role="alert">
@@ -52,10 +57,10 @@ export function LoginPage() {
           />
         </label>
 
-        <label className="field">
-          <span>Password</span>
-          <input
-            type="password"
+        <div className="field">
+          <label htmlFor="login-password">Password</label>
+          <PasswordInput
+            id="login-password"
             autoComplete="current-password"
             value={password}
             onChange={(e) => {
@@ -65,7 +70,7 @@ export function LoginPage() {
             disabled={busy}
             required
           />
-        </label>
+        </div>
 
         <button type="submit" className="btn-primary" disabled={busy || !email.trim() || !password}>
           {busy ? 'Signing in…' : 'Sign in'}
