@@ -61,8 +61,8 @@ const ACCESS_STATUS_CONTENT: Record<
 };
 
 function getProposalLabel(state: ProposalState | null): string {
-  if (state === null) return 'Fare proposal';
-  if (state === 'waiting') return 'Fare proposed · waiting for passenger';
+  if (state === null) return 'Out-of-area request';
+  if (state === 'waiting') return 'Accepted · waiting for passenger';
   if (state === 'accepted') return 'Passenger accepted · starting trip';
   return `${PROPOSAL_OUTCOME_TEXT[state].title} · releasing you…`;
 }
@@ -287,7 +287,7 @@ export default function DriverHomeScreen() {
                     : hasActiveTrip
                       ? 'On a trip — not receiving new requests until it ends.'
                       : reservedRequestId
-                        ? 'Fare proposal pending — not receiving new requests until it ends.'
+                        ? 'Waiting for a passenger to confirm — not receiving new requests until then.'
                         : 'Online but not available for new trips.'
                   : canPerformDriverActions
                     ? 'Go online to become available for bookings in Trinidad, Bohol.'
@@ -364,9 +364,7 @@ export default function DriverHomeScreen() {
                     </Text>
                   </View>
                   <View style={[styles.field, styles.fieldLast]}>
-                    <Text style={styles.fieldLabel}>
-                      {activeBooking.agreedFare !== null ? 'Agreed fare' : 'Estimated fare'}
-                    </Text>
+                    <Text style={styles.fieldLabel}>Fare</Text>
                     <Text style={styles.fareValue}>
                       {formatPhilippinePeso(activeBooking.agreedFare ?? activeBooking.estimatedFare)}
                     </Text>
@@ -407,9 +405,7 @@ export default function DriverHomeScreen() {
                       </View>
                       {proposedFare !== null ? (
                         <View style={[styles.field, styles.fieldLast]}>
-                          <Text style={styles.fieldLabel}>
-                            {proposalState === 'accepted' ? 'Agreed fare' : 'Your proposed fare'}
-                          </Text>
+                          <Text style={styles.fieldLabel}>Fare</Text>
                           <Text style={styles.fareValue}>{formatPhilippinePeso(proposedFare)}</Text>
                         </View>
                       ) : null}

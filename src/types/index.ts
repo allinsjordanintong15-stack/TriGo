@@ -47,9 +47,6 @@ export interface FareAgreement {
 
 export interface OutOfAreaFareSettings {
   enabled: boolean;
-  maximumAdditionalPercentage: number | null;
-  minimumFare: number | null;
-  allowDriverNegotiation: boolean;
   requestExpiryMinutes: number;
   driverSearchRadiusKm: number;
 }

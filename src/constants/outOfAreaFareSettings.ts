@@ -1,8 +1,8 @@
 import { OutOfAreaFareSettings } from '@/types';
 
 /**
- * Configurable out-of-area tariff rules.
- * Adjust values here when official tariffs are defined — no UI changes required.
+ * Out-of-area request settings. The fare itself is the admin per-km fare and is final
+ * (docs/DECISIONS.md); drivers do not choose an amount.
  */
 /**
  * Longest request lifetime the app writes. firestore.rules accepts expiresAt up to
@@ -13,9 +13,6 @@ export const MAX_REQUEST_EXPIRY_MINUTES = 30;
 
 export const OUT_OF_AREA_FARE_SETTINGS: OutOfAreaFareSettings = {
   enabled: true,
-  maximumAdditionalPercentage: null,
-  minimumFare: null,
-  allowDriverNegotiation: true,
   requestExpiryMinutes: 30,
   driverSearchRadiusKm: 15,
 };

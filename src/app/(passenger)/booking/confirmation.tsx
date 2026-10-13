@@ -178,11 +178,6 @@ export default function BookingConfirmationScreen() {
           estimatedFare={confirmation.estimatedFare}
           agreedFare={confirmation.agreedFare}
           isOutOfArea={isOutOfAreaConfirmation}
-          agreedNote={
-            isOutOfAreaConfirmation
-              ? 'Offered by your driver. Confirming accepts this fare and books your ride.'
-              : undefined
-          }
         />
       </ScrollView>
 

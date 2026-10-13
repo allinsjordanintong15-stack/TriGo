@@ -172,12 +172,12 @@ export default function DriverRequestsScreen() {
     body = (
       <View style={styles.gateWithAction}>
         {renderGate(
-          'You have a pending proposal',
-          'New requests appear again once the passenger responds, the request ends, or you withdraw.',
+          'Waiting for a passenger to confirm',
+          'New requests appear again once the passenger confirms or chooses another driver, the request ends, or you withdraw.',
           'time-outline',
         )}
         <Button
-          title="Open proposal"
+          title="Open request"
           onPress={() =>
             router.push({
               pathname: '/driver/requests/out-of-area/[requestId]',

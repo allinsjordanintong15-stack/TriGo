@@ -42,8 +42,8 @@ export function isProposalOutcome(state: ProposalState): state is ProposalOutcom
 
 export const PROPOSAL_OUTCOME_TEXT: Record<ProposalOutcome, { title: string; message: string }> = {
   declined: {
-    title: 'Fare declined',
-    message: 'The passenger declined your fare.',
+    title: 'Passenger chose another driver',
+    message: 'The passenger chose another driver.',
   },
   cancelled: {
     title: 'Cancelled by passenger',
@@ -88,8 +88,8 @@ export const PASSENGER_OFFER_TEXT: Record<
     message: 'Your request expired before the booking was confirmed. Please request a new ride.',
   },
   withdrawn: {
-    title: 'Offer no longer available',
-    message: "The driver withdrew their offer. We'll keep looking for another driver.",
+    title: 'Driver no longer available',
+    message: "The driver is no longer available. We'll keep looking for another driver.",
   },
   cancelled: {
     title: 'Request closed',

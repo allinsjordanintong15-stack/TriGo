@@ -1,7 +1,5 @@
-import { OUT_OF_AREA_FARE_SETTINGS } from '@/constants/outOfAreaFareSettings';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { DriverRecord, FareAgreement } from '@/types';
-import { calculateFareDifference } from '@/utils/fare';
 import { doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export class FareAgreementServiceError extends Error {
@@ -13,89 +11,25 @@ export class FareAgreementServiceError extends Error {
 
 export interface FareProposalInput {
   requestId: string;
+  /** The request's admin per-km fare; out-of-area fares are final at this amount. */
   standardEstimatedFare: number;
-  driverProposedFare: number;
   driverId: string;
 }
 
-export interface FareProposalSummary {
-  standardEstimatedFare: number;
-  driverProposedFare: number;
-  additionalAmount: number;
-  additionalPercentage: number;
-}
-
-export function summarizeFareProposal(
-  standardEstimatedFare: number,
-  driverProposedFare: number,
-): FareProposalSummary {
-  const { difference, differencePercentage } = calculateFareDifference(
-    standardEstimatedFare,
-    driverProposedFare,
-  );
-
-  return {
-    standardEstimatedFare,
-    driverProposedFare,
-    additionalAmount: difference,
-    additionalPercentage: differencePercentage,
-  };
-}
-
-export function validateDriverProposedFare(
-  standardEstimatedFare: number,
-  driverProposedFare: number,
-): string | null {
-  if (driverProposedFare <= 0) {
-    return 'Proposed fare must be greater than zero.';
-  }
-
-  if (
-    OUT_OF_AREA_FARE_SETTINGS.minimumFare !== null &&
-    driverProposedFare < OUT_OF_AREA_FARE_SETTINGS.minimumFare
-  ) {
-    return `Proposed fare must be at least ₱${OUT_OF_AREA_FARE_SETTINGS.minimumFare.toFixed(2)}.`;
-  }
-
-  const { differencePercentage } = calculateFareDifference(
-    standardEstimatedFare,
-    driverProposedFare,
-  );
-
-  if (
-    OUT_OF_AREA_FARE_SETTINGS.maximumAdditionalPercentage !== null &&
-    differencePercentage > OUT_OF_AREA_FARE_SETTINGS.maximumAdditionalPercentage
-  ) {
-    return `Proposed fare exceeds the maximum allowed additional amount (${OUT_OF_AREA_FARE_SETTINGS.maximumAdditionalPercentage}%).`;
-  }
-
-  return null;
-}
-
 /**
- * The driver proposes a fare on an open request. One batch claims the request
- * (negotiating, with the proposal) and reserves the driver (currentRequestId, not
- * available); Firestore rules require both in the same commit. The passenger still has
- * to accept.
+ * The driver accepts an open request at its admin per-km fare (the fare is final; drivers
+ * do not choose an amount). One batch claims the request (negotiating, with the fare in
+ * the proposal fields) and reserves the driver (currentRequestId, not available);
+ * Firestore rules require both in the same commit and the fare to equal
+ * standardEstimatedFare. The passenger still has to confirm.
  */
 export async function createProposal(input: FareProposalInput): Promise<FareAgreement> {
-  if (!OUT_OF_AREA_FARE_SETTINGS.allowDriverNegotiation) {
-    throw new FareAgreementServiceError('Driver fare negotiation is not enabled.');
-  }
-
-  const validationError = validateDriverProposedFare(
-    input.standardEstimatedFare,
-    input.driverProposedFare,
-  );
-
-  if (validationError) {
-    throw new FareAgreementServiceError(validationError);
-  }
+  const fare = input.standardEstimatedFare;
 
   const fareAgreement: FareAgreement = {
-    standardEstimatedFare: input.standardEstimatedFare,
-    driverProposedFare: input.driverProposedFare,
-    agreedFare: input.driverProposedFare,
+    standardEstimatedFare: fare,
+    driverProposedFare: fare,
+    agreedFare: fare,
     agreedByPassenger: false,
     agreedByDriver: true,
     agreedAt: null,
@@ -105,7 +39,7 @@ export async function createProposal(input: FareProposalInput): Promise<FareAgre
   batch.update(doc(firestore, COLLECTIONS.outOfAreaRequests, input.requestId), {
     status: 'negotiating',
     driverId: input.driverId,
-    suggestedAgreementFare: input.driverProposedFare,
+    suggestedAgreementFare: fare,
     fareAgreement,
     updatedAt: serverTimestamp(),
   });
@@ -122,11 +56,11 @@ export async function createProposal(input: FareProposalInput): Promise<FareAgre
       // Taken by another driver, cancelled or expired, or this driver is no longer
       // online, available and free.
       throw new FareAgreementServiceError(
-        'Unable to send your proposal. The request may have been taken or expired, or you are no longer online and available.',
+        'Unable to accept this request. It may have been taken or expired, or you are no longer online and available.',
       );
     }
     throw new FareAgreementServiceError(
-      'Unable to send your proposal. Please check your internet connection and try again.',
+      'Unable to accept this request. Please check your internet connection and try again.',
     );
   }
 

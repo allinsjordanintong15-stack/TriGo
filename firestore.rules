@@ -339,9 +339,10 @@ service cloud.firestore {
 
       // Propose (fareAgreementService.createProposal): a verified driver who is online,
       // available, not on a trip, not already reserved and has the requested vehicle type
-      // claims an open, unexpired request with a fare. The same commit must reserve the
-      // driver (drivers/{uid}.currentRequestId = this request, not available). The
-      // passenger still has to accept.
+      // accepts an open, unexpired request. The fare is locked to the request's admin
+      // per-km fare (standardEstimatedFare); drivers no longer choose an amount. The same
+      // commit must reserve the driver (drivers/{uid}.currentRequestId = this request, not
+      // available). The passenger still has to confirm.
       allow update: if isVerifiedDriver()
         && resource.data.status == 'searching'
         && resource.data.driverId == null
@@ -364,7 +365,7 @@ service cloud.firestore {
           'agreedByPassenger', 'agreedByDriver', 'agreedAt'
         ])
         && request.resource.data.fareAgreement.driverProposedFare is number
-        && request.resource.data.fareAgreement.driverProposedFare > 0
+        && request.resource.data.fareAgreement.driverProposedFare == resource.data.standardEstimatedFare
         && request.resource.data.fareAgreement.agreedFare == request.resource.data.fareAgreement.driverProposedFare
         && request.resource.data.fareAgreement.standardEstimatedFare == resource.data.standardEstimatedFare
         && request.resource.data.fareAgreement.agreedByDriver == true

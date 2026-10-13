@@ -294,7 +294,8 @@ describe('out-of-area request: read', () => {
 
 // ─── Propose / withdraw ──────────────────────────────────────────────────────
 
-const PROPOSED_FARE = 600;
+/** The locked out-of-area fare: the request's admin per-km fare (standardEstimatedFare). */
+const PROPOSED_FARE = 520;
 
 function fareAgreement(fare: number, overrides: DocumentData = {}): DocumentData {
   return {
@@ -484,11 +485,28 @@ describe('out-of-area request: driver proposes a fare', () => {
     await assertFails(proposeBatch(DRIVER));
   });
 
-  for (const fare of [0, -5]) {
-    it(`denies a proposed fare of ${fare}`, async () => {
+  it('allows exactly the per-km fare and stores it as the proposal', async () => {
+    await assertSucceeds(proposeBatch(DRIVER, proposalUpdate(DRIVER, 520)));
+    const request = await readAsAdmin(`outOfAreaRequests/${REQUEST}`);
+    if (request?.fareAgreement?.driverProposedFare !== 520 || request?.suggestedAgreementFare !== 520) {
+      throw new Error('proposal does not carry the per-km fare');
+    }
+  });
+
+  for (const fare of [600, 520.01, 519.99, 0, -5]) {
+    it(`denies a fare other than the per-km fare: ${fare}`, async () => {
       await assertFails(proposeBatch(DRIVER, proposalUpdate(DRIVER, fare)));
     });
   }
+
+  it('denies an agreedFare that differs from the per-km proposal', async () => {
+    await assertFails(
+      proposeBatch(DRIVER, {
+        ...proposalUpdate(DRIVER),
+        fareAgreement: fareAgreement(PROPOSED_FARE, { agreedFare: 600 }),
+      }),
+    );
+  });
 
   it('denies an extra field on the request', async () => {
     await assertFails(proposeBatch(DRIVER, { ...proposalUpdate(DRIVER), agreedFare: PROPOSED_FARE }));
@@ -1140,7 +1158,7 @@ describe('out-of-area booking: agreed driver claims', () => {
         paymentMethod: 'cash',
         updatedAt: serverTimestamp(),
       });
-    await assertFails(complete(520));
+    await assertFails(complete(600));
     await assertSucceeds(complete(PROPOSED_FARE));
   });
 });
@@ -1216,5 +1234,41 @@ describe('out-of-area booking: passenger cancels', () => {
   it('denies releasing the booking link while the claimed trip is active', async () => {
     await assertSucceeds(claimBatch(DRIVER));
     await assertFails(releaseBookingUpdate(DRIVER));
+  });
+});
+
+// ─── Locked fare: proposal → booking (fare lock step) ──────────────────────
+
+describe('out-of-area fare lock: booking follows the per-km fare', () => {
+  beforeEach(async () => {
+    await seedRequest(REQUEST);
+  });
+
+  it('creates the booking at the per-km fare after a locked proposal', async () => {
+    await assertSucceeds(proposeBatch(DRIVER));
+    await assertSucceeds(acceptAndBookBatch(PASSENGER));
+    const booking = await readAsAdmin(`bookings/${REQUEST}`);
+    if (
+      booking?.agreedFare !== 520 ||
+      booking?.driverProposedFare !== 520 ||
+      booking?.estimatedFare !== 520
+    ) {
+      throw new Error('booking fare is not the per-km fare');
+    }
+  });
+
+  it('denies a booking at any other fare after a locked proposal', async () => {
+    await assertSucceeds(proposeBatch(DRIVER));
+    const agreement = acceptedFareAgreement({ driverProposedFare: 600, agreedFare: 600 });
+    await assertFails(
+      acceptAndBookBatch(PASSENGER, {
+        booking: outOfAreaBooking({
+          driverProposedFare: 600,
+          agreedFare: 600,
+          fareAgreement: agreement,
+        }),
+        requestUpdate: acceptUpdate({ agreedFare: 600, fareAgreement: agreement }),
+      }),
+    );
   });
 });

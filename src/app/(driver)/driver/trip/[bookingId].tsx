@@ -182,13 +182,7 @@ export default function DriverTripScreen() {
             value={booking.bookingType === 'standard' ? 'Standard TriGo booking' : 'Out-of-area trip'}
           />
           <DetailRow
-            label={
-              booking.finalFare !== null
-                ? 'Final fare'
-                : booking.agreedFare !== null
-                  ? 'Agreed fare'
-                  : 'Estimated fare'
-            }
+            label={booking.finalFare !== null ? 'Final fare' : 'Fare'}
             value={formatPhilippinePeso(booking.finalFare ?? fare)}
             highlight
           />

@@ -8,7 +8,6 @@ import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
-import { TextInputField } from '@/components/ui/TextInputField';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useDriverAccess } from '@/hooks/useDriverAccess';
@@ -16,7 +15,6 @@ import { subscribeToOutOfAreaRequest } from '@/services/bookingService';
 import {
   createProposal,
   FareAgreementServiceError,
-  validateDriverProposedFare,
   withdrawProposal,
 } from '@/services/fareAgreementService';
 import { OutOfAreaRequest } from '@/types';
@@ -29,10 +27,7 @@ import {
 } from '@/utils/outOfAreaProposal';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-
-/** Pesos with up to two decimals, e.g. "650" or "650.50". */
-const PESO_PATTERN = /^\d+(\.\d{1,2})?$/;
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 function goBackToRequests() {
   if (router.canGoBack()) {
@@ -40,19 +35,6 @@ function goBackToRequests() {
   } else {
     router.replace('/driver/requests');
   }
-}
-
-/** Parsed fare, or an error message for the input. Empty input is not an error yet. */
-function parseFare(input: string, referenceFare: number): { fare: number | null; error: string } {
-  const trimmed = input.trim();
-  if (!trimmed) return { fare: null, error: '' };
-  if (!PESO_PATTERN.test(trimmed)) {
-    return { fare: null, error: 'Enter an amount in pesos, e.g. 650 or 650.50.' };
-  }
-
-  const fare = Number(trimmed);
-  const validationError = validateDriverProposedFare(referenceFare, fare);
-  return validationError ? { fare: null, error: validationError } : { fare, error: '' };
 }
 
 export default function OutOfAreaProposalScreen() {
@@ -64,7 +46,6 @@ export default function OutOfAreaProposalScreen() {
   const [request, setRequest] = useState<OutOfAreaRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
-  const [fareInput, setFareInput] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -152,25 +133,26 @@ export default function OutOfAreaProposalScreen() {
     );
   }
 
-  const proposedFare = shown.fareAgreement?.driverProposedFare ?? null;
-  const { fare, error: fareError } = parseFare(fareInput, shown.standardEstimatedFare);
+  // The admin per-km fare is final. Requests this driver already holds show the stored
+  // fare (older requests may carry an amount proposed before the fare was locked).
+  const fare = shown.fareAgreement?.driverProposedFare ?? shown.standardEstimatedFare;
 
-  // Why this driver cannot propose right now, mirroring the Firestore rule.
+  // Why this driver cannot accept right now, mirroring the Firestore rule.
   let blockedReason = '';
   if (!canPerformDriverActions) {
-    blockedReason = 'Your account must be verified before you can propose a fare.';
+    blockedReason = 'Your account must be verified before you can accept requests.';
   } else if (hasActiveTrip || driverRecord?.currentBookingId) {
-    blockedReason = 'Finish your current trip before proposing a fare.';
+    blockedReason = 'Finish your current trip before accepting a request.';
   } else if (driverRecord?.currentRequestId) {
-    blockedReason = 'You already have a pending fare proposal. Withdraw it first.';
+    blockedReason = 'You are already waiting on another passenger. Withdraw first.';
   } else if (!driverRecord?.isOnline || !driverRecord.isAvailable) {
-    blockedReason = 'Go online and be available on the Home tab to propose a fare.';
+    blockedReason = 'Go online and be available on the Home tab to accept requests.';
   } else if (driverRecord.vehicleType !== shown.vehicleType) {
     blockedReason = 'This request is for a different vehicle type.';
   }
 
-  async function handleSendProposal() {
-    if (!request || !driverId || fare === null) return;
+  async function handleAcceptRequest() {
+    if (!request || !driverId) return;
 
     setSubmitting(true);
     setError('');
@@ -178,15 +160,13 @@ export default function OutOfAreaProposalScreen() {
       await createProposal({
         requestId: request.requestId,
         standardEstimatedFare: request.standardEstimatedFare,
-        driverProposedFare: fare,
         driverId,
       });
-      setFareInput('');
     } catch (err) {
       setError(
         err instanceof FareAgreementServiceError
           ? err.message
-          : 'Unable to send your proposal. Please try again.',
+          : 'Unable to accept this request. Please try again.',
       );
     } finally {
       setSubmitting(false);
@@ -207,7 +187,7 @@ export default function OutOfAreaProposalScreen() {
       setError(
         err instanceof FareAgreementServiceError
           ? err.message
-          : 'Unable to withdraw your proposal. Please try again.',
+          : 'Unable to withdraw. Please try again.',
       );
       setShowWithdraw(false);
     } finally {
@@ -218,7 +198,7 @@ export default function OutOfAreaProposalScreen() {
   const outcome = state !== 'open' && isProposalOutcome(state) ? state : null;
   const badge =
     state === 'waiting'
-      ? 'Proposal sent · waiting for passenger'
+      ? 'Accepted · waiting for passenger'
       : state === 'accepted'
         ? 'Passenger accepted · starting trip'
         : outcome
@@ -228,16 +208,9 @@ export default function OutOfAreaProposalScreen() {
     state === 'open' || state === 'waiting' ? formatExpiresIn(shown.expiresAt, now) : '';
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={styles.container}>
       {header}
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {outcome ? (
           <View style={[styles.card, styles.outcomeCard]}>
             <Text style={styles.outcomeTitle}>{PROPOSAL_OUTCOME_TEXT[outcome].title}</Text>
@@ -263,49 +236,12 @@ export default function OutOfAreaProposalScreen() {
 
         <TripStatsRow distanceKm={shown.distanceKm} vehicleType={shown.vehicleType} />
 
-        {(state === 'waiting' || state === 'accepted') && proposedFare !== null ? (
-          <FareCard
-            estimatedFare={shown.standardEstimatedFare}
-            agreedFare={proposedFare}
-            isOutOfArea
-            label={state === 'accepted' ? 'Agreed fare' : 'Your proposed fare'}
-          />
-        ) : (
-          <FareCard
-            estimatedFare={shown.standardEstimatedFare}
-            agreedFare={null}
-            isOutOfArea={false}
-            label="Reference fare"
-            fareBasisLabel="Reference only. The passenger agrees to the fare you propose."
-          />
-        )}
+        <FareCard estimatedFare={fare} agreedFare={fare} isOutOfArea />
 
         {state === 'accepted' ? (
           <Text style={styles.hint}>
-            The passenger accepted your fare. The trip opens automatically once it is assigned to
-            you.
+            The passenger confirmed. The trip opens automatically once it is assigned to you.
           </Text>
-        ) : null}
-
-        {state === 'open' ? (
-          <View style={styles.card}>
-            <TextInputField
-              label="Your fare (₱)"
-              value={fareInput}
-              onChangeText={(text) => {
-                setFareInput(text);
-                setError('');
-              }}
-              placeholder={shown.standardEstimatedFare.toFixed(2)}
-              keyboardType="decimal-pad"
-              maxLength={9}
-              error={fareError}
-              editable={!blockedReason && !submitting}
-            />
-            <Text style={styles.hint}>
-              The passenger sees this fare and can accept or decline it. There is no counter-offer.
-            </Text>
-          </View>
         ) : null}
 
         {state === 'open' && blockedReason ? <ErrorBanner message={blockedReason} /> : null}
@@ -314,16 +250,14 @@ export default function OutOfAreaProposalScreen() {
 
       {state === 'open' ? (
         <StickyActionBar
-          buttonTitle={
-            fare !== null ? `Send Proposal · ${formatPhilippinePeso(fare)}` : 'Send Proposal'
-          }
+          buttonTitle={`Accept request at ${formatPhilippinePeso(fare)}`}
           onPress={() => setShowConfirm(true)}
-          disabled={fare === null || Boolean(blockedReason)}
+          disabled={Boolean(blockedReason)}
           loading={submitting}
         />
       ) : state === 'waiting' ? (
         <StickyActionBar
-          buttonTitle="Withdraw proposal"
+          buttonTitle="Withdraw"
           variant="secondary"
           onPress={() => setShowWithdraw(true)}
           loading={submitting}
@@ -333,19 +267,19 @@ export default function OutOfAreaProposalScreen() {
       ) : null}
 
       <ConfirmationDialog
-        visible={showConfirm && fare !== null}
-        title="Send this fare?"
-        message={`You are proposing ${fare !== null ? formatPhilippinePeso(fare) : ''} for this trip. You will be unavailable for other requests until the passenger responds or you withdraw.`}
-        confirmLabel="Send"
+        visible={showConfirm}
+        title="Accept this request?"
+        message={`The fare for this trip is ${formatPhilippinePeso(fare)}. You will be unavailable for other requests until the passenger confirms or you withdraw.`}
+        confirmLabel="Accept"
         cancelLabel="Back"
         loading={submitting}
-        onConfirm={handleSendProposal}
+        onConfirm={handleAcceptRequest}
         onCancel={() => setShowConfirm(false)}
       />
 
       <ConfirmationDialog
         visible={showWithdraw}
-        title="Withdraw proposal?"
+        title="Withdraw from this request?"
         message="The request goes back to other drivers and you become available again."
         confirmLabel="Withdraw"
         cancelLabel="Keep"
@@ -354,7 +288,7 @@ export default function OutOfAreaProposalScreen() {
         onConfirm={handleWithdraw}
         onCancel={() => setShowWithdraw(false)}
       />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

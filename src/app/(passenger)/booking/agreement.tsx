@@ -15,14 +15,15 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-/** How long to wait for the driver's offer before showing a way back instead of a spinner. */
+/** How long to wait for the driver's details before showing a way back instead of a spinner. */
 const OFFER_LOAD_TIMEOUT_MS = 15 * 1000;
 
 const SEARCH_HREF = '/(passenger)/booking/out-of-area-search';
 
 /**
- * The driver's fare offer. Accepting only moves on to the confirmation screen; the booking
- * is created (and the fare accepted) when the passenger taps Confirm Booking there.
+ * A driver accepted the request at the admin per-km fare (final). Confirm only moves on
+ * to the confirmation screen; the booking is created when the passenger taps Confirm
+ * Booking there. Choose another driver declines this one and keeps searching.
  */
 export default function FareAgreementScreen() {
   const { tripRoute, activeOutOfAreaRequestId } = useBookingDraft();
@@ -40,7 +41,7 @@ export default function FareAgreementScreen() {
       setRequest,
       (err) => {
         setError(
-          err instanceof BookingServiceError ? err.message : 'Unable to load the driver\'s offer.',
+          err instanceof BookingServiceError ? err.message : 'Unable to load your driver.',
         );
       },
     );
@@ -81,7 +82,7 @@ export default function FareAgreementScreen() {
       backToSearch();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Unable to decline the fare. Please try again.',
+        err instanceof Error ? err.message : 'Unable to choose another driver. Please try again.',
       );
     } finally {
       setDeclining(false);
@@ -91,7 +92,7 @@ export default function FareAgreementScreen() {
   if (!activeOutOfAreaRequestId) {
     return (
       <View style={styles.screen}>
-        <ScreenHeader title="Driver's Offer" />
+        <ScreenHeader title="Confirm Your Driver" />
         <EmptyState icon="car-outline" title="No active out-of-area request." />
         <StickyActionBar buttonTitle="Back to Home" onPress={() => router.dismissTo('/home')} />
       </View>
@@ -104,10 +105,10 @@ export default function FareAgreementScreen() {
     // Reached only by navigating back after confirming: the booking already exists.
     return (
       <View style={styles.screen}>
-        <ScreenHeader title="Driver's Offer" />
+        <ScreenHeader title="Confirm Your Driver" />
         <EmptyState
           icon="checkmark-circle-outline"
-          title="Fare accepted"
+          title="Driver confirmed"
           message="Your booking has been created."
         />
         <StickyActionBar
@@ -127,7 +128,7 @@ export default function FareAgreementScreen() {
     const text = PASSENGER_OFFER_TEXT[offerState];
     return (
       <View style={styles.screen}>
-        <ScreenHeader title="Driver's Offer" />
+        <ScreenHeader title="Confirm Your Driver" />
         <EmptyState icon="time-outline" title={text.title} message={text.message} />
         <StickyActionBar buttonTitle="Back to Search" onPress={backToSearch} />
       </View>
@@ -137,12 +138,12 @@ export default function FareAgreementScreen() {
   if (!request || !agreement) {
     return (
       <View style={styles.screen}>
-        <ScreenHeader title="Driver's Offer" />
+        <ScreenHeader title="Confirm Your Driver" />
         {timedOut || error ? (
           <>
             <EmptyState
               icon="cloud-offline-outline"
-              title="Couldn't load the driver's offer"
+              title="Couldn't load your driver"
               message={error || 'Check your internet connection, then go back to your request.'}
             />
             <StickyActionBar buttonTitle="Back to Search" onPress={backToSearch} />
@@ -150,7 +151,7 @@ export default function FareAgreementScreen() {
         ) : (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.loadingText}>Loading the driver's offer…</Text>
+            <Text style={styles.loadingText}>Loading your driver…</Text>
           </View>
         )}
       </View>
@@ -161,7 +162,7 @@ export default function FareAgreementScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="Driver's Offer" />
+      <ScreenHeader title="Confirm Your Driver" />
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
@@ -178,14 +179,15 @@ export default function FareAgreementScreen() {
           durationMin={tripRoute?.durationMin ?? null}
         />
 
+        <Text style={styles.intro}>A driver accepted your out-of-area request.</Text>
+
         <FareCard
-          estimatedFare={request.standardEstimatedFare}
+          estimatedFare={agreement.driverProposedFare}
           agreedFare={agreement.driverProposedFare}
           isOutOfArea
-          agreedNote="Proposed by your driver. Accept to review and confirm your booking."
         />
 
-        <Text style={styles.expiry}>Offer expires in {formatCountdown(expiresInMs)}</Text>
+        <Text style={styles.expiry}>Confirm within {formatCountdown(expiresInMs)}</Text>
       </ScrollView>
 
       {error ? (
@@ -195,9 +197,9 @@ export default function FareAgreementScreen() {
       ) : null}
 
       <StickyActionBar
-        buttonTitle="Accept Fare"
+        buttonTitle="Confirm"
         onPress={() => router.push('/(passenger)/booking/confirmation')}
-        secondaryTitle="Decline"
+        secondaryTitle="Choose another driver"
         onSecondaryPress={handleDecline}
         secondaryLoading={declining}
       />
@@ -238,6 +240,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     marginBottom: spacing.md,
     overflow: 'hidden',
+  },
+  intro: {
+    ...typography.body,
+    color: colors.text,
+    textAlign: 'center',
   },
   expiry: {
     ...typography.caption,

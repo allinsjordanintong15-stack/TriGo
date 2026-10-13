@@ -4,17 +4,18 @@ import { ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 interface FareCardProps {
-  /** Standard fare for the trip; the reference fare on out-of-area trips. */
+  /** Fare for a standard trip. */
   estimatedFare: number;
-  /** Fare agreed with the driver; only out-of-area trips have one. */
+  /**
+   * Fare stored on an out-of-area booking or request (the admin per-km fare, final).
+   * Null while it loads.
+   */
   agreedFare: number | null;
   isOutOfArea: boolean;
   /** Optional line under the fare explaining its basis, e.g. "Based on ₱8/km". */
   fareBasisLabel?: string;
-  /** Replaces the "Fare" / "Agreed fare" title, e.g. "Final fare". */
+  /** Replaces the "Fare" title, e.g. "Final fare". */
   label?: string;
-  /** Replaces the line under the agreed fare, e.g. before the passenger has accepted. */
-  agreedNote?: string;
   /** Extra content at the bottom of the card, e.g. the payment method. */
   footer?: ReactNode;
 }
@@ -25,29 +26,21 @@ export function FareCard({
   isOutOfArea,
   fareBasisLabel,
   label,
-  agreedNote = 'Agreed upon by you and the driver.',
   footer,
 }: FareCardProps) {
   if (isOutOfArea) {
     return (
       <View style={styles.card}>
-        <Text style={styles.label}>{label ?? 'Agreed fare'}</Text>
+        <Text style={styles.label}>{label ?? 'Fare'}</Text>
         {agreedFare !== null ? (
           <Text style={styles.total}>{formatPhilippinePeso(agreedFare)}</Text>
         ) : (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={styles.loadingText}>Loading agreed fare…</Text>
+            <Text style={styles.loadingText}>Loading fare…</Text>
           </View>
         )}
-        <Text style={styles.note}>{agreedNote}</Text>
-
-        <View style={styles.divider} />
-
-        <View style={styles.referenceRow}>
-          <Text style={styles.referenceLabel}>Reference fare (not binding)</Text>
-          <Text style={styles.referenceValue}>{formatPhilippinePeso(estimatedFare)}</Text>
-        </View>
+        {fareBasisLabel ? <Text style={styles.note}>{fareBasisLabel}</Text> : null}
         {footer}
       </View>
     );
@@ -94,26 +87,5 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     marginTop: spacing.xs,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginVertical: spacing.md,
-  },
-  referenceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  referenceLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    flexShrink: 1,
-  },
-  referenceValue: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    fontWeight: '600',
   },
 });

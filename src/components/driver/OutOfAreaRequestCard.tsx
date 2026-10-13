@@ -60,9 +60,8 @@ export function OutOfAreaRequestCard({
       </View>
 
       <View style={styles.fareRow}>
-        <Text style={styles.fareLabel}>Reference fare</Text>
+        <Text style={styles.fareLabel}>Fare</Text>
         <Text style={styles.fare}>{formatPhilippinePeso(request.standardEstimatedFare)}</Text>
-        <Text style={styles.fareNote}>reference only</Text>
       </View>
 
       <View style={styles.metaRow}>
@@ -163,11 +162,6 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontWeight: '700',
     color: colors.primary,
-  },
-  fareNote: {
-    ...typography.caption,
-    fontStyle: 'italic',
-    color: colors.textMuted,
   },
   metaRow: {
     flexDirection: 'row',

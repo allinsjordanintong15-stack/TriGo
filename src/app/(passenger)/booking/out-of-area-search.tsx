@@ -137,8 +137,8 @@ export default function OutOfAreaSearchScreen() {
     >
       <Text style={styles.title}>Request Out-of-Area Ride</Text>
       <Text style={styles.subtitle}>
-        We are searching for nearby available drivers who can accept your trip. A driver must
-        agree to the trip and fare before your booking is confirmed.
+        We are searching for nearby available drivers who can accept your trip. You confirm the
+        driver before your booking is made.
       </Text>
 
       <ErrorBanner message={error} />
@@ -153,7 +153,7 @@ export default function OutOfAreaSearchScreen() {
       <TripSummaryCard
         quote={tripQuote}
         bookingTypeLabel="Out-of-Area Trip Request"
-        fareLabel="Reference fare (not binding)"
+        fareLabel="Fare"
         fareNote={null}
       />
 
@@ -188,7 +188,7 @@ export default function OutOfAreaSearchScreen() {
       {offerState === 'open' ? (
         <View style={styles.offerButton}>
           <Button
-            title="View Driver's Offer"
+            title="Confirm Your Driver"
             onPress={() => router.push('/(passenger)/booking/agreement')}
           />
         </View>
@@ -213,7 +213,7 @@ function formatRequestStatus(status: OutOfAreaRequest['status']): string {
   const labels: Record<OutOfAreaRequest['status'], string> = {
     searching: 'Looking for available drivers',
     driver_interested: 'Driver interested',
-    negotiating: 'Fare negotiation',
+    negotiating: 'Driver found · waiting for you to confirm',
     accepted: 'Accepted',
     rejected: 'Declined',
     expired: 'Expired',
