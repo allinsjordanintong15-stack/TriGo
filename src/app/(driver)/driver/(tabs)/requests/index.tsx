@@ -106,9 +106,12 @@ export default function DriverRequestsScreen() {
         setBookings(open);
         setError('');
       },
-      () => {
+      (subscriptionError) => {
         setBookings([]);
-        setError('Unable to load ride requests. Please check your connection.');
+        const message = 'Unable to load ride requests. Please check your connection.';
+        // Dev builds show the Firestore code (e.g. permission-denied vs unavailable).
+        const code = (subscriptionError as { code?: unknown }).code;
+        setError(__DEV__ && typeof code === 'string' ? `${message} [${code}]` : message);
       },
     );
   }, [canReceiveRequests, vehicleType]);
@@ -155,7 +158,19 @@ export default function DriverRequestsScreen() {
   }
 
   let body;
-  if (status !== 'verified') {
+  if (status === 'role_not_authorized') {
+    body = renderGate(
+      'Driver access not active',
+      'Your account is not set up for driver access yet. Please contact the TriGo administrator to finish setting up your account.',
+      'shield-outline',
+    );
+  } else if (status === 'invalid_vehicle_type') {
+    body = renderGate(
+      'Vehicle type not set up',
+      'Your vehicle type is not set up correctly. Please contact the TriGo administrator.',
+      'car-outline',
+    );
+  } else if (status !== 'verified') {
     body = renderGate(
       'Verification required',
       'Ride requests appear once a TriGo administrator verifies your account.',

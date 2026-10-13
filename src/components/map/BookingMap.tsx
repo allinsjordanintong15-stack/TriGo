@@ -101,16 +101,27 @@ export function BookingMap({
       return null;
     }
 
+    const coordinates: [number, number][] =
+      routeCoordinates && routeCoordinates.length >= 2
+        ? routeCoordinates
+        : [
+            [pickupLocation.longitude, pickupLocation.latitude],
+            [destination.longitude, destination.latitude],
+          ];
+    // MapLibre rejects a line without two distinct points ("Invalid geometry in line layer"),
+    // e.g. when pickup and destination are the same spot.
+    const [firstLongitude, firstLatitude] = coordinates[0];
+    const hasDistinctPoints = coordinates.some(
+      ([longitude, latitude]) => longitude !== firstLongitude || latitude !== firstLatitude,
+    );
+    if (!hasDistinctPoints) {
+      return null;
+    }
+
     return {
       type: 'Feature',
       properties: {},
-      geometry: {
-        type: 'LineString',
-        coordinates: routeCoordinates ?? [
-          [pickupLocation.longitude, pickupLocation.latitude],
-          [destination.longitude, destination.latitude],
-        ],
-      },
+      geometry: { type: 'LineString', coordinates },
     };
   }, [pickupLocation, destination, routeCoordinates]);
 

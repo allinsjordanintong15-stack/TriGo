@@ -15,6 +15,7 @@ import {
   BookingServiceError,
   buildTripQuote,
   createOutOfAreaRequest,
+  NO_ROAD_NEAR_PIN_MESSAGE,
   ROAD_ROUTE_UNAVAILABLE_MESSAGE,
 } from '@/services/bookingService';
 import {
@@ -24,11 +25,12 @@ import {
   resolveLocation,
   toMapRegion,
 } from '@/services/locationService';
-import { getRoadRoute, RoadRoute } from '@/services/routingService';
+import { fetchRoadRoute, RoadRoute } from '@/services/routingService';
 import {
   getServiceAreaLabel,
   getTripServiceAreaStatus,
   isLocationWithinServiceArea,
+  isOutOfAreaTrip,
 } from '@/services/serviceAreaService';
 import { Location } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
@@ -51,7 +53,7 @@ type RouteState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'road'; key: string; route: RoadRoute }
-  | { status: 'unavailable' };
+  | { status: 'unavailable'; message: string };
 
 /** Wait for the passenger to settle on a point before asking ORS for a route. */
 const ROUTE_DEBOUNCE_MS = 500;
@@ -164,12 +166,25 @@ export default function PassengerHomeScreen() {
   const destinationLatitude = destination?.latitude;
   const destinationLongitude = destination?.longitude;
   useEffect(() => {
+    if (__DEV__) {
+      // TEMP debug: why the route effect ran or skipped. Remove once routing is verified.
+      console.log('[TriGo Route] effect', {
+        pickup:
+          pickupLatitude === undefined ? 'missing' : `${pickupLatitude},${pickupLongitude}`,
+        destination:
+          destinationLatitude === undefined
+            ? 'missing'
+            : `${destinationLatitude},${destinationLongitude}`,
+        retry: routeRetryCount,
+      });
+    }
     if (
       pickupLatitude === undefined ||
       pickupLongitude === undefined ||
       destinationLatitude === undefined ||
       destinationLongitude === undefined
     ) {
+      if (__DEV__) console.log('[TriGo Route] effect skipped: pickup or destination missing');
       setRouteState({ status: 'idle' });
       return;
     }
@@ -179,24 +194,45 @@ export default function PassengerHomeScreen() {
     const key = routeKey(pickup, dropoff);
 
     if (lastRoadRoute.current?.key === key) {
-setRouteState({ status: 'road', key, route: lastRoadRoute.current.route });
+      if (__DEV__) console.log('[TriGo Route] effect skipped: reusing cached route');
+      setRouteState({ status: 'road', key, route: lastRoadRoute.current.route });
       return;
     }
 
+    if (__DEV__) {
+      console.log(`[TriGo Route] effect scheduled: request in ${ROUTE_DEBOUNCE_MS} ms`);
+    }
     let cancelled = false;
+    let fired = false;
     setRouteState({ status: 'loading' });
     const timer = setTimeout(() => {
-      getRoadRoute(pickup, dropoff).then((route) => {
+      fired = true;
+      if (__DEV__) {
+        // Same fetchRoadRoute call for both trip types; tagged to compare them in the log.
+        console.log('[TriGo Route] passenger home trip', {
+          tripType: isOutOfAreaTrip(pickup, dropoff) ? 'out_of_area' : 'standard',
+        });
+      }
+      fetchRoadRoute(pickup, dropoff).then((result) => {
         if (cancelled) return;
-        if (route) {
-          lastRoadRoute.current = { key, route };
-          setRouteState({ status: 'road', key, route });
+        if (result.ok) {
+          lastRoadRoute.current = { key, route: result.route };
+          setRouteState({ status: 'road', key, route: result.route });
         } else {
-          setRouteState({ status: 'unavailable' });
+          setRouteState({
+            status: 'unavailable',
+            message:
+              result.reason === 'no_road_near_pin'
+                ? NO_ROAD_NEAR_PIN_MESSAGE
+                : ROAD_ROUTE_UNAVAILABLE_MESSAGE,
+          });
         }
       });
     }, ROUTE_DEBOUNCE_MS);
     return () => {
+      if (__DEV__ && !fired) {
+        console.log('[TriGo Route] effect cleanup: debounce cancelled before the request');
+      }
       cancelled = true;
       clearTimeout(timer);
     };
@@ -582,7 +618,7 @@ setRouteState({ status: 'road', key, route: lastRoadRoute.current.route });
               <View style={styles.sheetFooter}>
                 {routeState.status === 'unavailable' ? (
                   <View style={styles.routeError}>
-                    <ErrorBanner message={ROAD_ROUTE_UNAVAILABLE_MESSAGE} />
+                    <ErrorBanner message={routeState.message} />
                     <Button
                       title="Retry"
                       variant="secondary"

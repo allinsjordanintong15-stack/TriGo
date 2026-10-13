@@ -72,25 +72,6 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
   try {
     const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
 
-    if (__DEV__) {
-      // TEMPORARY: inspect what the device geocoder returns. Remove once verified.
-      console.log(
-        '[TriGo Geocode] device result',
-        place
-          ? {
-              name: place.name,
-              street: place.street,
-              streetNumber: place.streetNumber,
-              district: place.district,
-              subregion: place.subregion,
-              city: place.city,
-              region: place.region,
-              formattedAddress: place.formattedAddress,
-            }
-          : 'no results',
-      );
-    }
-
     if (place) {
       const placeParts = getPlaceParts(place);
       parts = { ...placeParts, town: serviceAreaTown ?? placeParts.town };

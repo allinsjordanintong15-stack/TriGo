@@ -6,9 +6,10 @@ import { Booking, BookingStatus, PaymentMethod, VehicleType } from '@/types';
 import { canDriverCancelBooking, getDisplayFare } from '@/utils/booking';
 import {
   collection,
+  count,
   doc,
   DocumentData,
-  getCountFromServer,
+  getAggregateFromServer,
   getDocs,
   limit,
   onSnapshot,
@@ -18,6 +19,7 @@ import {
   runTransaction,
   serverTimestamp,
   startAfter,
+  sum,
   Timestamp,
   Transaction,
   where,
@@ -449,14 +451,23 @@ export async function fetchDriverTripHistory(
   }
 }
 
+export interface FaresCollected {
+  /** Completed trips in the period. */
+  trips: number;
+  /** Sum of their finalFare, before commission. */
+  total: number;
+}
+
 /**
- * Number of trips this driver completed since `since` (dashboard summary). Uses the same
- * trip-history index; updatedAt of a completed booking is its completion time.
+ * Trips this driver completed since `since` and the fares collected on them (sum of
+ * finalFare, before commission) for the Home summary. Read-only aggregate over the same
+ * trip-history index (driverId, status, updatedAt); updatedAt of a completed booking is
+ * its completion time. Completed bookings without a numeric finalFare are not summed.
  */
-export async function countDriverCompletedTripsSince(
+export async function getDriverFaresCollectedSince(
   driverId: string,
   since: Date,
-): Promise<number> {
+): Promise<FaresCollected> {
   const completedQuery = query(
     collection(firestore, COLLECTIONS.bookings),
     where('driverId', '==', driverId),
@@ -466,11 +477,16 @@ export async function countDriverCompletedTripsSince(
   );
 
   try {
-    const snapshot = await getCountFromServer(completedQuery);
-    return snapshot.data().count;
+    const snapshot = await getAggregateFromServer(completedQuery, {
+      trips: count(),
+      total: sum('finalFare'),
+    });
+    const { trips, total } = snapshot.data();
+    // Sums of centavo amounts can carry floating-point noise.
+    return { trips, total: Math.round((total ?? 0) * 100) / 100 };
   } catch (error) {
-    console.warn('[TriGo] countDriverCompletedTripsSince failed', error);
-    throw new DriverBookingServiceError("Unable to load today's trips.");
+    console.warn('[TriGo] getDriverFaresCollectedSince failed', error);
+    throw new DriverBookingServiceError('Unable to load fares collected.');
   }
 }
 

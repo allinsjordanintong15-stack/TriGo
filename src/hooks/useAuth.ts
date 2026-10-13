@@ -19,7 +19,15 @@ export interface AuthContextValue {
   driverRecord: DriverRecord | null;
   /** True once the `drivers/{uid}` lookup has finished for the signed-in user. */
   driverRecordLoaded: boolean;
-  /** True only when the `drivers/{uid}` record is verified by an admin. */
+  /**
+   * Driver access by account, as Firestore rules check it: a `driver` account, or a
+   * passenger whose driver application was approved and who has a driver record.
+   */
+  hasDriverRole: boolean;
+  /**
+   * True only with driver access by account (`hasDriverRole`) and a `drivers/{uid}` record
+   * verified by an admin — the same check as isVerifiedDriver() in firestore.rules.
+   */
   isVerifiedDriver: boolean;
   /** Driver accounts, and passengers whose driver application was approved (driver record exists). */
   hasDriverMode: boolean;

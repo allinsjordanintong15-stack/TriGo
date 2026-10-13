@@ -10,6 +10,16 @@
       ]
     },
     {
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" },
+        { "fieldPath": "finalFare", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "outOfAreaRequests",
       "queryScope": "COLLECTION",
       "fields": [

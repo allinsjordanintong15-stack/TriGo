@@ -1,56 +1,50 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Button } from '@/components/ui/Button';
+import { RouteTimeline } from '@/components/booking/RouteTimeline';
+import { ActiveTripBanner } from '@/components/driver/ActiveTripBanner';
+import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
+import { DutyToggle } from '@/components/driver/DutyToggle';
+import { FaresCollectedCard } from '@/components/driver/FaresCollectedCard';
+import { formatExpiresIn } from '@/components/driver/OutOfAreaRequestCard';
+import { Avatar } from '@/components/ui/Avatar';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
-import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
-import { countDriverCompletedTripsSince } from '@/services/driverBookingService';
 import { useAuth } from '@/hooks/useAuth';
 import { DriverAccessStatus, useDriverAccess } from '@/hooks/useDriverAccess';
-import {
-  becomeAvailable,
-  DriverServiceError,
-  goOffline,
-  goOnline,
-} from '@/services/driverService';
+import { FaresCollected, getDriverFaresCollectedSince } from '@/services/driverBookingService';
+import { becomeAvailable, DriverServiceError, goOffline, goOnline } from '@/services/driverService';
 import { getCurrentCoordinates, LocationServiceError } from '@/services/locationService';
-import { formatExpiresIn } from '@/components/driver/OutOfAreaRequestCard';
 import { formatPhilippinePeso } from '@/utils/fare';
-import {
-  isProposalOutcome,
-  PROPOSAL_OUTCOME_TEXT,
-  ProposalState,
-} from '@/utils/outOfAreaProposal';
+import { isProposalOutcome, PROPOSAL_OUTCOME_TEXT, ProposalState } from '@/utils/outOfAreaProposal';
+import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { ComponentProps, useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ComponentProps, ReactNode, useCallback, useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
-const ACCESS_STATUS_CONTENT: Record<
-  DriverAccessStatus,
+/** Accounts that cannot drive yet; a verified account shows its duty state instead. */
+const ACCESS_GATE_CONTENT: Record<
+  Exclude<DriverAccessStatus, 'verified'>,
   { icon: IconName; title: string; message: string }
 > = {
-  verified: {
-    icon: 'shield-checkmark-outline',
-    title: 'Verified driver',
-    message: 'Your TriGo driver account is verified.',
-  },
   pending_verification: {
     icon: 'time-outline',
     title: 'Pending verification',
     message:
       'A TriGo administrator must verify your account before you can go online or accept trips.',
+  },
+  role_not_authorized: {
+    icon: 'alert-circle-outline',
+    title: 'Driver access not active',
+    message:
+      'Your account is not set up for driver access yet. Please contact the TriGo administrator to finish setting up your account.',
+  },
+  invalid_vehicle_type: {
+    icon: 'car-outline',
+    title: 'Vehicle type not set up',
+    message: 'Your vehicle type is not set up correctly. Please contact the TriGo administrator.',
   },
   no_record: {
     icon: 'alert-circle-outline',
@@ -60,15 +54,16 @@ const ACCESS_STATUS_CONTENT: Record<
   },
 };
 
-function getProposalLabel(state: ProposalState | null): string {
-  if (state === null) return 'Out-of-area request';
-  if (state === 'waiting') return 'Accepted · waiting for passenger';
-  if (state === 'accepted') return 'Passenger accepted · starting trip';
-  return `${PROPOSAL_OUTCOME_TEXT[state].title} · releasing you…`;
+function getProposalTitle(state: ProposalState | null): string {
+  if (state === null || state === 'waiting') return 'Waiting for the passenger';
+  if (state === 'accepted') return 'Passenger confirmed';
+  return PROPOSAL_OUTCOME_TEXT[state].title;
 }
 
-function formatVehicleType(vehicleType: string): string {
-  return vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) : '—';
+function getProposalMessage(state: ProposalState | null): string {
+  if (state === 'accepted') return 'Starting your trip…';
+  if (state !== null && isProposalOutcome(state)) return 'Releasing you for other requests…';
+  return 'You accepted an out-of-area request. You will not get new requests until the passenger confirms or the request ends.';
 }
 
 function getGreeting(date: Date): string {
@@ -84,13 +79,18 @@ function getStartOfToday(): Date {
   return start;
 }
 
-function getInitials(fullName: string): string {
-  return fullName
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
+/** Monday 00:00 of the current week, device time. */
+function getStartOfWeek(): Date {
+  const start = getStartOfToday();
+  const daysSinceMonday = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - daysSinceMonday);
+  return start;
+}
+
+interface FaresSummary {
+  today: FaresCollected | null;
+  thisWeek: FaresCollected | null;
+  error: boolean;
 }
 
 export default function DriverHomeScreen() {
@@ -111,7 +111,7 @@ export default function DriverHomeScreen() {
   const driverId = driverRecord?.driverId ?? null;
   const [now, setNow] = useState(() => Date.now());
 
-  // Ticks the proposal countdown while waiting for the passenger.
+  // Ticks the request countdown while waiting for the passenger.
   const isWaitingForPassenger = proposalState === 'waiting';
   useEffect(() => {
     if (!isWaitingForPassenger) return;
@@ -119,24 +119,24 @@ export default function DriverHomeScreen() {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isWaitingForPassenger]);
-  // null while loading; refreshed whenever the tab gains focus so finished trips count.
-  const [completedToday, setCompletedToday] = useState<number | null>(null);
-  const [completedTodayError, setCompletedTodayError] = useState(false);
+
+  // Refreshed whenever the tab gains focus, so just-finished trips count.
+  const [fares, setFares] = useState<FaresSummary>({ today: null, thisWeek: null, error: false });
 
   useFocusEffect(
     useCallback(() => {
       if (!driverId) return;
       let active = true;
 
-      countDriverCompletedTripsSince(driverId, getStartOfToday())
-        .then((count) => {
-          if (!active) return;
-          setCompletedToday(count);
-          setCompletedTodayError(false);
+      Promise.all([
+        getDriverFaresCollectedSince(driverId, getStartOfToday()),
+        getDriverFaresCollectedSince(driverId, getStartOfWeek()),
+      ])
+        .then(([today, thisWeek]) => {
+          if (active) setFares({ today, thisWeek, error: false });
         })
         .catch(() => {
-          if (!active) return;
-          setCompletedTodayError(true);
+          if (active) setFares((current) => ({ ...current, error: true }));
         });
 
       return () => {
@@ -191,7 +191,7 @@ export default function DriverHomeScreen() {
     setError('');
 
     try {
-      // A pending fare proposal is withdrawn in the same commit.
+      // A pending out-of-area request is withdrawn in the same commit.
       await goOffline(driverRecord.driverId, driverRecord.currentRequestId);
     } catch (err) {
       setError(
@@ -202,21 +202,20 @@ export default function DriverHomeScreen() {
     }
   }
 
-  const statusContent = ACCESS_STATUS_CONTENT[status];
   const fullName = driverRecord?.fullName || driver?.fullName || 'Driver';
   const firstName = fullName.split(' ').find(Boolean) ?? fullName;
   const profileImage = driverRecord?.profileImage ?? driver?.profileImage ?? null;
   const isOnline = driverRecord?.isOnline === true;
   const activeBooking = activeBookings[0] ?? null;
   const reservedRequestId = driverRecord?.currentRequestId ?? null;
-  const proposedFare =
+  const heldFare =
     heldRequest?.agreedFare ?? heldRequest?.fareAgreement?.driverProposedFare ?? null;
   const finishedOutcome =
     finishedProposal && isProposalOutcome(finishedProposal.outcome)
       ? finishedProposal.outcome
       : null;
-  // Only offer this once active trips have loaded and no booking or fare proposal is
-  // linked, so it never shows mid-trip (Firestore rules also refuse availability while
+  // Only offer this once active trips have loaded and no booking or out-of-area request
+  // is linked, so it never shows mid-trip (Firestore rules also refuse availability while
   // currentBookingId or currentRequestId is set).
   const canBecomeAvailable =
     isOnline &&
@@ -226,248 +225,161 @@ export default function DriverHomeScreen() {
     loaded &&
     !hasActiveTrip;
 
+  const dutyCaption =
+    !canPerformDriverActions && !isOnline
+      ? 'You can go online once your account is verified.'
+      : isOnline
+        ? 'Tap to go offline'
+        : 'Tap to go online and receive ride requests';
+
+  // One card for where the driver stands right now, with at most one main action.
+  let statusCard: ReactNode;
+  if (status !== 'verified') {
+    const gate = ACCESS_GATE_CONTENT[status];
+    statusCard = (
+      <DriverStatusCard
+        icon={gate.icon}
+        title={gate.title}
+        message={gate.message}
+        tone="attention"
+      />
+    );
+  } else if (activeBooking) {
+    statusCard = (
+      <ActiveTripBanner
+        booking={activeBooking}
+        onPress={() =>
+          router.push({
+            pathname: '/driver/trip/[bookingId]',
+            params: { bookingId: activeBooking.bookingId },
+          })
+        }
+      />
+    );
+  } else if (reservedRequestId) {
+    statusCard = (
+      <DriverStatusCard
+        icon="time-outline"
+        tone="attention"
+        title={getProposalTitle(proposalState)}
+        message={getProposalMessage(proposalState)}
+        badge={
+          proposalState === 'waiting' && heldRequest
+            ? formatExpiresIn(heldRequest.expiresAt, now)
+            : undefined
+        }
+        actionTitle="Open request"
+        onAction={() =>
+          router.push({
+            pathname: '/driver/requests/out-of-area/[requestId]',
+            params: { requestId: reservedRequestId },
+          })
+        }
+      >
+        {heldRequest ? (
+          <>
+            <RouteTimeline
+              pickupAddress={heldRequest.pickupLocation.address}
+              destinationAddress={heldRequest.destination.address}
+              compact
+            />
+            {heldFare !== null ? (
+              <Text style={styles.fareLine}>Fare {formatPhilippinePeso(heldFare)}</Text>
+            ) : null}
+          </>
+        ) : null}
+      </DriverStatusCard>
+    );
+  } else if (finishedProposal && finishedOutcome) {
+    statusCard = (
+      <DriverStatusCard
+        icon="information-circle-outline"
+        title={PROPOSAL_OUTCOME_TEXT[finishedOutcome].title}
+        message={`${PROPOSAL_OUTCOME_TEXT[finishedOutcome].message}${
+          finishedProposal.request ? ` (${finishedProposal.request.destination.address})` : ''
+        }`}
+        actionTitle="Dismiss"
+        actionVariant="secondary"
+        onAction={dismissFinishedProposal}
+      />
+    );
+  } else if (!isOnline) {
+    statusCard = (
+      <DriverStatusCard
+        icon="power-outline"
+        title="You are offline"
+        message="Go online to receive ride requests in Trinidad, Bohol."
+        actionTitle="Go online"
+        actionLoading={updatingDuty}
+        onAction={handleGoOnline}
+      />
+    );
+  } else if (driverRecord?.isAvailable) {
+    statusCard = (
+      <DriverStatusCard
+        icon="checkmark-circle-outline"
+        title="You are available"
+        message="New ride requests appear in the Requests tab."
+        actionTitle="View requests"
+        onAction={() => router.navigate('/driver/requests')}
+      />
+    );
+  } else {
+    statusCard = (
+      <DriverStatusCard
+        icon="pause-circle-outline"
+        title="Online, not available"
+        message="You are online but not receiving new requests."
+        actionTitle={canBecomeAvailable ? 'Become available' : undefined}
+        actionLoading={updatingDuty}
+        onAction={canBecomeAvailable ? handleBecomeAvailable : undefined}
+      />
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <ScreenHeader title="Driver Home" />
+      <ScreenHeader title="Home" />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.profileRow}>
-          {profileImage ? (
-            <Image source={{ uri: profileImage }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Text style={styles.avatarInitials}>{getInitials(fullName)}</Text>
-            </View>
-          )}
+          <Avatar name={fullName} imageUri={profileImage} size={56} />
           <View style={styles.profileMeta}>
-            <Text style={styles.name} numberOfLines={1}>
+            <Text style={styles.greeting} numberOfLines={1}>
               {getGreeting(new Date())}, {firstName}
             </Text>
             <Text style={styles.profileSubtitle}>
               TriGo driver
-              {driverRecord ? ` · ★ ${driverRecord.rating.toFixed(1)}` : ''}
+              {driverRecord && driverRecord.rating > 0
+                ? ` · ★ ${driverRecord.rating.toFixed(1)}`
+                : ''}
             </Text>
           </View>
         </View>
 
-        <View
-          style={[
-            styles.statusCard,
-            status === 'verified' ? styles.statusCardVerified : styles.statusCardAttention,
-          ]}
-        >
-          <Ionicons
-            name={statusContent.icon}
-            size={26}
-            color={status === 'verified' ? colors.primary : colors.primaryDark}
+        {driverRecord ? (
+          <DutyToggle
+            isOnline={isOnline}
+            caption={dutyCaption}
+            loading={updatingDuty}
+            disabled={!isOnline && !canPerformDriverActions}
+            onChange={(online) => (online ? handleGoOnline() : handleGoOffline())}
           />
-          <View style={styles.statusText}>
-            <Text style={styles.statusTitle}>{statusContent.title}</Text>
-            <Text style={styles.statusMessage}>{statusContent.message}</Text>
-          </View>
-        </View>
+        ) : null}
 
         <ErrorBanner message={error} />
 
+        {statusCard}
+
         {driverRecord ? (
-          <>
-            <View style={[styles.dutyCard, isOnline ? styles.dutyCardOnline : null]}>
-              <View style={styles.dutyHeader}>
-                <View style={[styles.dutyDot, isOnline ? styles.dutyDotOnline : null]} />
-                <Text style={[styles.dutyTitle, isOnline ? styles.dutyTitleOnline : null]}>
-                  {isOnline ? 'You are online' : 'You are offline'}
-                </Text>
-              </View>
-              <Text style={[styles.dutyMessage, isOnline ? styles.dutyMessageOnline : null]}>
-                {isOnline
-                  ? driverRecord.isAvailable
-                    ? 'Available for trips. New ride requests appear in the Requests tab.'
-                    : hasActiveTrip
-                      ? 'On a trip — not receiving new requests until it ends.'
-                      : reservedRequestId
-                        ? 'Waiting for a passenger to confirm — not receiving new requests until then.'
-                        : 'Online but not available for new trips.'
-                  : canPerformDriverActions
-                    ? 'Go online to become available for bookings in Trinidad, Bohol.'
-                    : 'You can go online once your account is verified.'}
-              </Text>
-
-              {isOnline ? (
-                <>
-                  {canBecomeAvailable ? (
-                    <>
-                      <Button
-                        title="Become Available"
-                        loading={updatingDuty}
-                        onPress={handleBecomeAvailable}
-                      />
-                      <View style={styles.buttonSpacer} />
-                    </>
-                  ) : null}
-                  <Button
-                    title="Go Offline"
-                    variant="secondary"
-                    loading={updatingDuty && !canBecomeAvailable}
-                    disabled={updatingDuty}
-                    onPress={handleGoOffline}
-                  />
-                </>
-              ) : (
-                <Button
-                  title="Go Online"
-                  loading={updatingDuty}
-                  disabled={!canPerformDriverActions}
-                  onPress={handleGoOnline}
-                />
-              )}
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Vehicle</Text>
-              <View style={styles.field}>
-                <Text style={styles.fieldLabel}>Type</Text>
-                <Text style={styles.fieldValue}>{formatVehicleType(driverRecord.vehicleType)}</Text>
-              </View>
-              <View style={[styles.field, styles.fieldLast]}>
-                <Text style={styles.fieldLabel}>Plate number</Text>
-                <Text style={styles.fieldValue}>{driverRecord.vehiclePlate || '—'}</Text>
-              </View>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Current trip or request</Text>
-              {activeBooking ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() =>
-                    router.push({
-                      pathname: '/driver/trip/[bookingId]',
-                      params: { bookingId: activeBooking.bookingId },
-                    })
-                  }
-                >
-                  <View style={styles.tripBadgeRow}>
-                    <StatusBadge status={activeBooking.status} />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.fieldLabel}>Pickup</Text>
-                    <Text style={styles.fieldValue} numberOfLines={2}>
-                      {activeBooking.pickupLocation.address}
-                    </Text>
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.fieldLabel}>Destination</Text>
-                    <Text style={styles.fieldValue} numberOfLines={2}>
-                      {activeBooking.destination.address}
-                    </Text>
-                  </View>
-                  <View style={[styles.field, styles.fieldLast]}>
-                    <Text style={styles.fieldLabel}>Fare</Text>
-                    <Text style={styles.fareValue}>
-                      {formatPhilippinePeso(activeBooking.agreedFare ?? activeBooking.estimatedFare)}
-                    </Text>
-                  </View>
-                  <Text style={styles.moreRequests}>Tap to view trip details</Text>
-                </Pressable>
-              ) : reservedRequestId ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() =>
-                    router.push({
-                      pathname: '/driver/requests/out-of-area/[requestId]',
-                      params: { requestId: reservedRequestId },
-                    })
-                  }
-                >
-                  <View style={styles.proposalBadgeRow}>
-                    <Text style={styles.requestBadge}>{getProposalLabel(proposalState)}</Text>
-                    {proposalState === 'waiting' && heldRequest ? (
-                      <Text style={styles.countdown}>
-                        {formatExpiresIn(heldRequest.expiresAt, now)}
-                      </Text>
-                    ) : null}
-                  </View>
-                  {heldRequest ? (
-                    <>
-                      <View style={styles.field}>
-                        <Text style={styles.fieldLabel}>Pickup</Text>
-                        <Text style={styles.fieldValue} numberOfLines={2}>
-                          {heldRequest.pickupLocation.address}
-                        </Text>
-                      </View>
-                      <View style={styles.field}>
-                        <Text style={styles.fieldLabel}>Destination</Text>
-                        <Text style={styles.fieldValue} numberOfLines={2}>
-                          {heldRequest.destination.address}
-                        </Text>
-                      </View>
-                      {proposedFare !== null ? (
-                        <View style={[styles.field, styles.fieldLast]}>
-                          <Text style={styles.fieldLabel}>Fare</Text>
-                          <Text style={styles.fareValue}>{formatPhilippinePeso(proposedFare)}</Text>
-                        </View>
-                      ) : null}
-                    </>
-                  ) : null}
-                  <Text style={styles.moreRequests}>
-                    {proposalState === 'waiting' ? 'Tap to view or withdraw' : 'Tap to view details'}
-                  </Text>
-                </Pressable>
-              ) : finishedProposal && finishedOutcome ? (
-                <View>
-                  <Text style={styles.requestBadge}>
-                    {PROPOSAL_OUTCOME_TEXT[finishedOutcome].title}
-                  </Text>
-                  <Text style={styles.outcomeMessage}>
-                    {PROPOSAL_OUTCOME_TEXT[finishedOutcome].message}
-                    {finishedProposal.request
-                      ? ` (${finishedProposal.request.destination.address})`
-                      : ''}
-                  </Text>
-                  <Pressable accessibilityRole="button" onPress={dismissFinishedProposal}>
-                    <Text style={styles.linkText}>Dismiss</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <Text style={styles.emptyText}>No active trip or request right now.</Text>
-              )}
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Today</Text>
-              <View style={[styles.field, styles.fieldLast, styles.summaryRow]}>
-                <Text style={styles.fieldLabel}>Completed trips</Text>
-                {completedTodayError ? (
-                  <Text style={styles.emptyText}>Unavailable</Text>
-                ) : completedToday === null ? (
-                  <ActivityIndicator color={colors.primary} />
-                ) : (
-                  <Text style={styles.summaryValue}>{completedToday}</Text>
-                )}
-              </View>
-              <Pressable accessibilityRole="button" onPress={() => router.navigate('/driver/trips')}>
-                <Text style={styles.linkText}>View trip history</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Earnings</Text>
-              <Text style={styles.emptyText}>
-                Your earnings summary is not available yet. It will appear here once earnings
-                tracking is enabled.
-              </Text>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Commission</Text>
-              <Text style={styles.emptyText}>
-                No commission records yet. Commission rates and settlement are set by the TriGo
-                administrator.
-              </Text>
-            </View>
-          </>
+          <FaresCollectedCard
+            today={fares.today}
+            thisWeek={fares.thisWeek}
+            error={fares.error}
+            onViewHistory={() => router.navigate('/driver/trips')}
+          />
         ) : null}
       </ScrollView>
     </View>
@@ -475,62 +387,25 @@ export default function DriverHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  proposalBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  countdown: {
-    ...typography.caption,
-    fontWeight: '600',
-    color: colors.error,
-    fontVariant: ['tabular-nums'],
-  },
-  outcomeMessage: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
-    marginBottom: spacing.sm,
-  },
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
   content: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
   },
   profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-  },
-  avatarFallback: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    ...typography.title,
-    fontSize: 24,
-    color: colors.primary,
+    gap: spacing.md,
   },
   profileMeta: {
-    marginLeft: spacing.md,
     flex: 1,
   },
-  name: {
+  greeting: {
     ...typography.title,
-    fontSize: 22,
+    fontSize: 20,
     color: colors.text,
   },
   profileSubtitle: {
@@ -538,154 +413,9 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 2,
   },
-  statusCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderLeftWidth: 4,
-    backgroundColor: colors.primaryLight,
-  },
-  statusCardVerified: {
-    borderLeftColor: colors.primary,
-  },
-  statusCardAttention: {
-    borderLeftColor: colors.accent,
-  },
-  statusText: {
-    flex: 1,
-    marginLeft: spacing.md,
-  },
-  statusTitle: {
+  fareLine: {
     ...typography.label,
-    color: colors.primaryDark,
-    marginBottom: 2,
-  },
-  statusMessage: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
-  },
-  dutyCard: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  dutyCardOnline: {
-    backgroundColor: colors.primaryDark,
-    borderColor: colors.primaryDark,
-  },
-  dutyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  dutyDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.textMuted,
-    marginRight: spacing.sm,
-  },
-  dutyDotOnline: {
-    backgroundColor: colors.accent,
-  },
-  dutyTitle: {
-    ...typography.title,
-    fontSize: 20,
-    color: colors.text,
-  },
-  dutyTitleOnline: {
-    color: colors.white,
-  },
-  dutyMessage: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
-    marginBottom: spacing.md,
-  },
-  dutyMessageOnline: {
-    color: colors.primaryLight,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  sectionTitle: {
-    ...typography.label,
-    color: colors.text,
-    marginBottom: spacing.xs,
-  },
-  field: {
-    paddingVertical: spacing.sm,
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-  },
-  fieldLast: {
-    borderBottomWidth: 0,
-  },
-  fieldLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginBottom: 2,
-  },
-  fieldValue: {
-    ...typography.body,
-    color: colors.text,
-  },
-  fareValue: {
-    ...typography.title,
-    fontSize: 20,
     color: colors.primary,
-  },
-  requestBadge: {
-    ...typography.caption,
-    fontWeight: '700',
-    color: colors.primaryDark,
-    backgroundColor: colors.accent,
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 999,
-    overflow: 'hidden',
-    marginVertical: spacing.xs,
-  },
-  moreRequests: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  buttonSpacer: {
-    height: spacing.sm,
-  },
-  tripBadgeRow: {
-    marginVertical: spacing.xs,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  summaryValue: {
-    ...typography.title,
-    fontSize: 20,
-    color: colors.primary,
-  },
-  linkText: {
-    ...typography.caption,
-    fontWeight: '700',
-    color: colors.primary,
-    paddingVertical: spacing.xs,
-  },
-  emptyText: {
-    ...typography.caption,
-    color: colors.textMuted,
-    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
   },
 });

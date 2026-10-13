@@ -1,8 +1,9 @@
 import { AuthContext, AuthContextValue } from '@/hooks/useAuth';
 import { getUserProfile } from '@/services/authService';
 import { syncOwnContact } from '@/services/contactService';
+import { subscribeToDriverApplication } from '@/services/driverApplicationService';
 import { subscribeToDriverRecord } from '@/services/driverService';
-import { DriverRecord, DriverUser, Passenger, User } from '@/types';
+import { DriverApplicationStatus, DriverRecord, DriverUser, Passenger, User } from '@/types';
 import { auth } from '@/firebase';
 import { isMobileUserRole } from '@/utils/roleRoutes';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
@@ -20,6 +21,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // uid whose drivers/{uid} snapshot has been received (or failed), so the driver area
   // never renders against a record that belongs to a previous session.
   const [driverRecordLoadedFor, setDriverRecordLoadedFor] = useState<string | null>(null);
+  // Passengers in driver mode: their driverApplications/{uid} status, which Firestore rules
+  // check (with drivers/{uid}) to grant driver access. `loadedFor` works as above.
+  const [applicationStatus, setApplicationStatus] = useState<DriverApplicationStatus | null>(
+    null,
+  );
+  const [applicationLoadedFor, setApplicationLoadedFor] = useState<string | null>(null);
 
   // Only the most recent profile load may update state. During registration the
   // auth listener's load can resolve after refreshProfile() and must not clobber it.
@@ -90,11 +97,47 @@ export function AuthProvider({ children }: AuthProviderProps) {
     );
   }, [driverUid]);
 
+  // Only passengers with a driver record need it: a `driver` account has driver access by role.
+  const applicationUid =
+    profile?.role === 'passenger' && driverRecord !== null && driverRecordLoadedFor === profile.uid
+      ? profile.uid
+      : null;
+
+  useEffect(() => {
+    if (!applicationUid) {
+      setApplicationStatus(null);
+      setApplicationLoadedFor(null);
+      return;
+    }
+
+    return subscribeToDriverApplication(
+      applicationUid,
+      (application) => {
+        setApplicationStatus(application?.status ?? null);
+        setApplicationLoadedFor(applicationUid);
+      },
+      () => {
+        setApplicationStatus(null);
+        setApplicationLoadedFor(applicationUid);
+      },
+    );
+  }, [applicationUid]);
+
   const value = useMemo<AuthContextValue>(() => {
     const role = profile?.role ?? null;
     const isDriver = role === 'driver';
-    const driverRecordLoaded = profile !== null && driverRecordLoadedFor === profile.uid;
+    // A passenger's driver record is exposed only once their application status is known,
+    // so driver screens never briefly treat them as lacking the driver role.
+    const driverRecordLoaded =
+      profile !== null &&
+      driverRecordLoadedFor === profile.uid &&
+      (role !== 'passenger' || driverRecord === null || applicationLoadedFor === profile.uid);
     const currentDriverRecord = driverRecordLoaded ? driverRecord : null;
+    // Mirrors isDriver() in firestore.rules: a `driver` account, or a passenger whose
+    // driver application was approved (and who has a drivers/{uid} record).
+    const hasDriverRole =
+      isDriver ||
+      (role === 'passenger' && currentDriverRecord !== null && applicationStatus === 'approved');
 
     return {
       firebaseUser,
@@ -104,14 +147,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
       driver: isDriver ? (profile as DriverUser) : null,
       driverRecord: currentDriverRecord,
       driverRecordLoaded,
-      isVerifiedDriver: currentDriverRecord?.isVerified === true,
+      hasDriverRole,
+      // Mirrors isVerifiedDriver() in firestore.rules.
+      isVerifiedDriver: hasDriverRole && currentDriverRecord?.isVerified === true,
       hasDriverMode: isDriver || (role === 'passenger' && currentDriverRecord !== null),
       // Driver accounts wait for their record; passenger screens do not need it to render.
       isLoading: isLoading || (isDriver && !driverRecordLoaded),
       isAuthenticated: Boolean(firebaseUser && isMobileUserRole(role)),
       refreshProfile,
     };
-  }, [firebaseUser, profile, driverRecord, driverRecordLoadedFor, isLoading, refreshProfile]);
+  }, [
+    firebaseUser,
+    profile,
+    driverRecord,
+    driverRecordLoadedFor,
+    applicationStatus,
+    applicationLoadedFor,
+    isLoading,
+    refreshProfile,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

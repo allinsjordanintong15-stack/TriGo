@@ -56,6 +56,9 @@ function timestampToDate(value: Timestamp | Date | null | undefined): Date | nul
 export const ROAD_ROUTE_UNAVAILABLE_MESSAGE =
   "Couldn't get the road route. Check your connection and try again.";
 
+export const NO_ROAD_NEAR_PIN_MESSAGE =
+  "We couldn't find a road near your pin. Move the pickup or destination closer to a road.";
+
 export function buildTripQuote(
   pickupLocation: Location,
   destinationLocation: Location,

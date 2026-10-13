@@ -25,6 +25,8 @@ function getInitials(fullName: string): string {
 const VERIFICATION_LABELS = {
   verified: 'Verified',
   pending_verification: 'Pending verification',
+  role_not_authorized: 'Driver access not active',
+  invalid_vehicle_type: 'Vehicle type not set up',
   no_record: 'Not set up',
 } as const;
 
