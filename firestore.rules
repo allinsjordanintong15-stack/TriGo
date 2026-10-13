@@ -77,6 +77,12 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
+    // At most 2 decimal places (centavos). Compared with a tolerance because e.g.
+    // 8.15 * 100 is not exactly 815 in floating point.
+    function hasAtMostTwoDecimals(value) {
+      return math.abs(value * 100 - math.round(value * 100)) < 0.000001;
+    }
+
     function isValidLocation(loc) {
       return loc.keys().hasAll(['latitude', 'longitude', 'address'])
         && loc.latitude is number
@@ -785,12 +791,6 @@ service cloud.firestore {
     }
 
     match /fareSettings/active {
-      // At most 2 decimal places (centavos). Compared with a tolerance because e.g.
-      // 8.15 * 100 is not exactly 815 in floating point.
-      function hasAtMostTwoDecimals(value) {
-        return math.abs(value * 100 - math.round(value * 100)) < 0.000001;
-      }
-
       function isValidVehicleFare(fare) {
         return fare is map
           && fare.keys().hasAll(['baseFare', 'perKm'])
@@ -823,6 +823,63 @@ service cloud.firestore {
 
       allow update: if isValidFareWrite()
         && onlyChanged(['fares', 'updatedAt', 'updatedBy']);
+    }
+
+    // ─── Barangay tariffs ──────────────────────────────────────────────────
+    // barangayTariffs/{barangayId}: the fixed per-trip tariff between Poblacion and one of
+    // the 19 other barangays of Trinidad, per vehicle type. One document per barangay
+    // (a single map of all 19 would exceed the rules expression limit to validate).
+    // Only admins write, always the complete row. The mobile app does not apply tariffs
+    // yet (needs barangay boundaries).
+
+    match /barangayTariffs/{barangayId} {
+      // Known IDs and their names. Keep in sync with admin/src/tariffs/barangays.ts.
+      function barangayNames() {
+        return {
+          'banlasan': 'Banlasan',
+          'bongbong': 'Bongbong',
+          'catoogan': 'Catoogan',
+          'guinobatan': 'Guinobatan',
+          'hinlayagan-ilaud': 'Hinlayagan Ilaud',
+          'hinlayagan-ilaya': 'Hinlayagan Ilaya',
+          'kauswagan': 'Kauswagan',
+          'kinan-oan': 'Kinan-oan',
+          'la-union': 'La Union',
+          'la-victoria': 'La Victoria',
+          'mabuhay-cabigohan': 'Mabuhay Cabigohan',
+          'mahagbu': 'Mahagbu',
+          'manuel-m-roxas': 'Manuel M. Roxas',
+          'san-isidro': 'San Isidro',
+          'san-vicente': 'San Vicente',
+          'santo-tomas': 'Santo Tomas',
+          'soom': 'Soom',
+          'tagum-norte': 'Tagum Norte',
+          'tagum-sur': 'Tagum Sur'
+        };
+      }
+
+      function isValidTariff(value) {
+        return value is number && value > 0 && hasAtMostTwoDecimals(value);
+      }
+
+      function isValidTariffWrite() {
+        let data = request.resource.data;
+        let keys = ['name', 'tricycle', 'motorcycle', 'active', 'updatedAt', 'updatedBy'];
+        return isAdmin()
+          && barangayId in barangayNames()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.name == barangayNames()[barangayId]
+          && isValidTariff(data.tricycle)
+          && isValidTariff(data.motorcycle)
+          && data.active is bool
+          && data.updatedAt == request.time
+          && data.updatedBy == request.auth.uid;
+      }
+
+      allow read: if isSignedIn();
+      allow create, update: if isValidTariffWrite();
+      allow delete: if false;
     }
 
     // Deny everything else by default.

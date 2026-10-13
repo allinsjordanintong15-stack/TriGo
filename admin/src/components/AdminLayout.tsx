@@ -8,6 +8,7 @@ import { useAuth } from '../auth/AuthContext';
 const NAV_ITEMS: { to: string; label: string; end?: boolean }[] = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/fares', label: 'Fare settings' },
+  { to: '/tariffs', label: 'Barangay tariffs' },
 ];
 
 export function AdminLayout() {

@@ -548,3 +548,176 @@ h2 {
 .change-table tr.unchanged td {
   color: var(--color-text-muted);
 }
+
+/* ─── Barangay tariffs ─────────────────────────────────────────────────── */
+
+.alert-warning {
+  background: var(--color-gold-light);
+  color: var(--color-text);
+  border-left: 4px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+  font-weight: 600;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.tariff-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+}
+
+.tariff-table th,
+.tariff-table td {
+  text-align: left;
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.tariff-table thead th {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.tariff-table tbody th {
+  font-weight: 600;
+  padding-top: 14px;
+}
+
+.tariff-table tr.row-changed {
+  background: var(--color-primary-light);
+}
+
+.tag {
+  display: inline-block;
+  margin-left: var(--space-sm);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-gold-light);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.cell-input {
+  font: inherit;
+  width: 100%;
+  max-width: 140px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+  color: var(--color-text);
+}
+
+.cell-input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 0;
+  border-color: var(--color-primary);
+}
+
+.cell-input[aria-invalid='true'] {
+  border-color: var(--color-error);
+}
+
+.cell-error {
+  font-size: 12px;
+  margin-top: 2px;
+  max-width: 200px;
+}
+
+/* Toggle switch built on a checkbox (role="switch"). */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  margin-top: 6px;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.switch input:disabled {
+  cursor: not-allowed;
+}
+
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--color-border);
+  transition: background 0.15s ease;
+}
+
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-white);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--color-primary);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(20px);
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.switch input:disabled + .switch-track {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch-track,
+  .switch-track::after {
+    transition: none;
+  }
+}
+
+.form-actions-note {
+  margin-right: auto;
+  align-self: center;
+}
+
+.old-value {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+  font-weight: 400;
+}
+
+.new-value {
+  color: var(--color-primary);
+}
+
+.unchanged-value {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
