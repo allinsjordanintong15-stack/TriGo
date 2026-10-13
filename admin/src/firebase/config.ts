@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { connectAuthEmulator, getAuth } from 'firebase/auth';
+import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
 
 // Web app config from admin/.env.local (see admin/.env.example). These values are not
 // secrets; access is enforced by Firebase Auth custom claims and firestore.rules.
@@ -25,3 +25,11 @@ if (missing.length > 0) {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// Local testing only: `npm run dev:emulator` loads admin/.env.emulator, which points the
+// site at the Auth and Firestore emulators (demo project, no real data).
+export const usingEmulators = env.VITE_USE_EMULATORS === 'true';
+if (usingEmulators) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+}

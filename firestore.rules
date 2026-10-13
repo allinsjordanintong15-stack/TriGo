@@ -40,6 +40,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/outOfAreaRequests/$(id);
     }
 
+    function applicationPath(uid) {
+      return /databases/$(database)/documents/driverApplications/$(uid);
+    }
+
     function driverDoc() {
       return get(driverPath(request.auth.uid));
     }
@@ -692,15 +696,42 @@ service cloud.firestore {
         && isValidCurrentBookingChange()
         && isValidCurrentRequestChange();
 
-      // Driver records are created and removed by TriGo admins only.
-      allow create, delete: if false;
+      // An admin creates the record only in the commit that approves this driver's
+      // pending application (driver verification on the Admin Website), with exactly
+      // these fields: name and plate from the application, a vehicle type the admin chose,
+      // verified, offline, no trip, no rating yet. users/{uid}.role stays 'passenger'.
+      allow create: if isAdmin()
+        && exists(applicationPath(driverId))
+        && get(applicationPath(driverId)).data.status == 'pending'
+        && getAfter(applicationPath(driverId)).data.status == 'approved'
+        && request.resource.data.keys().hasAll([
+          'fullName', 'vehiclePlate', 'vehicleType', 'isVerified', 'isOnline', 'isAvailable',
+          'currentLocation', 'currentBookingId', 'currentRequestId', 'rating', 'profileImage'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'fullName', 'vehiclePlate', 'vehicleType', 'isVerified', 'isOnline', 'isAvailable',
+          'currentLocation', 'currentBookingId', 'currentRequestId', 'rating', 'profileImage'
+        ])
+        && request.resource.data.fullName == get(applicationPath(driverId)).data.fullName
+        && request.resource.data.vehiclePlate == get(applicationPath(driverId)).data.vehiclePlate
+        && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
+        && request.resource.data.isVerified == true
+        && request.resource.data.isOnline == false
+        && request.resource.data.isAvailable == false
+        && request.resource.data.currentLocation == null
+        && request.resource.data.currentBookingId == null
+        && request.resource.data.currentRequestId == null
+        && request.resource.data.rating == 0
+        && request.resource.data.profileImage == null;
+
+      allow delete: if false;
     }
 
     // ─── Driver applications ───────────────────────────────────────────────
     // One application per passenger at driverApplications/{uid}. Passengers can only
     // submit (always `pending`) or resubmit after a rejection. Approval, rejection,
-    // adminRemarks and reviewedAt are set by administrators only (console / Admin
-    // Website), so a passenger can never approve themselves.
+    // adminRemarks and reviewedAt are set by admins only (Admin Website), so a passenger
+    // can never approve themselves.
 
     match /driverApplications/{uid} {
       function isValidPersonName(name) {
@@ -745,7 +776,7 @@ service cloud.firestore {
           && hasValidDocuments(data);
       }
 
-      allow read: if isOwner(uid);
+      allow read: if isOwner(uid) || isAdmin();
 
       allow create: if isOwner(uid)
         && isPassenger()
@@ -775,6 +806,36 @@ service cloud.firestore {
         && hasValidApplicantDetails(request.resource.data)
         && request.resource.data.submittedAt == request.time
         && request.resource.data.updatedAt == request.time;
+
+      // Admin review of a pending application. Only status, adminRemarks, reviewedAt and
+      // updatedAt change; applicant fields are never edited by the admin.
+      function isAdminReview() {
+        return isAdmin()
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'adminRemarks', 'reviewedAt', 'updatedAt'
+          ])
+          && request.resource.data.reviewedAt == request.time
+          && request.resource.data.updatedAt == request.time;
+      }
+
+      function isValidRemarks(remarks) {
+        return remarks is string && remarks.size() <= 500 && remarks.trim().size() > 0;
+      }
+
+      // Approve: remarks optional, and drivers/{uid} must be created in the same commit
+      // (its create rule fixes the field set).
+      allow update: if isAdminReview()
+        && request.resource.data.status == 'approved'
+        && (request.resource.data.adminRemarks == null
+          || isValidRemarks(request.resource.data.adminRemarks))
+        && !exists(driverPath(uid))
+        && existsAfter(driverPath(uid));
+
+      // Reject: remarks required (shown to the applicant), at most 500 characters.
+      allow update: if isAdminReview()
+        && request.resource.data.status == 'rejected'
+        && isValidRemarks(request.resource.data.adminRemarks);
 
       allow delete: if false;
     }

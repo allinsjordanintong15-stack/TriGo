@@ -6,6 +6,8 @@ import { AdminLayout } from './components/AdminLayout';
 import { BarangayTariffsPage } from './pages/BarangayTariffsPage';
 import { CommissionPage } from './pages/CommissionPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { DriverApplicationPage } from './pages/DriverApplicationPage';
+import { DriverVerificationPage } from './pages/DriverVerificationPage';
 import { FareSettingsPage } from './pages/FareSettingsPage';
 import { LoginPage } from './pages/LoginPage';
 
@@ -26,6 +28,8 @@ export function App() {
             <Route path="/fares" element={<FareSettingsPage />} />
             <Route path="/tariffs" element={<BarangayTariffsPage />} />
             <Route path="/commission" element={<CommissionPage />} />
+            <Route path="/drivers" element={<DriverVerificationPage />} />
+            <Route path="/drivers/:uid" element={<DriverApplicationPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
