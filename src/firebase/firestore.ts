@@ -5,6 +5,7 @@ export const firestore: Firestore = getFirestore(firebaseApp);
 
 export const COLLECTIONS = {
   users: 'users',
+  contacts: 'contacts',
   bookings: 'bookings',
   ratings: 'ratings',
   notifications: 'notifications',

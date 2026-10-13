@@ -1,3 +1,4 @@
+import { ContactCallButton } from '@/components/booking/ContactCallButton';
 import { TripChoiceDialog, TripChoiceOption } from '@/components/driver/TripChoiceDialog';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { Button } from '@/components/ui/Button';
@@ -9,6 +10,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DRIVER_CANCELLATION_REASONS } from '@/constants/cancellation';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useDriverAccess } from '@/hooks/useDriverAccess';
+import { useTripContact } from '@/hooks/useTripContact';
 import { subscribeToBooking } from '@/services/bookingService';
 import {
   cancelTripAsDriver,
@@ -101,6 +103,9 @@ export default function DriverTripScreen() {
     );
   }, [bookingId]);
 
+  // The passenger's card, readable only while this trip is active (see contacts rules).
+  const passengerContact = useTripContact(booking?.passengerId ?? null, booking?.status ?? null);
+
   async function runAction(action: () => Promise<void>) {
     setSubmitting(true);
     setError('');
@@ -171,6 +176,20 @@ export default function DriverTripScreen() {
           <Text style={styles.bannerTitle}>{display.title}</Text>
           <Text style={styles.bannerMessage}>{display.message}</Text>
         </View>
+
+        {passengerContact ? (
+          <View style={styles.card}>
+            <Text style={styles.contactCaption}>Passenger</Text>
+            <Text style={styles.contactName} numberOfLines={1}>
+              {passengerContact.fullName || 'TriGo passenger'}
+            </Text>
+            <ContactCallButton
+              mobileNumber={passengerContact.mobileNumber}
+              calleeLabel="the passenger"
+              note="Your number is shared only with your passenger during this trip."
+            />
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <DetailRow label="Pickup" value={booking.pickupLocation.address} />
@@ -272,6 +291,15 @@ export default function DriverTripScreen() {
 }
 
 const styles = StyleSheet.create({
+  contactCaption: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  contactName: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.text,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

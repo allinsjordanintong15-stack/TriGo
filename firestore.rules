@@ -98,6 +98,54 @@ service cloud.firestore {
         && request.resource.data.role == 'passenger';
     }
 
+    // ─── Contacts ──────────────────────────────────────────────────────────
+    // contacts/{uid}: the user's name and mobile number, kept equal to users/{uid} by its
+    // owner. Readable by the other party of an active trip only: the driver assigned to the
+    // passenger's booking, and that booking's passenger. "Assigned and active" comes from
+    // drivers/{driverUid}.currentBookingId (set on accept/claim, cleared when the trip ends)
+    // plus the booking's status, so a cancelled trip stops sharing at once.
+
+    match /contacts/{uid} {
+      function currentBookingOf(driverUid) {
+        return get(bookingPath(get(driverPath(driverUid)).data.currentBookingId)).data;
+      }
+
+      function hasCurrentBooking(driverUid) {
+        return exists(driverPath(driverUid))
+          && get(driverPath(driverUid)).data.get('currentBookingId', null) is string;
+      }
+
+      function isActiveTripBetween(passengerUid, driverUid) {
+        return hasCurrentBooking(driverUid)
+          && currentBookingOf(driverUid).passengerId == passengerUid
+          && currentBookingOf(driverUid).driverId == driverUid
+          && currentBookingOf(driverUid).status in ['accepted', 'arrived', 'in_progress'];
+      }
+
+      allow read: if isOwner(uid);
+
+      // The assigned driver reads their current passenger's card.
+      allow read: if isDriver()
+        && isActiveTripBetween(uid, request.auth.uid);
+
+      // A passenger reads the card of the driver assigned to their active booking.
+      allow read: if isSignedIn()
+        && isActiveTripBetween(request.auth.uid, uid);
+
+      // getAfter, so a profile edit can update users/{uid} and this card in one batch.
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['fullName', 'mobileNumber', 'updatedAt'])
+        && request.resource.data.fullName is string
+        && request.resource.data.mobileNumber is string
+        && request.resource.data.fullName
+          == getAfter(/databases/$(database)/documents/users/$(uid)).data.fullName
+        && request.resource.data.mobileNumber
+          == getAfter(/databases/$(database)/documents/users/$(uid)).data.mobileNumber
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
+    }
+
     // ─── Bookings ──────────────────────────────────────────────────────────
     // Ride lifecycle (docs/plans/task2-ride-lifecycle.md):
     //   pending → accepted → arrived → in_progress → completed, or → cancelled.

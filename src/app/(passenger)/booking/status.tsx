@@ -13,6 +13,7 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
 import { useAuth } from '@/hooks/useAuth';
+import { useTripContact } from '@/hooks/useTripContact';
 import {
   BookingServiceError,
   cancelBooking,
@@ -130,6 +131,9 @@ export default function BookingStatusScreen() {
     // Only re-run when the trip's endpoints change, not on every booking snapshot.
   }, [bookingRouteKey, needsFetchedRoute]);
 
+  // The driver's number, readable only while the trip is active (see contacts rules).
+  const driverContact = useTripContact(booking?.driverId ?? null, booking?.status ?? null);
+
   // An out-of-area booking waits for its agreed driver to confirm; tick while it does.
   const awaitingDriverConfirm =
     booking?.bookingType === 'out_of_area' && booking.status === 'pending';
@@ -232,7 +236,9 @@ export default function BookingStatusScreen() {
           </View>
         </View>
 
-        {booking.driverId ? <DriverCard driver={assignedDriver} /> : null}
+        {booking.driverId ? (
+          <DriverCard driver={assignedDriver} mobileNumber={driverContact?.mobileNumber ?? null} />
+        ) : null}
 
         <View style={styles.mapCard}>
           <RoutePreviewMap

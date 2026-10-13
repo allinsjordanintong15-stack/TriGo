@@ -1,5 +1,6 @@
 import { AuthContext, AuthContextValue } from '@/hooks/useAuth';
 import { getUserProfile } from '@/services/authService';
+import { syncOwnContact } from '@/services/contactService';
 import { subscribeToDriverRecord } from '@/services/driverService';
 import { DriverRecord, DriverUser, Passenger, User } from '@/types';
 import { auth } from '@/firebase';
@@ -36,6 +37,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const loaded = await getUserProfile(user.uid);
       if (loadId !== latestLoadId.current) return;
       setProfile(loaded);
+      if (loaded) {
+        syncOwnContact(loaded).catch(() => {
+          // Retried on the next profile load; trips only lose the Call button meanwhile.
+        });
+      }
     } catch {
       if (loadId !== latestLoadId.current) return;
       // Keep the current profile on a transient failure (e.g. offline) for the same user.

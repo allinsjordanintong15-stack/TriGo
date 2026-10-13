@@ -19,12 +19,13 @@ import {
   updateProfile,
   User as FirebaseUser,
 } from 'firebase/auth';
+import { addOwnContactToBatch } from '@/services/contactService';
 import {
   doc,
   getDoc,
   serverTimestamp,
   setDoc,
-  updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 
 export class AuthServiceError extends Error {
@@ -233,10 +234,14 @@ export async function updatePassengerProfile(
     });
   }
 
-  const userRef = doc(firestore, COLLECTIONS.users, uid);
-  await updateDoc(userRef, {
+  const mobileNumber = normalizeMobileNumber(update.mobileNumber);
+  // The contact card shared with an assigned driver changes in the same commit.
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, COLLECTIONS.users, uid), {
     fullName: trimmedName,
-    mobileNumber: normalizeMobileNumber(update.mobileNumber),
+    mobileNumber,
     updatedAt: serverTimestamp(),
   });
+  addOwnContactToBatch(batch, uid, trimmedName, mobileNumber);
+  await batch.commit();
 }
