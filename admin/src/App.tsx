@@ -4,6 +4,7 @@ import { AuthProvider } from './auth/AuthContext';
 import { RequireAdmin } from './auth/RequireAdmin';
 import { AdminLayout } from './components/AdminLayout';
 import { BarangayTariffsPage } from './pages/BarangayTariffsPage';
+import { CommissionPage } from './pages/CommissionPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FareSettingsPage } from './pages/FareSettingsPage';
 import { LoginPage } from './pages/LoginPage';
@@ -24,6 +25,7 @@ export function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/fares" element={<FareSettingsPage />} />
             <Route path="/tariffs" element={<BarangayTariffsPage />} />
+            <Route path="/commission" element={<CommissionPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
