@@ -773,11 +773,56 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ─── Fare settings (read-only for app; admin manages via console) ──────
+    // ─── Fare settings ─────────────────────────────────────────────────────
+    // fareSettings/active: { fares, outOfArea, updatedAt, updatedBy }. The app reads it
+    // (falling back to in-code defaults when missing). Only admins write `fares`, always as
+    // a complete object: both vehicle types, each with exactly baseFare and perKm.
+    // `outOfArea` is not editable here and must stay unchanged.
 
     match /fareSettings/{document=**} {
       allow read: if isSignedIn();
       allow write: if false;
+    }
+
+    match /fareSettings/active {
+      // At most 2 decimal places (centavos). Compared with a tolerance because e.g.
+      // 8.15 * 100 is not exactly 815 in floating point.
+      function hasAtMostTwoDecimals(value) {
+        return math.abs(value * 100 - math.round(value * 100)) < 0.000001;
+      }
+
+      function isValidVehicleFare(fare) {
+        return fare is map
+          && fare.keys().hasAll(['baseFare', 'perKm'])
+          && fare.keys().hasOnly(['baseFare', 'perKm'])
+          && fare.baseFare is number
+          && fare.baseFare >= 0
+          && hasAtMostTwoDecimals(fare.baseFare)
+          && fare.perKm is number
+          && fare.perKm > 0
+          && hasAtMostTwoDecimals(fare.perKm);
+      }
+
+      function isValidFares(fares) {
+        return fares is map
+          && fares.keys().hasAll(['tricycle', 'motorcycle'])
+          && fares.keys().hasOnly(['tricycle', 'motorcycle'])
+          && isValidVehicleFare(fares.tricycle)
+          && isValidVehicleFare(fares.motorcycle);
+      }
+
+      function isValidFareWrite() {
+        return isAdmin()
+          && isValidFares(request.resource.data.fares)
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.updatedBy == request.auth.uid;
+      }
+
+      allow create: if isValidFareWrite()
+        && request.resource.data.keys().hasOnly(['fares', 'updatedAt', 'updatedBy']);
+
+      allow update: if isValidFareWrite()
+        && onlyChanged(['fares', 'updatedAt', 'updatedBy']);
     }
 
     // Deny everything else by default.

@@ -1,7 +1,8 @@
 /// <reference types="node" />
 
 // Firestore rules tests for isAdmin(): the `admin: true` custom claim on the ID token
-// (set by scripts/setAdminClaim.mjs). For now the claim only grants reading users/{uid}.
+// (set by scripts/setAdminClaim.mjs), here for reading users/{uid}. Fare writes are
+// covered in fareSettings.test.ts.
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
@@ -126,7 +127,7 @@ describe('isAdmin: no new write access', () => {
     await assertFails(deleteDoc(doc(adminDb(), 'users', PASSENGER)));
   });
 
-  it('denies an admin writing fare settings (still console-managed)', async () => {
+  it('denies an admin writing a fareSettings document other than active', async () => {
     await assertFails(setDoc(doc(adminDb(), 'fareSettings', 'current'), { baseFare: 20 }));
   });
 });
