@@ -668,6 +668,38 @@ service cloud.firestore {
       // A driver can always read their own record, including while pending verification.
       allow read: if isOwner(driverId);
 
+      // Admins read every driver record, including revoked and unverified ones (Drivers page).
+      allow read: if isAdmin();
+
+      // Admin revokes or restores verification (Drivers page), recording who and when.
+      // Revoking needs a reason (shown to admins) and takes the driver offline and
+      // unavailable in the same write; the current trip link is untouched, so a driver
+      // revoked mid-ride can still finish it (trip updates use isDriver()). Restoring
+      // clears the reason and leaves the driver offline until they go online in the app.
+      allow update: if isAdmin()
+        && onlyChanged([
+          'isVerified', 'isOnline', 'isAvailable',
+          'verificationNote', 'verificationUpdatedAt', 'verificationUpdatedBy'
+        ])
+        && request.resource.data.verificationUpdatedAt == request.time
+        && request.resource.data.verificationUpdatedBy == request.auth.uid
+        && request.resource.data.isOnline == false
+        && request.resource.data.isAvailable == false
+        && (
+          (
+            resource.data.get('isVerified', false) == true
+            && request.resource.data.isVerified == false
+            && request.resource.data.verificationNote is string
+            && request.resource.data.verificationNote.size() > 0
+            && request.resource.data.verificationNote.size() <= 500
+          )
+          || (
+            resource.data.get('isVerified', false) != true
+            && request.resource.data.isVerified == true
+            && request.resource.data.get('verificationNote', null) == null
+          )
+        );
+
       // A driver controls only their own duty status, position, current-trip link and
       // proposal reservation. Admin-managed fields (isVerified, name, vehicle, rating)
       // cannot be changed from the app. Being available requires being online, an

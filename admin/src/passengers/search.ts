@@ -20,8 +20,13 @@ export function matchesSearch(passenger: Passenger, search: string): boolean {
   if (passenger.fullName.toLowerCase().includes(text) || passenger.email.toLowerCase().includes(text)) {
     return true;
   }
+  return matchesMobile(passenger.mobileNumber, text);
+}
+
+/** Mobile-number part of a search (also used by the Drivers page). */
+export function matchesMobile(mobileNumber: string, search: string): boolean {
   // Drop a leading "63" or "0" so "0917…", "+63917…" and "917…" all search the same way.
-  const digits = text.replace(/\D/g, '').replace(/^(63|0)/, '');
+  const digits = search.trim().replace(/\D/g, '').replace(/^(63|0)/, '');
   // Need a few digits so "1" does not match every number.
-  return digits.length >= 3 && mobileKey(passenger.mobileNumber).includes(digits);
+  return digits.length >= 3 && mobileKey(mobileNumber).includes(digits);
 }

@@ -132,8 +132,8 @@ export async function approveApplication(
 ): Promise<void> {
   const applicationRef = doc(db, 'driverApplications', viewed.uid);
   const driverRef = doc(db, 'drivers', viewed.uid);
-  // drivers/{uid} is not read here (admins cannot read unverified or missing driver
-  // records); firestore.rules refuses the approval if one already exists.
+  // drivers/{uid} is not read here: firestore.rules refuses the approval if one already
+  // exists (writing over it is an update, and no update rule accepts these fields).
   await runTransaction(db, async (transaction) => {
     const current = assertStillPending(viewed, (await transaction.get(applicationRef)).data());
     transaction.update(applicationRef, {

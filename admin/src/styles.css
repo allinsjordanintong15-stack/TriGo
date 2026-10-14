@@ -1115,3 +1115,20 @@ h3 {
 .booking-table tr.row-linked {
   background: var(--color-gold-light);
 }
+
+/* ─── Drivers ──────────────────────────────────────────────────────────── */
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-md);
+}
+
+.filter-row .field {
+  flex: 1 1 240px;
+}
+
+.drivers-table {
+  min-width: 720px;
+}

@@ -182,6 +182,52 @@ await db.doc(`drivers/${carloUid}`).set({
   profileImage: null,
 });
 
+// Drivers page: an online motorcycle driver and a driver whose verification was revoked.
+const bellaUid = await seedUser({
+  email: 'bella@trigo.test',
+  fullName: 'Bella Cruz',
+  mobileNumber: '+639221234567',
+  role: 'driver',
+  createdMinutesAgo: 60 * 24 * 20,
+});
+await db.doc(`drivers/${bellaUid}`).set({
+  fullName: 'Bella Cruz',
+  vehiclePlate: 'JKL 3456',
+  vehicleType: 'motorcycle',
+  isVerified: true,
+  isOnline: true,
+  isAvailable: true,
+  currentLocation: { latitude: 10.0794, longitude: 124.3426 },
+  currentBookingId: null,
+  currentRequestId: null,
+  rating: 4.5,
+  profileImage: null,
+});
+
+const danteUid = await seedUser({
+  email: 'dante@trigo.test',
+  fullName: 'Dante Reyes',
+  mobileNumber: '+639231234567',
+  role: 'driver',
+  createdMinutesAgo: 60 * 24 * 90,
+});
+await db.doc(`drivers/${danteUid}`).set({
+  fullName: 'Dante Reyes',
+  vehiclePlate: 'MNO 7890',
+  vehicleType: 'tricycle',
+  isVerified: false,
+  isOnline: false,
+  isAvailable: false,
+  currentLocation: null,
+  currentBookingId: null,
+  currentRequestId: null,
+  rating: 3.9,
+  profileImage: null,
+  verificationNote: 'Driver license expired. Restore once a renewed license is shown at the office.',
+  verificationUpdatedAt: minutesAgo(60 * 24 * 2),
+  verificationUpdatedBy: admin.uid,
+});
+
 const POBLACION = { latitude: 10.0794, longitude: 124.3426, address: 'Poblacion, Trinidad, Bohol' };
 const PLACES = [
   { latitude: 10.0921, longitude: 124.3583, address: 'Kauswagan, Trinidad, Bohol' },
@@ -275,5 +321,7 @@ for (const { fullName, status } of seeded) {
 }
 console.log(`  passenger Ana Santos  (4 bookings, password ${PASSWORD})`);
 console.log(`  driver    Carlo Bautista  (verified, password ${PASSWORD})`);
+console.log(`  driver    Bella Cruz  (verified, online, password ${PASSWORD})`);
+console.log(`  driver    Dante Reyes  (revoked, password ${PASSWORD})`);
 console.log('  5 out-of-area requests (confirmed, open, expired, cancelled, cancelled 10 days ago)');
 process.exit(0);

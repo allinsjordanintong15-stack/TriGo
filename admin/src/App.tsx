@@ -7,6 +7,8 @@ import { BarangayTariffsPage } from './pages/BarangayTariffsPage';
 import { CommissionPage } from './pages/CommissionPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { DriverApplicationPage } from './pages/DriverApplicationPage';
+import { DriverDetailPage } from './pages/DriverDetailPage';
+import { DriversPage } from './pages/DriversPage';
 import { DriverVerificationPage } from './pages/DriverVerificationPage';
 import { FareSettingsPage } from './pages/FareSettingsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
@@ -36,6 +38,8 @@ export function App() {
             <Route path="/passengers/:uid" element={<PassengerDetailPage />} />
             <Route path="/out-of-area" element={<OutOfAreaTripsPage />} />
             <Route path="/out-of-area/:requestId" element={<OutOfAreaTripDetailPage />} />
+            <Route path="/driver-accounts" element={<DriversPage />} />
+            <Route path="/driver-accounts/:uid" element={<DriverDetailPage />} />
             <Route path="/drivers" element={<DriverVerificationPage />} />
             <Route path="/drivers/:uid" element={<DriverApplicationPage />} />
           </Route>
