@@ -9,6 +9,8 @@ import { DashboardPage } from './pages/DashboardPage';
 import { DriverApplicationPage } from './pages/DriverApplicationPage';
 import { DriverVerificationPage } from './pages/DriverVerificationPage';
 import { FareSettingsPage } from './pages/FareSettingsPage';
+import { PassengerDetailPage } from './pages/PassengerDetailPage';
+import { PassengersPage } from './pages/PassengersPage';
 import { LoginPage } from './pages/LoginPage';
 
 export function App() {
@@ -28,6 +30,8 @@ export function App() {
             <Route path="/fares" element={<FareSettingsPage />} />
             <Route path="/tariffs" element={<BarangayTariffsPage />} />
             <Route path="/commission" element={<CommissionPage />} />
+            <Route path="/passengers" element={<PassengersPage />} />
+            <Route path="/passengers/:uid" element={<PassengerDetailPage />} />
             <Route path="/drivers" element={<DriverVerificationPage />} />
             <Route path="/drivers/:uid" element={<DriverApplicationPage />} />
           </Route>

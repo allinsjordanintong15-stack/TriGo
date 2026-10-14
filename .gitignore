@@ -49,3 +49,6 @@ ui-debug.log
 # Admin website: service-account keys and local env (never commit)
 secrets/
 admin/.env.local
+
+# Firebase Hosting deploy cache
+.firebase/

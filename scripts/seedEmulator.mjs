@@ -136,9 +136,104 @@ const seeded = [
   }),
 ];
 
-console.log(`Seeded the emulators (project ${PROJECT_ID}):`);
-console.log(`  admin   admin@trigo.test / ${PASSWORD}  (admin claim)`);
-for (const { fullName, status } of seeded) {
-  console.log(`  ${status.padEnd(10)}${fullName}  (password ${PASSWORD})`);
+// ─── Passenger with history, an approved driver, and bookings ───────────────
+
+async function seedUser({ email, fullName, mobileNumber, role, createdMinutesAgo }) {
+  const user = await createUser(email, fullName);
+  await db.doc(`users/${user.uid}`).set({
+    uid: user.uid,
+    fullName,
+    email,
+    mobileNumber,
+    role,
+    profileImage: null,
+    createdAt: minutesAgo(createdMinutesAgo),
+    updatedAt: minutesAgo(createdMinutesAgo),
+  });
+  return user.uid;
 }
+
+const anaUid = await seedUser({
+  email: 'ana@trigo.test',
+  fullName: 'Ana Santos',
+  mobileNumber: '+639201234567',
+  role: 'passenger',
+  createdMinutesAgo: 60 * 24 * 30,
+});
+
+const carloUid = await seedUser({
+  email: 'carlo@trigo.test',
+  fullName: 'Carlo Bautista',
+  mobileNumber: '+639211234567',
+  role: 'driver',
+  createdMinutesAgo: 60 * 24 * 60,
+});
+await db.doc(`drivers/${carloUid}`).set({
+  fullName: 'Carlo Bautista',
+  vehiclePlate: 'GHI 9012',
+  vehicleType: 'tricycle',
+  isVerified: true,
+  isOnline: false,
+  isAvailable: false,
+  currentLocation: null,
+  currentBookingId: null,
+  currentRequestId: null,
+  rating: 4.8,
+  profileImage: null,
+});
+
+const POBLACION = { latitude: 10.0794, longitude: 124.3426, address: 'Poblacion, Trinidad, Bohol' };
+const PLACES = [
+  { latitude: 10.0921, longitude: 124.3583, address: 'Kauswagan, Trinidad, Bohol' },
+  { latitude: 10.0602, longitude: 124.3311, address: 'Soom, Trinidad, Bohol' },
+  { latitude: 10.1012, longitude: 124.3205, address: 'Guinobatan, Trinidad, Bohol' },
+  { latitude: 10.1503, longitude: 124.4012, address: 'Talibon Public Market, Talibon, Bohol' },
+];
+
+async function seedBooking(id, { passengerId, driverId, place, status, bookingType = 'standard', vehicleType = 'tricycle', distanceKm, fare, minutesAgoCreated, paymentMethod = null, cancelledBy = null, cancellationReason = null }) {
+  const createdAt = minutesAgo(minutesAgoCreated);
+  const endedAt = minutesAgo(minutesAgoCreated - 25);
+  await db.doc(`bookings/${id}`).set({
+    passengerId,
+    driverId,
+    vehicleType,
+    bookingType,
+    pickupLocation: POBLACION,
+    destination: place,
+    distanceKm,
+    estimatedFare: fare,
+    driverProposedFare: bookingType === 'out_of_area' ? fare : null,
+    agreedFare: bookingType === 'out_of_area' ? fare : null,
+    fareAgreement: null,
+    finalFare: status === 'completed' ? fare : null,
+    status,
+    outOfAreaRequestId: bookingType === 'out_of_area' ? id : null,
+    createdAt,
+    updatedAt: status === 'completed' || status === 'cancelled' ? endedAt : createdAt,
+    acceptedAt: driverId ? minutesAgo(minutesAgoCreated - 2) : null,
+    arrivedAt: null,
+    startedAt: null,
+    completedAt: status === 'completed' ? endedAt : null,
+    cancelledAt: status === 'cancelled' ? endedAt : null,
+    paymentMethod,
+    cancelledBy,
+    cancellationReason,
+  });
+}
+
+const DAY = 60 * 24;
+await seedBooking('seed-booking-1', { passengerId: anaUid, driverId: carloUid, place: PLACES[0], status: 'completed', distanceKm: 2.4, fare: 34.2, minutesAgoCreated: 3 * DAY, paymentMethod: 'cash' });
+await seedBooking('seed-booking-2', { passengerId: anaUid, driverId: carloUid, place: PLACES[1], status: 'completed', distanceKm: 3.1, fare: 39.8, minutesAgoCreated: 2 * DAY, paymentMethod: 'gcash' });
+await seedBooking('seed-booking-3', { passengerId: anaUid, driverId: null, place: PLACES[2], status: 'cancelled', distanceKm: 4.0, fare: 47, minutesAgoCreated: DAY, cancelledBy: 'passenger', cancellationReason: 'Changed plans' });
+await seedBooking('seed-booking-4', { passengerId: anaUid, driverId: carloUid, place: PLACES[3], status: 'completed', bookingType: 'out_of_area', distanceKm: 12.5, fare: 115, minutesAgoCreated: 300, paymentMethod: 'cash' });
+const juan = seeded[0];
+await seedBooking('seed-booking-5', { passengerId: juan.uid, driverId: carloUid, place: PLACES[1], status: 'completed', vehicleType: 'tricycle', distanceKm: 3.1, fare: 39.8, minutesAgoCreated: 5 * DAY, paymentMethod: 'cash' });
+
+console.log(`Seeded the emulators (project ${PROJECT_ID}):`);
+console.log(`  admin     admin@trigo.test / ${PASSWORD}  (admin claim)`);
+for (const { fullName, status } of seeded) {
+  console.log(`  ${status.padEnd(10)}${fullName}  (applicant, password ${PASSWORD})`);
+}
+console.log(`  passenger Ana Santos  (4 bookings, password ${PASSWORD})`);
+console.log(`  driver    Carlo Bautista  (verified, password ${PASSWORD})`);
 process.exit(0);

@@ -1,0 +1,4 @@
+[33mcfb70b8[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m feat(admin): driver verification with approve/reject and driver record creation
+[33m5fc73ba[m feat(admin): driver verification with emulator seed tools
+[33mbd92186[m feat(admin): commission settings page with admin-only commissionSettings doc
+[33m1bd6355[m feat(admin): barangay tariffs page with per-barangay admin-only tariff docs

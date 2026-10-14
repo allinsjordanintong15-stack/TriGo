@@ -197,6 +197,10 @@ service cloud.firestore {
         return isDriver() && resource.data.get('driverId', null) == request.auth.uid;
       }
 
+      // Admins read every booking (Admin Website: passenger history, drivers, reports).
+      // Read-only: no admin write rule exists for bookings.
+      allow read: if isAdmin();
+
       allow read: if isSignedIn()
         && resource.data.passengerId == request.auth.uid;
 
