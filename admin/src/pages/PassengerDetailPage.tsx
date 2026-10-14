@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 
 import {
   BOOKING_STATUS_LABELS,
@@ -32,6 +32,14 @@ export function PassengerDetailPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Links like /passengers/{uid}#booking-{id} (Out-of-Area Trips) scroll to that booking
+  // once the history has rendered, and highlight it.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!detail || !hash) return;
+    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView({ block: 'center' });
+  }, [detail, hash]);
 
   const backLink = (
     <Link to="/passengers" className="back-link">
@@ -119,7 +127,11 @@ export function PassengerDetailPage() {
               </thead>
               <tbody>
                 {bookings.map((booking) => (
-                  <tr key={booking.bookingId}>
+                  <tr
+                    key={booking.bookingId}
+                    id={`booking-${booking.bookingId}`}
+                    className={hash === `#booking-${booking.bookingId}` ? 'row-linked' : undefined}
+                  >
                     <td>
                       <div>{formatDateTime(booking.createdAt)}</div>
                       <div className="muted small mono" title="Booking ID">

@@ -1064,3 +1064,54 @@ h3 {
   background: var(--color-error-background);
   color: var(--color-error);
 }
+
+.date-range-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.date-range-form .field {
+  min-width: 160px;
+}
+
+.detail-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-lg);
+}
+
+.timeline {
+  list-style: none;
+  margin: var(--space-md) 0;
+  padding: 0;
+  border-left: 2px solid var(--color-border);
+}
+
+.timeline li {
+  position: relative;
+  padding: 0 0 var(--space-md) var(--space-lg);
+}
+
+.timeline li::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.timeline-time {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+/* Booking row linked from the out-of-area detail page (/passengers/{uid}#booking-{id}). */
+.booking-table tr.row-linked {
+  background: var(--color-gold-light);
+}

@@ -265,6 +265,8 @@ await seedRequest('seed-booking-4', { passengerId: anaUid, driverId: carloUid, p
 await seedRequest('seed-request-open', { passengerId: anaUid, place: TAGBILARAN, status: 'searching', distanceKm: 62.3, fare: 560, minutesAgoCreated: 5 });
 await seedRequest('seed-request-expired', { passengerId: juan.uid, place: PLACES[3], status: 'searching', distanceKm: 12.5, fare: 115, minutesAgoCreated: DAY });
 await seedRequest('seed-request-cancelled', { passengerId: juan.uid, place: TAGBILARAN, status: 'cancelled', distanceKm: 62.3, fare: 560, minutesAgoCreated: 2 * DAY });
+// Outside the page's default last-7-days range.
+await seedRequest('seed-request-old', { passengerId: anaUid, place: PLACES[3], status: 'cancelled', distanceKm: 12.5, fare: 115, minutesAgoCreated: 10 * DAY });
 
 console.log(`Seeded the emulators (project ${PROJECT_ID}):`);
 console.log(`  admin     admin@trigo.test / ${PASSWORD}  (admin claim)`);
@@ -273,5 +275,5 @@ for (const { fullName, status } of seeded) {
 }
 console.log(`  passenger Ana Santos  (4 bookings, password ${PASSWORD})`);
 console.log(`  driver    Carlo Bautista  (verified, password ${PASSWORD})`);
-console.log('  4 out-of-area requests (confirmed, open, expired, cancelled)');
+console.log('  5 out-of-area requests (confirmed, open, expired, cancelled, cancelled 10 days ago)');
 process.exit(0);

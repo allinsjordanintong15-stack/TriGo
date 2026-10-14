@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import {
@@ -8,7 +8,14 @@ import {
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
 import { loadOutOfAreaTrips, type OutOfAreaTrip } from '../outOfArea/outOfAreaRequests';
-import { DISPLAY_STATUS_LABELS, displayStatus, type DisplayStatus } from '../outOfArea/requests';
+import {
+  defaultDateRange,
+  DISPLAY_STATUS_LABELS,
+  displayStatus,
+  parseDateRange,
+  REQUEST_QUERY_LIMIT,
+  type DisplayStatus,
+} from '../outOfArea/requests';
 
 type Filter = 'all' | DisplayStatus;
 
@@ -19,17 +26,37 @@ export function OutOfAreaTripsPage() {
   const [loadedAt, setLoadedAt] = useState(() => new Date());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
+  const [truncated, setTruncated] = useState(false);
+  // `draft` follows the date inputs; `applied` is the range the table shows (on createdAt).
+  const [draft, setDraft] = useState(() => defaultDateRange(new Date()));
+  const [applied, setApplied] = useState(draft);
+  const [rangeError, setRangeError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
+    const range = parseDateRange(applied.from, applied.to);
+    if ('error' in range) return; // applyRange never applies an invalid range
     setLoadError(null);
     try {
-      const loaded = await loadOutOfAreaTrips();
-      setTrips(loaded);
+      const loaded = await loadOutOfAreaTrips(range);
+      setTrips(loaded.trips);
+      setTruncated(loaded.truncated);
       setLoadedAt(new Date());
     } catch {
       setLoadError('Could not load out-of-area trips. Check your connection and reload the page.');
     }
-  }, []);
+  }, [applied]);
+
+  function applyRange(event: FormEvent) {
+    event.preventDefault();
+    const range = parseDateRange(draft.from, draft.to);
+    if ('error' in range) {
+      setRangeError(range.error);
+      return;
+    }
+    setRangeError(null);
+    setTrips(null);
+    setApplied({ ...draft });
+  }
 
   useEffect(() => {
     void reload();
@@ -63,6 +90,36 @@ export function OutOfAreaTripsPage() {
           Requests for trips with a pickup or destination outside Trinidad, and the trip each confirmed request
           became. The fare is the per-km fare and is final. Read-only.
         </p>
+        <form className="date-range-form" onSubmit={applyRange} noValidate>
+          <label className="field" htmlFor="out-of-area-from">
+            <span>Requested from</span>
+            <input
+              id="out-of-area-from"
+              type="date"
+              value={draft.from}
+              max={draft.to || undefined}
+              onChange={(e) => setDraft((range) => ({ ...range, from: e.target.value }))}
+            />
+          </label>
+          <label className="field" htmlFor="out-of-area-to">
+            <span>to</span>
+            <input
+              id="out-of-area-to"
+              type="date"
+              value={draft.to}
+              min={draft.from || undefined}
+              onChange={(e) => setDraft((range) => ({ ...range, to: e.target.value }))}
+            />
+          </label>
+          <button type="submit" className="btn-primary">
+            Show
+          </button>
+        </form>
+        {rangeError && (
+          <div className="alert-error" role="alert">
+            {rangeError}
+          </div>
+        )}
       </div>
 
       {loadError ? (
@@ -74,7 +131,7 @@ export function OutOfAreaTripsPage() {
       ) : (
         <>
           <div className="stat-grid">
-            <Stat label="Requests" value={rows.length} />
+            <Stat label={truncated ? `Requests (latest ${REQUEST_QUERY_LIMIT})` : 'Requests'} value={rows.length} />
             <Stat label="Looking for a driver" value={counts.get('searching') ?? 0} />
             <Stat label="Waiting for passenger" value={counts.get('awaiting_passenger') ?? 0} />
             <Stat label="Confirmed" value={counts.get('confirmed') ?? 0} />
@@ -97,12 +154,21 @@ export function OutOfAreaTripsPage() {
             </label>
             <p className="muted small" aria-live="polite">
               {filter === 'all'
-                ? `${rows.length} requests. Statuses as of ${loadedAt.toLocaleTimeString()}.`
-                : `${filtered.length} of ${rows.length} requests. Statuses as of ${loadedAt.toLocaleTimeString()}.`}
+                ? `${rows.length} requests from ${applied.from} to ${applied.to}.`
+                : `${filtered.length} of ${rows.length} requests from ${applied.from} to ${applied.to}.`}{' '}
+              Statuses as of {loadedAt.toLocaleTimeString()}.
             </p>
+            {truncated && (
+              <p className="alert-warning" role="status">
+                Showing the latest {REQUEST_QUERY_LIMIT} requests in this date range. Older ones are not shown and are
+                not counted above; choose a shorter range to see them.
+              </p>
+            )}
 
             {filtered.length === 0 ? (
-              <p className="muted">{rows.length === 0 ? 'No out-of-area requests yet.' : 'No requests with this status.'}</p>
+              <p className="muted">
+                {rows.length === 0 ? 'No out-of-area requests in this date range.' : 'No requests with this status.'}
+              </p>
             ) : (
               <div className="table-scroll">
                 <table className="data-table booking-table out-of-area-table">
@@ -115,6 +181,9 @@ export function OutOfAreaTripsPage() {
                       <th scope="col">Driver</th>
                       <th scope="col">Request</th>
                       <th scope="col">Trip</th>
+                      <th scope="col">
+                        <span className="visually-hidden">Actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -173,6 +242,11 @@ export function OutOfAreaTripsPage() {
                             ) : (
                               <span className="muted">—</span>
                             )}
+                          </td>
+                          <td className="cell-action">
+                            <Link className="btn-link" to={`/out-of-area/${request.requestId}`}>
+                              View
+                            </Link>
                           </td>
                         </tr>
                       );

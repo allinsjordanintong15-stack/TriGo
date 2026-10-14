@@ -34,6 +34,9 @@ export type AdminBooking = {
   cancelledBy: 'passenger' | 'driver' | null;
   cancellationReason: string | null;
   createdAt: Date | null;
+  acceptedAt: Date | null;
+  arrivedAt: Date | null;
+  startedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
 };
@@ -67,6 +70,9 @@ export function readBooking(bookingId: string, data: DocumentData): AdminBooking
     cancelledBy: data.cancelledBy === 'passenger' || data.cancelledBy === 'driver' ? data.cancelledBy : null,
     cancellationReason: typeof data.cancellationReason === 'string' ? data.cancellationReason : null,
     createdAt: toDate(data.createdAt),
+    acceptedAt: toDate(data.acceptedAt),
+    arrivedAt: toDate(data.arrivedAt),
+    startedAt: toDate(data.startedAt),
     completedAt: toDate(data.completedAt),
     cancelledAt: toDate(data.cancelledAt),
   };

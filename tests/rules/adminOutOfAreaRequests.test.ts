@@ -1,7 +1,8 @@
 /// <reference types="node" />
 
 // Firestore rules tests for admin out-of-area request access (Admin Website, Out-of-Area
-// Trips page): admins (custom claim `admin: true`) read and list every request, read-only.
+// Trips page): admins (custom claim `admin: true`) read and list every request, read-only,
+// including the page's date-range query and the by-id lookup of the linked bookings.
 // Passenger and driver request access is unchanged.
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
@@ -19,8 +20,11 @@ import {
   collection,
   deleteDoc,
   doc,
+  documentId,
   getDoc,
   getDocs,
+  limit,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -44,6 +48,7 @@ const DRIVER = 'driver1';
 const OTHER_DRIVER = 'driver2';
 
 const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
 
 let testEnv: RulesTestEnvironment;
 
@@ -80,6 +85,19 @@ function request(overrides: DocumentData = {}): DocumentData {
   };
 }
 
+/** OutOfAreaTripsPage's query: last 7 days on createdAt, newest first, at most `max`. */
+function rangeQuery(firestore: Firestore, max = 200) {
+  const start = Timestamp.fromMillis(Date.now() - 7 * DAY_MS);
+  const end = Timestamp.fromMillis(Date.now() + DAY_MS);
+  return query(
+    collection(firestore, 'outOfAreaRequests'),
+    where('createdAt', '>=', start),
+    where('createdAt', '<', end),
+    orderBy('createdAt', 'desc'),
+    limit(max),
+  );
+}
+
 before(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,
@@ -101,10 +119,22 @@ beforeEach(async () => {
     await setDoc(doc(firestore, 'users', OTHER_DRIVER), { uid: OTHER_DRIVER, role: 'driver' });
     await setDoc(doc(firestore, 'drivers', DRIVER), { isVerified: true, vehicleType: 'tricycle', currentBookingId: null });
     await setDoc(doc(firestore, 'drivers', OTHER_DRIVER), { isVerified: true, vehicleType: 'motorcycle', currentBookingId: null });
-    // r1 open, r2 accepted by DRIVER, r3 another passenger's cancelled request.
+    // r1 open, r2 accepted by DRIVER (booking at bookings/r2), r3 another passenger's
+    // cancelled request, r4 created 10 days ago (outside the default 7-day range).
     await setDoc(doc(firestore, 'outOfAreaRequests', 'r1'), request());
     await setDoc(doc(firestore, 'outOfAreaRequests', 'r2'), request({ status: 'accepted', driverId: DRIVER, agreedFare: 520 }));
     await setDoc(doc(firestore, 'outOfAreaRequests', 'r3'), request({ passengerId: OTHER_PASSENGER, status: 'cancelled' }));
+    await setDoc(doc(firestore, 'outOfAreaRequests', 'r4'), request({
+      status: 'cancelled',
+      createdAt: Timestamp.fromMillis(Date.now() - 10 * DAY_MS),
+    }));
+    await setDoc(doc(firestore, 'bookings', 'r2'), {
+      passengerId: PASSENGER,
+      driverId: DRIVER,
+      bookingType: 'out_of_area',
+      status: 'completed',
+      createdAt: Timestamp.now(),
+    });
   });
 });
 
@@ -117,11 +147,33 @@ describe('admin out-of-area requests: read', () => {
 
   it('lets an admin list every request', async () => {
     const all = await assertSucceeds(getDocs(collection(adminDb(), 'outOfAreaRequests')));
-    if (all.size !== 3) throw new Error(`expected 3 requests, got ${all.size}`);
+    if (all.size !== 4) throw new Error(`expected 4 requests, got ${all.size}`);
   });
 
-  it('lets an admin list out-of-area bookings (linked trip status)', async () => {
-    await assertSucceeds(getDocs(query(collection(adminDb(), 'bookings'), where('bookingType', '==', 'out_of_area'))));
+  it("runs the page's date-range query (createdAt range, newest first, capped)", async () => {
+    const snapshot = await assertSucceeds(getDocs(rangeQuery(adminDb())));
+    const ids = snapshot.docs.map((d) => d.id);
+    if (ids.length !== 3 || ids.includes('r4')) throw new Error(`expected r1-r3 only, got ${ids.join(', ')}`);
+    const capped = await assertSucceeds(getDocs(rangeQuery(adminDb(), 2)));
+    if (capped.size !== 2) throw new Error(`expected 2 with limit 2, got ${capped.size}`);
+  });
+
+  it('denies non-claim accounts the date-range query', async () => {
+    await assertFails(getDocs(rangeQuery(db(ADMIN))));
+    await assertFails(getDocs(rangeQuery(db(PASSENGER))));
+    await assertFails(getDocs(rangeQuery(db(DRIVER))));
+  });
+
+  it('lets an admin look up the linked bookings by id', async () => {
+    const snapshot = await assertSucceeds(
+      getDocs(query(collection(adminDb(), 'bookings'), where(documentId(), 'in', ['r2', 'r3']))),
+    );
+    if (snapshot.size !== 1) throw new Error(`expected 1 booking, got ${snapshot.size}`);
+  });
+
+  it('denies non-claim accounts the by-id booking lookup', async () => {
+    await assertFails(getDocs(query(collection(db(ADMIN), 'bookings'), where(documentId(), 'in', ['r2']))));
+    await assertFails(getDocs(query(collection(db(OTHER_PASSENGER), 'bookings'), where(documentId(), 'in', ['r2']))));
   });
 
   it('denies non-claim accounts listing every request', async () => {
