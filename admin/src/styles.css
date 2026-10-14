@@ -1038,3 +1038,29 @@ h3 {
   background: var(--color-error-background);
   color: var(--color-error);
 }
+
+/* ─── Out-of-area trips ────────────────────────────────────────────────── */
+
+.filter-field {
+  max-width: 320px;
+}
+
+.out-of-area-table {
+  min-width: 900px;
+}
+
+.request-status-confirmed {
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+}
+
+.request-status-expired {
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.request-status-cancelled,
+.request-status-rejected {
+  background: var(--color-error-background);
+  color: var(--color-error);
+}

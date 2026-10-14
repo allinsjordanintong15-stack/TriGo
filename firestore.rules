@@ -394,6 +394,10 @@ service cloud.firestore {
           && request.time < resource.data.expiresAt;
       }
 
+      // Admins read every request (Admin Website: Out-of-Area Trips page).
+      // Read-only: no admin write rule exists for out-of-area requests.
+      allow read: if isAdmin();
+
       allow read: if isSignedIn()
         && resource.data.passengerId == request.auth.uid;
 

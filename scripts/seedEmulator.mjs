@@ -229,6 +229,43 @@ await seedBooking('seed-booking-4', { passengerId: anaUid, driverId: carloUid, p
 const juan = seeded[0];
 await seedBooking('seed-booking-5', { passengerId: juan.uid, driverId: carloUid, place: PLACES[1], status: 'completed', vehicleType: 'tricycle', distanceKm: 3.1, fare: 39.8, minutesAgoCreated: 5 * DAY, paymentMethod: 'cash' });
 
+// Out-of-area requests (Out-of-Area Trips page). seed-booking-4 is the request that became
+// the completed out-of-area booking above (same id, as in the app's confirm commit).
+async function seedRequest(id, { passengerId, driverId = null, place, status, distanceKm, fare, minutesAgoCreated, expiresInMinutes = 30 }) {
+  const accepted = status === 'accepted';
+  await db.doc(`outOfAreaRequests/${id}`).set({
+    passengerId,
+    pickupLocation: POBLACION,
+    destination: place,
+    vehicleType: 'tricycle',
+    distanceKm,
+    standardEstimatedFare: fare,
+    suggestedAgreementFare: driverId ? fare : null,
+    agreedFare: accepted ? fare : null,
+    status,
+    driverId,
+    fareAgreement: driverId
+      ? {
+          standardEstimatedFare: fare,
+          driverProposedFare: fare,
+          agreedFare: fare,
+          agreedByPassenger: accepted,
+          agreedByDriver: true,
+          agreedAt: accepted ? minutesAgo(minutesAgoCreated - 3) : null,
+        }
+      : null,
+    createdAt: minutesAgo(minutesAgoCreated),
+    updatedAt: minutesAgo(minutesAgoCreated),
+    expiresAt: minutesAgo(minutesAgoCreated - expiresInMinutes),
+  });
+}
+
+const TAGBILARAN = { latitude: 9.6496, longitude: 123.8549, address: 'Tagbilaran City Port, Tagbilaran, Bohol' };
+await seedRequest('seed-booking-4', { passengerId: anaUid, driverId: carloUid, place: PLACES[3], status: 'accepted', distanceKm: 12.5, fare: 115, minutesAgoCreated: 300 });
+await seedRequest('seed-request-open', { passengerId: anaUid, place: TAGBILARAN, status: 'searching', distanceKm: 62.3, fare: 560, minutesAgoCreated: 5 });
+await seedRequest('seed-request-expired', { passengerId: juan.uid, place: PLACES[3], status: 'searching', distanceKm: 12.5, fare: 115, minutesAgoCreated: DAY });
+await seedRequest('seed-request-cancelled', { passengerId: juan.uid, place: TAGBILARAN, status: 'cancelled', distanceKm: 62.3, fare: 560, minutesAgoCreated: 2 * DAY });
+
 console.log(`Seeded the emulators (project ${PROJECT_ID}):`);
 console.log(`  admin     admin@trigo.test / ${PASSWORD}  (admin claim)`);
 for (const { fullName, status } of seeded) {
@@ -236,4 +273,5 @@ for (const { fullName, status } of seeded) {
 }
 console.log(`  passenger Ana Santos  (4 bookings, password ${PASSWORD})`);
 console.log(`  driver    Carlo Bautista  (verified, password ${PASSWORD})`);
+console.log('  4 out-of-area requests (confirmed, open, expired, cancelled)');
 process.exit(0);

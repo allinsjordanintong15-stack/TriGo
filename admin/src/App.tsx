@@ -12,6 +12,7 @@ import { FareSettingsPage } from './pages/FareSettingsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
 import { PassengersPage } from './pages/PassengersPage';
 import { LoginPage } from './pages/LoginPage';
+import { OutOfAreaTripsPage } from './pages/OutOfAreaTripsPage';
 
 export function App() {
   return (
@@ -32,6 +33,7 @@ export function App() {
             <Route path="/commission" element={<CommissionPage />} />
             <Route path="/passengers" element={<PassengersPage />} />
             <Route path="/passengers/:uid" element={<PassengerDetailPage />} />
+            <Route path="/out-of-area" element={<OutOfAreaTripsPage />} />
             <Route path="/drivers" element={<DriverVerificationPage />} />
             <Route path="/drivers/:uid" element={<DriverApplicationPage />} />
           </Route>
