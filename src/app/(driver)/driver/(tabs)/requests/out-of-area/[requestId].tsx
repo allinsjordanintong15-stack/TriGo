@@ -10,7 +10,7 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
-import { useDriverAccess } from '@/hooks/useDriverAccess';
+import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
 import { subscribeToOutOfAreaRequest } from '@/services/bookingService';
 import {
   createProposal,
@@ -40,7 +40,7 @@ function goBackToRequests() {
 export default function OutOfAreaProposalScreen() {
   const params = useLocalSearchParams<{ requestId?: string }>();
   const requestId = params.requestId ?? '';
-  const { driverRecord, canPerformDriverActions } = useDriverAccess();
+  const { status, driverRecord, canPerformDriverActions } = useDriverAccess();
   const { hasActiveTrip, finishedProposal, dismissFinishedProposal } = useDriverActivity();
 
   const [request, setRequest] = useState<OutOfAreaRequest | null>(null);
@@ -139,7 +139,9 @@ export default function OutOfAreaProposalScreen() {
 
   // Why this driver cannot accept right now, mirroring the Firestore rule.
   let blockedReason = '';
-  if (!canPerformDriverActions) {
+  if (status === 'revoked') {
+    blockedReason = `${DRIVER_ACCESS_REVOKED.title}. ${DRIVER_ACCESS_REVOKED.message}`;
+  } else if (!canPerformDriverActions) {
     blockedReason = 'Your account must be verified before you can accept requests.';
   } else if (hasActiveTrip || driverRecord?.currentBookingId) {
     blockedReason = 'Finish your current trip before accepting a request.';

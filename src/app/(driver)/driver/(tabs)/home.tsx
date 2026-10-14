@@ -10,7 +10,7 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useAuth } from '@/hooks/useAuth';
-import { DriverAccessStatus, useDriverAccess } from '@/hooks/useDriverAccess';
+import { DRIVER_ACCESS_REVOKED, DriverAccessStatus, useDriverAccess } from '@/hooks/useDriverAccess';
 import { FaresCollected, getDriverFaresCollectedSince } from '@/services/driverBookingService';
 import { becomeAvailable, DriverServiceError, goOffline, goOnline } from '@/services/driverService';
 import { getCurrentCoordinates, LocationServiceError } from '@/services/locationService';
@@ -29,6 +29,10 @@ const ACCESS_GATE_CONTENT: Record<
   Exclude<DriverAccessStatus, 'verified'>,
   { icon: IconName; title: string; message: string }
 > = {
+  revoked: {
+    icon: 'ban-outline',
+    ...DRIVER_ACCESS_REVOKED,
+  },
   pending_verification: {
     icon: 'time-outline',
     title: 'Pending verification',

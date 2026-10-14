@@ -24,6 +24,7 @@ import {
   getPassengerOfferState,
   PASSENGER_OFFER_TEXT,
   PassengerOfferState,
+  UnavailableOfferReason,
 } from '@/utils/outOfAreaProposal';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -45,8 +46,9 @@ export default function BookingConfirmationScreen() {
   const [outOfAreaRequest, setOutOfAreaRequest] = useState<OutOfAreaRequest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // Set when Confirm Booking found the driver's offer gone (withdrawn, expired, closed).
-  const [unavailable, setUnavailable] = useState<UnavailableOfferState | null>(null);
+  // Set when Confirm Booking found the driver's offer gone (withdrawn, expired, closed) or
+  // the driver no longer verified (the request is then back to searching).
+  const [unavailable, setUnavailable] = useState<UnavailableOfferReason | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {

@@ -837,6 +837,34 @@ describe('out-of-area request: passenger accepts and books', () => {
     await assertFails(releaseUpdate(DRIVER));
   });
 
+  it('denies accepting and booking once an admin revoked the driver', async () => {
+    // As the Admin Website's revoke leaves it: not verified, offline, still reserved.
+    await seedDriver(DRIVER, {
+      isVerified: false,
+      isOnline: false,
+      isAvailable: false,
+      currentRequestId: REQUEST,
+      verificationNote: 'Revoked by admin',
+      verificationUpdatedAt: Timestamp.now(),
+      verificationUpdatedBy: 'admin1',
+    });
+    await assertFails(acceptAndBookBatch(PASSENGER));
+  });
+
+  it('denies accepting and booking when the driver record is missing', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await deleteDoc(doc(context.firestore() as unknown as Firestore, 'drivers', DRIVER));
+    });
+    await assertFails(acceptAndBookBatch(PASSENGER));
+  });
+
+  it('still lets the passenger decline a revoked driver (back to searching)', async () => {
+    await seedDriver(DRIVER, { isVerified: false, isOnline: false, isAvailable: false, currentRequestId: REQUEST });
+    await assertSucceeds(
+      updateDoc(doc(db(PASSENGER), 'outOfAreaRequests', REQUEST), { ...WITHDRAW_UPDATE, updatedAt: serverTimestamp() }),
+    );
+  });
+
   it('denies creating the booking without accepting in the same batch', async () => {
     await assertFails(acceptAndBookBatch(PASSENGER, { requestUpdate: null }));
   });

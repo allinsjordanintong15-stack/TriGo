@@ -7,9 +7,10 @@ import { canPassengerCancelBooking } from '@/utils/booking';
 import {
   getPassengerOfferState,
   PASSENGER_OFFER_TEXT,
-  PassengerOfferState,
+  UnavailableOfferReason,
 } from '@/utils/outOfAreaProposal';
 import { COLLECTIONS, firestore } from '@/firebase';
+import { declineProposal } from '@/services/fareAgreementService';
 import { calculateEstimatedFare } from '@/services/fareService';
 import { isOutOfAreaTrip } from '@/services/serviceAreaService';
 import {
@@ -304,12 +305,26 @@ export async function createStandardBooking(
 
 /** The driver's offer was withdrawn, expired or otherwise closed before the passenger confirmed. */
 export class ProposalUnavailableError extends BookingServiceError {
-  readonly state: Exclude<PassengerOfferState, 'open' | 'accepted'>;
+  readonly state: UnavailableOfferReason;
 
-  constructor(state: Exclude<PassengerOfferState, 'open' | 'accepted'>) {
+  constructor(state: UnavailableOfferReason) {
     super(PASSENGER_OFFER_TEXT[state].message);
     this.name = 'ProposalUnavailableError';
     this.state = state;
+  }
+}
+
+/**
+ * False when an admin revoked the driver. Passengers can read only verified driver
+ * records, so a denied read means not verified. Other failures (e.g. offline) count as
+ * still verified, so a connection problem never sends the passenger back to searching.
+ */
+async function isDriverStillVerified(driverId: string): Promise<boolean> {
+  try {
+    const snapshot = await getDoc(doc(firestore, COLLECTIONS.drivers, driverId));
+    return snapshot.exists() && snapshot.data().isVerified === true;
+  } catch (error) {
+    return (error as { code?: string }).code !== 'permission-denied';
   }
 }
 
@@ -381,8 +396,17 @@ export async function acceptProposalAndCreateBooking(
     await batch.commit();
   } catch (error) {
     if ((error as { code?: string }).code === 'permission-denied') {
-      // The driver withdrew, or the request expired or closed since the last snapshot.
       const latest = getPassengerOfferState(request, Date.now());
+      // Still open as far as the passenger can tell: the rules also refuse a driver an
+      // admin revoked since accepting. Put the request back to searching so the
+      // passenger can choose another driver.
+      if (latest === 'open' && request.driverId && !(await isDriverStillVerified(request.driverId))) {
+        await declineProposal(request.requestId).catch(() => {
+          // The request may have changed meanwhile; the search screen shows its state.
+        });
+        throw new ProposalUnavailableError('driver_not_verified');
+      }
+      // The driver withdrew, or the request expired or closed since the last snapshot.
       throw new ProposalUnavailableError(latest === 'expired' ? 'expired' : 'withdrawn');
     }
     throw new BookingServiceError(

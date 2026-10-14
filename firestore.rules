@@ -522,6 +522,9 @@ service cloud.firestore {
           || (
             resource.data.status in ['negotiating', 'driver_interested']
             && isUnexpired()
+            // The driver must still be verified: an admin may have revoked them after they
+            // accepted the request, and a revoked driver could never claim the booking.
+            && get(driverPath(resource.data.driverId)).data.get('isVerified', false) == true
             && request.resource.data.status == 'accepted'
             && request.resource.data.agreedFare is number
             && request.resource.data.agreedFare == resource.data.fareAgreement.driverProposedFare

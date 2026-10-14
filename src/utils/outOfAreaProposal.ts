@@ -79,10 +79,14 @@ export function getPassengerOfferState(request: OutOfAreaRequest, now: number): 
   return 'open';
 }
 
-export const PASSENGER_OFFER_TEXT: Record<
-  Exclude<PassengerOfferState, 'open' | 'accepted'>,
-  { title: string; message: string }
-> = {
+/**
+ * Why Confirm Booking could not go through: an offer state, or `driver_not_verified` when
+ * the offer was still open but an admin had revoked the driver (the rules refuse the
+ * confirm; getPassengerOfferState cannot see this, passengers cannot read revoked drivers).
+ */
+export type UnavailableOfferReason = Exclude<PassengerOfferState, 'open' | 'accepted'> | 'driver_not_verified';
+
+export const PASSENGER_OFFER_TEXT: Record<UnavailableOfferReason, { title: string; message: string }> = {
   expired: {
     title: 'Request expired',
     message: 'Your request expired before the booking was confirmed. Please request a new ride.',
@@ -94,5 +98,9 @@ export const PASSENGER_OFFER_TEXT: Record<
   cancelled: {
     title: 'Request closed',
     message: 'This request is no longer open.',
+  },
+  driver_not_verified: {
+    title: 'Driver no longer available',
+    message: 'This driver is no longer available. Please choose another driver.',
   },
 };

@@ -165,6 +165,12 @@ export interface DriverRecord {
   rating: number;
   isOnline: boolean;
   isVerified: boolean;
+  /**
+   * An admin revoked verification on the Admin Website (not verified, and the admin-set
+   * verificationUpdatedAt exists). False for a record that was never verified. The admin's
+   * reason (verificationNote) is private and never read by the app.
+   */
+  isRevoked: boolean;
   isAvailable: boolean;
   currentLocation: { latitude: number; longitude: number } | null;
   /** The booking this driver is assigned to; set on accept, cleared when the trip ends. */

@@ -36,6 +36,7 @@ export function docToDriverRecord(driverId: string, data: DocumentData): DriverR
     rating: typeof data.rating === 'number' ? data.rating : 0,
     isOnline: data.isOnline === true,
     isVerified: data.isVerified === true,
+    isRevoked: data.isVerified !== true && data.verificationUpdatedAt != null,
     isAvailable: data.isAvailable === true,
     currentLocation:
       location && typeof location.latitude === 'number' && typeof location.longitude === 'number'

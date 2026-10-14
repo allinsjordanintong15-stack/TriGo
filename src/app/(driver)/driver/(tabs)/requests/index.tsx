@@ -6,7 +6,7 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
-import { useDriverAccess } from '@/hooks/useDriverAccess';
+import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
 import { getDeclinedBookingIds, subscribeToOpenBookings } from '@/services/driverBookingService';
 import { OpenOutOfAreaRequest, subscribeToOpenOutOfAreaRequests } from '@/services/driverService';
 import { fetchFareConfig } from '@/services/fareService';
@@ -152,13 +152,15 @@ export default function DriverRequestsScreen() {
   function renderGate(
     title: string,
     message: string,
-    icon: 'shield-outline' | 'power-outline' | 'car-outline' | 'time-outline',
+    icon: 'shield-outline' | 'power-outline' | 'car-outline' | 'time-outline' | 'ban-outline',
   ) {
     return <EmptyState icon={icon} title={title} message={message} />;
   }
 
   let body;
-  if (status === 'role_not_authorized') {
+  if (status === 'revoked') {
+    body = renderGate(DRIVER_ACCESS_REVOKED.title, DRIVER_ACCESS_REVOKED.message, 'ban-outline');
+  } else if (status === 'role_not_authorized') {
     body = renderGate(
       'Driver access not active',
       'Your account is not set up for driver access yet. Please contact the TriGo administrator to finish setting up your account.',

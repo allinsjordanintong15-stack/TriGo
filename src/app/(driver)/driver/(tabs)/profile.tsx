@@ -3,9 +3,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Button } from '@/components/ui/Button';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
-import { useDriverAccess } from '@/hooks/useDriverAccess';
+import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
 import { logout } from '@/services/authService';
 import { goOffline } from '@/services/driverService';
 import { router } from 'expo-router';
@@ -24,6 +24,7 @@ function getInitials(fullName: string): string {
 
 const VERIFICATION_LABELS = {
   verified: 'Verified',
+  revoked: DRIVER_ACCESS_REVOKED.title,
   pending_verification: 'Pending verification',
   role_not_authorized: 'Driver access not active',
   invalid_vehicle_type: 'Vehicle type not set up',
@@ -111,6 +112,12 @@ export default function DriverProfileScreen() {
             <Text style={styles.role}>Driver · {VERIFICATION_LABELS[status]}</Text>
           </View>
         </View>
+
+        {status === 'revoked' ? (
+          <Text style={styles.revokedNotice} accessibilityRole="alert">
+            {DRIVER_ACCESS_REVOKED.title}. {DRIVER_ACCESS_REVOKED.message}
+          </Text>
+        ) : null}
 
         <View style={styles.card}>
           <View style={styles.field}>
@@ -221,6 +228,13 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  revokedNotice: {
+    ...typography.caption,
+    color: colors.error,
+    backgroundColor: colors.errorBackground,
+    borderRadius: radius.md,
+    padding: spacing.md,
   },
   card: {
     backgroundColor: colors.surface,
