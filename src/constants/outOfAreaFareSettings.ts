@@ -11,6 +11,8 @@ import { OutOfAreaFareSettings } from '@/types';
  */
 export const MAX_REQUEST_EXPIRY_MINUTES = 30;
 
+// Defaults when fareSettings/active has no outOfArea (admins edit it on the admin website's
+// System settings page: expiry 1-30 min, radius 1-50 km).
 export const OUT_OF_AREA_FARE_SETTINGS: OutOfAreaFareSettings = {
   enabled: true,
   requestExpiryMinutes: 30,

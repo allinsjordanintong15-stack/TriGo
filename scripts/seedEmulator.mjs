@@ -314,6 +314,15 @@ await seedRequest('seed-request-cancelled', { passengerId: juan.uid, place: TAGB
 // Outside the page's default last-7-days range.
 await seedRequest('seed-request-old', { passengerId: anaUid, place: PLACES[3], status: 'cancelled', distanceKm: 12.5, fare: 115, minutesAgoCreated: 10 * DAY });
 
+// Support contacts for the System settings page and the app's Help screen (one hidden).
+for (const [id, label, phone, active, sortOrder] of [
+  ['seed-hotline', 'TriGo Hotline (8 AM–5 PM)', '0917 123 4567', true, 1],
+  ['seed-office', 'TriGo Office, Trinidad', '(038) 123-4567', true, 2],
+  ['seed-old-number', 'Old support number', '0918 765 4321', false, 3],
+]) {
+  await db.doc(`supportContacts/${id}`).set({ label, phone, active, sortOrder, updatedAt: Timestamp.now(), updatedBy: admin.uid });
+}
+
 console.log(`Seeded the emulators (project ${PROJECT_ID}):`);
 console.log(`  admin     admin@trigo.test / ${PASSWORD}  (admin claim)`);
 for (const { fullName, status } of seeded) {
@@ -324,4 +333,5 @@ console.log(`  driver    Carlo Bautista  (verified, password ${PASSWORD})`);
 console.log(`  driver    Bella Cruz  (verified, online, password ${PASSWORD})`);
 console.log(`  driver    Dante Reyes  (revoked, password ${PASSWORD})`);
 console.log('  5 out-of-area requests (confirmed, open, expired, cancelled, cancelled 10 days ago)');
+console.log('  3 support contacts (2 active, 1 hidden)');
 process.exit(0);

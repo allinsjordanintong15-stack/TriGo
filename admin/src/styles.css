@@ -1220,3 +1220,32 @@ h3 {
   color: var(--color-primary);
   font-weight: 600;
 }
+
+/* System settings: support contacts */
+button.btn-link {
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  cursor: pointer;
+}
+
+button.btn-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cell-action .button-row {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.contact-form {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin: var(--space-md) 0;
+}
+
+.contact-form h3 {
+  margin: 0 0 var(--space-sm);
+}

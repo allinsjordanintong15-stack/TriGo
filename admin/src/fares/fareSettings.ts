@@ -3,7 +3,8 @@ import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore
 import { db } from '../firebase/config';
 
 // fareSettings/active, read by the mobile app (src/services/fareService.ts) and written here.
-// firestore.rules only accepts a complete `fares` object and leaves `outOfArea` untouched.
+// firestore.rules only accepts a complete `fares` object and leaves `outOfArea` untouched
+// (that is saved on the System settings page, admin/src/settings/outOfAreaSettings.ts).
 const FARE_DOC = doc(db, 'fareSettings', 'active');
 
 export const VEHICLE_TYPES = ['tricycle', 'motorcycle'] as const;

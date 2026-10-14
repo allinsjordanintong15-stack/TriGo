@@ -887,7 +887,8 @@ service cloud.firestore {
     // fareSettings/active: { fares, outOfArea, updatedAt, updatedBy }. The app reads it
     // (falling back to in-code defaults when missing). Only admins write `fares`, always as
     // a complete object: both vehicle types, each with exactly baseFare and perKm.
-    // `outOfArea` is not editable here and must stay unchanged.
+    // `outOfArea` is written separately (System settings page), also only by admins and
+    // always as a complete object; each write changes either `fares` or `outOfArea`.
 
     match /fareSettings/{document=**} {
       allow read: if isSignedIn();
@@ -922,11 +923,38 @@ service cloud.firestore {
           && request.resource.data.updatedBy == request.auth.uid;
       }
 
-      allow create: if isValidFareWrite()
-        && request.resource.data.keys().hasOnly(['fares', 'updatedAt', 'updatedBy']);
+      // Whole minutes and kilometres. The app also caps the expiry it writes at 30 minutes
+      // (the outOfAreaRequests create rule allows up to 35 for clock skew).
+      function isValidOutOfArea(value) {
+        let keys = ['enabled', 'requestExpiryMinutes', 'driverSearchRadiusKm'];
+        return value is map
+          && value.keys().hasAll(keys)
+          && value.keys().hasOnly(keys)
+          && value.enabled is bool
+          && value.requestExpiryMinutes is int
+          && value.requestExpiryMinutes >= 1
+          && value.requestExpiryMinutes <= 30
+          && value.driverSearchRadiusKm is int
+          && value.driverSearchRadiusKm >= 1
+          && value.driverSearchRadiusKm <= 50;
+      }
 
-      allow update: if isValidFareWrite()
-        && onlyChanged(['fares', 'updatedAt', 'updatedBy']);
+      function isValidOutOfAreaWrite() {
+        return isAdmin()
+          && isValidOutOfArea(request.resource.data.outOfArea)
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.updatedBy == request.auth.uid;
+      }
+
+      allow create: if (isValidFareWrite()
+          && request.resource.data.keys().hasOnly(['fares', 'updatedAt', 'updatedBy']))
+        || (isValidOutOfAreaWrite()
+          && request.resource.data.keys().hasOnly(['outOfArea', 'updatedAt', 'updatedBy']));
+
+      allow update: if (isValidFareWrite()
+          && onlyChanged(['fares', 'updatedAt', 'updatedBy']))
+        || (isValidOutOfAreaWrite()
+          && onlyChanged(['outOfArea', 'updatedAt', 'updatedBy']));
     }
 
     // ─── Barangay tariffs ──────────────────────────────────────────────────
@@ -1016,6 +1044,36 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create, update: if isValidCommissionWrite();
       allow delete: if false;
+    }
+
+    // ─── Support contacts ──────────────────────────────────────────────────
+    // supportContacts/{contactId}: { label, phone, active, sortOrder, updatedAt, updatedBy }.
+    // Shown on the app's Help screen (active ones only, tap to call). Admins read, write
+    // (always the complete document) and delete; signed-in users read active contacts.
+
+    match /supportContacts/{contactId} {
+      function isValidContactWrite() {
+        let data = request.resource.data;
+        let keys = ['label', 'phone', 'active', 'sortOrder', 'updatedAt', 'updatedBy'];
+        return isAdmin()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.label is string
+          && data.label.trim().size() > 0
+          && data.label.size() <= 60
+          && data.phone is string
+          && data.phone.matches('[+]?[0-9 ()-]{6,19}[0-9]')
+          && data.active is bool
+          && data.sortOrder is int
+          && data.sortOrder >= 0
+          && data.sortOrder <= 99
+          && data.updatedAt == request.time
+          && data.updatedBy == request.auth.uid;
+      }
+
+      allow read: if isAdmin() || (isSignedIn() && resource.data.active == true);
+      allow create, update: if isValidContactWrite();
+      allow delete: if isAdmin();
     }
 
     // Deny everything else by default.

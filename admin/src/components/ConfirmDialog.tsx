@@ -5,11 +5,24 @@ type ConfirmDialogProps = {
   children: ReactNode;
   confirmLabel: string;
   busy?: boolean;
+  /** Confirm button text while busy. */
+  busyLabel?: string;
+  /** Red confirm button, for destructive actions. */
+  danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
 
-export function ConfirmDialog({ title, children, confirmLabel, busy = false, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({
+  title,
+  children,
+  confirmLabel,
+  busy = false,
+  busyLabel = 'Saving…',
+  danger = false,
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       if (event.key === 'Escape' && !busy) onCancel();
@@ -33,8 +46,14 @@ export function ConfirmDialog({ title, children, confirmLabel, busy = false, onC
           <button type="button" className="btn-outline" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className="btn-primary" onClick={onConfirm} disabled={busy} autoFocus>
-            {busy ? 'Saving…' : confirmLabel}
+          <button
+            type="button"
+            className={danger ? 'btn-danger' : 'btn-primary'}
+            onClick={onConfirm}
+            disabled={busy}
+            autoFocus
+          >
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

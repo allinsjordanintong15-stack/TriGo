@@ -15,6 +15,7 @@ const NAV_ITEMS: { to: string; label: string; end?: boolean }[] = [
   { to: '/fares', label: 'Fare settings' },
   { to: '/tariffs', label: 'Barangay tariffs' },
   { to: '/commission', label: 'Commission' },
+  { to: '/settings', label: 'System settings' },
 ];
 
 export function AdminLayout() {

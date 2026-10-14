@@ -1,8 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
 import { colors, radius, spacing, typography } from '@/constants/theme';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { fetchActiveSupportContacts, SupportContact } from '@/services/supportContactService';
+import { toTelUri } from '@/utils/phone';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Describes only features that exist in the app today.
@@ -38,6 +48,25 @@ export default function HelpScreen() {
   const insets = useSafeAreaInsets();
   const goBack = useScreenBack();
   const [openIndex, setOpenIndex] = useState<number | null>(0);
+  // null while loading; 'error' when the contacts could not be loaded.
+  const [contacts, setContacts] = useState<SupportContact[] | 'error' | null>(null);
+
+  const loadContacts = useCallback(() => {
+    let active = true;
+    setContacts(null);
+    fetchActiveSupportContacts()
+      .then((result) => {
+        if (active) setContacts(result);
+      })
+      .catch(() => {
+        if (active) setContacts('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => loadContacts(), [loadContacts]);
 
   return (
     <View style={styles.container}>
@@ -73,13 +102,61 @@ export default function HelpScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>Contact support</Text>
-        <View style={styles.notice}>
-          <Ionicons name="information-circle-outline" size={20} color={colors.primaryDark} />
-          <Text style={styles.noticeText}>
-            In-app support contact is not available yet. Official TriGo support channels will be
-            added here.
-          </Text>
-        </View>
+        {contacts === null ? (
+          <ActivityIndicator color={colors.primary} style={styles.loading} />
+        ) : contacts === 'error' ? (
+          <View style={styles.notice}>
+            <Ionicons name="cloud-offline-outline" size={20} color={colors.primaryDark} />
+            <View style={styles.noticeBody}>
+              <Text style={styles.noticeText}>
+                Support contacts could not be loaded. Check your internet connection.
+              </Text>
+              <Pressable accessibilityRole="button" onPress={loadContacts} hitSlop={8}>
+                <Text style={styles.retry}>Try again</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : contacts.length === 0 ? (
+          <View style={styles.notice}>
+            <Ionicons name="information-circle-outline" size={20} color={colors.primaryDark} />
+            <Text style={styles.noticeText}>
+              No support contacts are available right now. Please check again later.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.card}>
+            {contacts.map((contact, index) => {
+              const telUri = toTelUri(contact.phone);
+              return (
+                <Pressable
+                  key={contact.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Call ${contact.label}, ${contact.phone}`}
+                  disabled={!telUri}
+                  style={({ pressed }) => [
+                    styles.contact,
+                    index === contacts.length - 1 ? styles.topicLast : null,
+                    pressed ? styles.pressed : null,
+                  ]}
+                  onPress={() => {
+                    if (!telUri) return;
+                    Linking.openURL(telUri).catch(() => {
+                      // No dialer available (e.g. a tablet); nothing else to do.
+                    });
+                  }}
+                >
+                  <View style={styles.contactText}>
+                    <Text style={styles.question}>{contact.label}</Text>
+                    <Text style={styles.phone}>{contact.phone}</Text>
+                  </View>
+                  <View style={styles.callIcon}>
+                    <Ionicons name="call" size={18} color={colors.white} />
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -150,5 +227,44 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     lineHeight: 18,
     flex: 1,
+  },
+  noticeBody: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  retry: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  loading: {
+    marginVertical: spacing.md,
+  },
+  contact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+  contactText: {
+    flex: 1,
+  },
+  phone: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  callIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

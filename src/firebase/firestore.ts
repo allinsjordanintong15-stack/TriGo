@@ -13,4 +13,5 @@ export const COLLECTIONS = {
   outOfAreaRequests: 'outOfAreaRequests',
   drivers: 'drivers',
   driverApplications: 'driverApplications',
+  supportContacts: 'supportContacts',
 } as const;
