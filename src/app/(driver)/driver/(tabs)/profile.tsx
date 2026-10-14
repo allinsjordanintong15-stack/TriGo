@@ -1,3 +1,4 @@
+import { SupportContactsList } from '@/components/support/SupportContactsList';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -147,6 +148,11 @@ export default function DriverProfileScreen() {
           vehicle or account information.
         </Text>
 
+        <Text style={styles.sectionTitle}>Contact TriGo support</Text>
+        <View style={styles.supportContacts}>
+          <SupportContactsList />
+        </View>
+
         {error ? <ErrorBanner message={error} /> : null}
 
         {role === 'passenger' ? (
@@ -235,6 +241,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.errorBackground,
     borderRadius: radius.md,
     padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  sectionTitle: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+  },
+  supportContacts: {
+    marginBottom: spacing.lg,
   },
   card: {
     backgroundColor: colors.surface,

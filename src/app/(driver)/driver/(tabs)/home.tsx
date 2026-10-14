@@ -3,6 +3,7 @@ import { ActiveTripBanner } from '@/components/driver/ActiveTripBanner';
 import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
 import { DutyToggle } from '@/components/driver/DutyToggle';
 import { FaresCollectedCard } from '@/components/driver/FaresCollectedCard';
+import { SupportContactsList } from '@/components/support/SupportContactsList';
 import { formatExpiresIn } from '@/components/driver/OutOfAreaRequestCard';
 import { Avatar } from '@/components/ui/Avatar';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -246,7 +247,9 @@ export default function DriverHomeScreen() {
         title={gate.title}
         message={gate.message}
         tone="attention"
-      />
+      >
+        {status === 'revoked' ? <SupportContactsList /> : null}
+      </DriverStatusCard>
     );
   } else if (activeBooking) {
     statusCard = (

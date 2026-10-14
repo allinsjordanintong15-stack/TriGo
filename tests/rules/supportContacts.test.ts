@@ -115,6 +115,23 @@ describe('supportContacts: read', () => {
     if (snapshot.size !== 1) throw new Error(`expected 1 active contact, got ${snapshot.size}`);
   });
 
+  it('lets a driver, including a revoked one, run the same query (driver Profile and revoked card)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore() as unknown as Firestore, 'drivers', DRIVER), {
+        uid: DRIVER,
+        isVerified: false,
+        isOnline: false,
+        isAvailable: false,
+        verificationNote: 'Revoked by admin',
+      });
+    });
+    const snapshot = await assertSucceeds(
+      getDocs(query(collection(db(DRIVER), 'supportContacts'), where('active', '==', true))),
+    );
+    if (snapshot.size !== 1) throw new Error(`expected 1 active contact, got ${snapshot.size}`);
+    await assertFails(getDoc(doc(db(DRIVER), 'supportContacts', INACTIVE)));
+  });
+
   it('denies non-admins inactive contacts and unfiltered queries', async () => {
     await assertFails(getDoc(doc(db(PASSENGER), 'supportContacts', INACTIVE)));
     await assertFails(getDocs(collection(db(PASSENGER), 'supportContacts')));
