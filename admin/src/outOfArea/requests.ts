@@ -119,47 +119,13 @@ export function sortRequestsNewestFirst(requests: AdminOutOfAreaRequest[]): Admi
   return [...requests].sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
 }
 
-// ─── Date range (list page) ─────────────────────────────────────────────
+// ─── List page ──────────────────────────────────────────────────────────
 
 /** Each list query returns at most this many requests (newest first). */
 export const REQUEST_QUERY_LIMIT = 200;
 
+/** The list page shows the last 7 days by default. */
 export const DEFAULT_RANGE_DAYS = 7;
-
-/** 'YYYY-MM-DD' in local time, the value format of <input type="date">. */
-export function toDateInputValue(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
-/** The last 7 days including today. */
-export function defaultDateRange(now: Date): { from: string; to: string } {
-  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (DEFAULT_RANGE_DAYS - 1));
-  return { from: toDateInputValue(from), to: toDateInputValue(now) };
-}
-
-function parseDateInput(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return toDateInputValue(date) === value ? date : null;
-}
-
-export type DateRange = { start: Date; end: Date };
-
-/**
- * Both days inclusive, in local time: start is midnight of `from`, end is midnight after
- * `to` (query with createdAt >= start and createdAt < end).
- */
-export function parseDateRange(from: string, to: string): DateRange | { error: string } {
-  const start = parseDateInput(from);
-  const toDate = parseDateInput(to);
-  if (!start || !toDate) return { error: 'Choose both a start date and an end date.' };
-  if (toDate.getTime() < start.getTime()) return { error: 'The start date must be on or before the end date.' };
-  const end = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
-  return { start, end };
-}
 
 // ─── Timeline (detail page) ─────────────────────────────────────────────
 

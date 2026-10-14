@@ -13,7 +13,8 @@ import {
 
 import { BOOKING_STATUS_LABELS, readBooking, type AdminBooking, type BookingStatus } from '../bookings/bookings';
 import { db } from '../firebase/config';
-import { readRequest, REQUEST_QUERY_LIMIT, type AdminOutOfAreaRequest, type DateRange } from './requests';
+import type { DateRange } from '../lib/dateRange';
+import { readRequest, REQUEST_QUERY_LIMIT, type AdminOutOfAreaRequest } from './requests';
 
 // Read-only Out-of-Area Trips view. A confirmed request has its booking at
 // bookings/{requestId} (created in the passenger's confirm commit), which carries the trip

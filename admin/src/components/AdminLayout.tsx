@@ -7,6 +7,7 @@ import { useAuth } from '../auth/AuthContext';
 // Sidebar links. Add future admin pages here.
 const NAV_ITEMS: { to: string; label: string; end?: boolean }[] = [
   { to: '/', label: 'Dashboard', end: true },
+  { to: '/reports', label: 'Reports' },
   { to: '/passengers', label: 'Passengers' },
   { to: '/out-of-area', label: 'Out-of-area trips' },
   { to: '/driver-accounts', label: 'Drivers' },

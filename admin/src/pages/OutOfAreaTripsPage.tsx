@@ -8,11 +8,11 @@ import {
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
 import { loadOutOfAreaTrips, type OutOfAreaTrip } from '../outOfArea/outOfAreaRequests';
+import { defaultDateRange, parseDateRange } from '../lib/dateRange';
 import {
-  defaultDateRange,
+  DEFAULT_RANGE_DAYS,
   DISPLAY_STATUS_LABELS,
   displayStatus,
-  parseDateRange,
   REQUEST_QUERY_LIMIT,
   type DisplayStatus,
 } from '../outOfArea/requests';
@@ -28,7 +28,7 @@ export function OutOfAreaTripsPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [truncated, setTruncated] = useState(false);
   // `draft` follows the date inputs; `applied` is the range the table shows (on createdAt).
-  const [draft, setDraft] = useState(() => defaultDateRange(new Date()));
+  const [draft, setDraft] = useState(() => defaultDateRange(new Date(), DEFAULT_RANGE_DAYS));
   const [applied, setApplied] = useState(draft);
   const [rangeError, setRangeError] = useState<string | null>(null);
 

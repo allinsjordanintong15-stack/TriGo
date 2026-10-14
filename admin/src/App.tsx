@@ -13,6 +13,7 @@ import { DriverVerificationPage } from './pages/DriverVerificationPage';
 import { FareSettingsPage } from './pages/FareSettingsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
 import { PassengersPage } from './pages/PassengersPage';
+import { ReportsPage } from './pages/ReportsPage';
 import { LoginPage } from './pages/LoginPage';
 import { OutOfAreaTripDetailPage } from './pages/OutOfAreaTripDetailPage';
 import { OutOfAreaTripsPage } from './pages/OutOfAreaTripsPage';
@@ -31,6 +32,7 @@ export function App() {
             }
           >
             <Route path="/" element={<DashboardPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
             <Route path="/fares" element={<FareSettingsPage />} />
             <Route path="/tariffs" element={<BarangayTariffsPage />} />
             <Route path="/commission" element={<CommissionPage />} />

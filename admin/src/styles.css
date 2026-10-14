@@ -1132,3 +1132,91 @@ h3 {
 .drivers-table {
   min-width: 720px;
 }
+
+/* ─── Reports ──────────────────────────────────────────────────────────── */
+
+.preset-group,
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: var(--space-lg);
+}
+
+.chart {
+  position: relative;
+  width: 100%;
+  margin-top: var(--space-md);
+}
+
+.chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.chart-gridline {
+  stroke: var(--color-border);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.chart-axis-label {
+  fill: var(--color-text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-column {
+  fill: var(--color-primary);
+}
+
+.chart-column-active {
+  fill: var(--color-primary-dark);
+}
+
+.chart-tooltip {
+  position: absolute;
+  transform: translateX(-50%);
+  pointer-events: none;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+  box-shadow: var(--shadow-card);
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.chart-tooltip-label {
+  color: var(--color-text-secondary);
+}
+
+.chart-tooltip-value {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.data-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table tr.total-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--color-border);
+}
+
+.report-table {
+  margin-top: var(--space-md);
+}
+
+.report-table summary {
+  cursor: pointer;
+  color: var(--color-primary);
+  font-weight: 600;
+}
