@@ -238,6 +238,17 @@ export default function DriverTripScreen() {
         {isFinished ? (
           <Button title="Back to Home" onPress={() => router.replace('/driver/home')} />
         ) : null}
+        <View style={styles.spacer} />
+        <Button
+          title="Report a Problem"
+          variant="secondary"
+          onPress={() =>
+            router.push({
+              pathname: '/driver/report/[bookingId]',
+              params: { bookingId: booking.bookingId },
+            })
+          }
+        />
       </ScrollView>
 
       <ConfirmationDialog

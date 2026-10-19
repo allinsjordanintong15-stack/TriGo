@@ -1,0 +1,4 @@
+[33ma1e3d8d[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m fix(help): match FAQ to fare decisions; show support contacts to drivers
+[33ma59df6e[m feat(admin): system settings (out-of-area settings, support contacts) and mobile help contacts
+[33me55224b[m feat(admin): reports and analytics with SVG charts and CSV export
+[33m410a584[m fix(driver): show revoked access; block confirming a revoked driver

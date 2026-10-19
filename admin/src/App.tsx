@@ -5,6 +5,8 @@ import { RequireAdmin } from './auth/RequireAdmin';
 import { AdminLayout } from './components/AdminLayout';
 import { BarangayTariffsPage } from './pages/BarangayTariffsPage';
 import { CommissionPage } from './pages/CommissionPage';
+import { ComplaintDetailPage } from './pages/ComplaintDetailPage';
+import { ComplaintsPage } from './pages/ComplaintsPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { DriverApplicationPage } from './pages/DriverApplicationPage';
 import { DriverDetailPage } from './pages/DriverDetailPage';
@@ -13,6 +15,7 @@ import { DriverVerificationPage } from './pages/DriverVerificationPage';
 import { FareSettingsPage } from './pages/FareSettingsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
 import { PassengersPage } from './pages/PassengersPage';
+import { ReportsLayout } from './pages/ReportsLayout';
 import { ReportsPage } from './pages/ReportsPage';
 import { SystemSettingsPage } from './pages/SystemSettingsPage';
 import { LoginPage } from './pages/LoginPage';
@@ -33,7 +36,11 @@ export function App() {
             }
           >
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/reports" element={<ReportsLayout />}>
+              <Route index element={<ReportsPage />} />
+              <Route path="complaints" element={<ComplaintsPage />} />
+              <Route path="complaints/:complaintId" element={<ComplaintDetailPage />} />
+            </Route>
             <Route path="/fares" element={<FareSettingsPage />} />
             <Route path="/tariffs" element={<BarangayTariffsPage />} />
             <Route path="/commission" element={<CommissionPage />} />

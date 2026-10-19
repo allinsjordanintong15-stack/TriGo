@@ -1076,6 +1076,63 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ─── Complaints ────────────────────────────────────────────────────────
+    // complaints/{bookingId}_{reporterUid}: "Report a problem" on a booking, by its passenger
+    // or its assigned driver; the fixed ID allows one report per booking per person.
+    // { bookingId, reporterId, reporterRole, category, message, status, createdAt, updatedAt }
+    // on create; admins later set status (open / in_review / resolved), adminNotes and
+    // updatedBy. The reporter can read their own report (the ID ends in their uid, so a
+    // missing report can be checked too); only admins list. Nobody deletes.
+    // Independent of the booking and out-of-area rules (it only reads bookings/{id}).
+
+    match /complaints/{complaintId} {
+      function isValidComplaintCreate() {
+        let data = request.resource.data;
+        let keys = ['bookingId', 'reporterId', 'reporterRole', 'category', 'message', 'status', 'createdAt', 'updatedAt'];
+        return isSignedIn()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.reporterId == request.auth.uid
+          && data.bookingId is string
+          && data.bookingId.matches('[^_/]+')
+          && complaintId == data.bookingId + '_' + request.auth.uid
+          && exists(bookingPath(data.bookingId))
+          && isOwnBookingAs(get(bookingPath(data.bookingId)).data, data.reporterRole)
+          && data.category in ['driver_behavior', 'passenger_behavior', 'fare_or_payment', 'safety', 'lost_item', 'app_problem', 'other']
+          && !(data.reporterRole == 'passenger' && data.category == 'passenger_behavior')
+          && !(data.reporterRole == 'driver' && data.category == 'driver_behavior')
+          && data.message is string
+          && data.message.trim().size() > 0
+          && data.message.size() <= 1000
+          && data.status == 'open'
+          && data.createdAt == request.time
+          && data.updatedAt == request.time;
+      }
+
+      function isOwnBookingAs(booking, role) {
+        return (role == 'passenger' && booking.passengerId == request.auth.uid)
+          || (role == 'driver' && booking.driverId == request.auth.uid);
+      }
+
+      function isValidComplaintReview() {
+        let data = request.resource.data;
+        return isAdmin()
+          && onlyChanged(['status', 'adminNotes', 'updatedAt', 'updatedBy'])
+          && data.status in ['open', 'in_review', 'resolved']
+          && data.adminNotes is string
+          && data.adminNotes.size() <= 1000
+          && data.updatedAt == request.time
+          && data.updatedBy == request.auth.uid;
+      }
+
+      allow get: if isAdmin()
+        || (isSignedIn() && complaintId.matches('[^_]+_' + request.auth.uid));
+      allow list: if isAdmin();
+      allow create: if isValidComplaintCreate();
+      allow update: if isValidComplaintReview();
+      allow delete: if false;
+    }
+
     // Deny everything else by default.
     match /{document=**} {
       allow read, write: if false;

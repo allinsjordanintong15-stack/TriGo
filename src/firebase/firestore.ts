@@ -14,4 +14,5 @@ export const COLLECTIONS = {
   drivers: 'drivers',
   driverApplications: 'driverApplications',
   supportContacts: 'supportContacts',
+  complaints: 'complaints',
 } as const;

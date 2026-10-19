@@ -323,6 +323,25 @@ for (const [id, label, phone, active, sortOrder] of [
   await db.doc(`supportContacts/${id}`).set({ label, phone, active, sortOrder, updatedAt: Timestamp.now(), updatedBy: admin.uid });
 }
 
+// Complaints (Reports & Complaints page), at complaints/{bookingId}_{reporterUid}.
+async function seedComplaint(bookingId, reporterId, reporterRole, category, message, status, minutesAgoCreated, adminNotes) {
+  await db.doc(`complaints/${bookingId}_${reporterId}`).set({
+    bookingId,
+    reporterId,
+    reporterRole,
+    category,
+    message,
+    status,
+    createdAt: minutesAgo(minutesAgoCreated),
+    updatedAt: minutesAgo(status === 'open' ? minutesAgoCreated : minutesAgoCreated - 60),
+    ...(adminNotes !== undefined ? { adminNotes, updatedBy: admin.uid } : {}),
+  });
+}
+
+await seedComplaint('seed-booking-1', anaUid, 'passenger', 'driver_behavior', 'The driver was speeding on the highway and would not slow down when I asked.', 'open', 2 * DAY);
+await seedComplaint('seed-booking-1', carloUid, 'driver', 'fare_or_payment', 'The passenger paid ₱30 instead of the ₱34.20 shown in the app.', 'in_review', 2 * DAY + 30, 'Asked the passenger to settle the difference.');
+await seedComplaint('seed-booking-4', anaUid, 'passenger', 'lost_item', 'I left a black umbrella in the tricycle.', 'resolved', 200, 'Driver returned the umbrella at the office.');
+
 console.log(`Seeded the emulators (project ${PROJECT_ID}):`);
 console.log(`  admin     admin@trigo.test / ${PASSWORD}  (admin claim)`);
 for (const { fullName, status } of seeded) {
@@ -334,4 +353,5 @@ console.log(`  driver    Bella Cruz  (verified, online, password ${PASSWORD})`);
 console.log(`  driver    Dante Reyes  (revoked, password ${PASSWORD})`);
 console.log('  5 out-of-area requests (confirmed, open, expired, cancelled, cancelled 10 days ago)');
 console.log('  3 support contacts (2 active, 1 hidden)');
+console.log('  3 complaints (open, in review, resolved)');
 process.exit(0);

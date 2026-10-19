@@ -172,6 +172,13 @@ export default function BookingDetailScreen() {
     });
   }
 
+  function openReportProblem() {
+    router.push({
+      pathname: '/activity/report/[bookingId]',
+      params: { bookingId: loadedBookingId },
+    });
+  }
+
   return (
     <View style={styles.container}>
       <ScreenHeader title="Booking Details" onBack={goBack} />
@@ -255,6 +262,8 @@ export default function BookingDetailScreen() {
             );
           })}
         </View>
+
+        <Button title="Report a Problem" variant="secondary" onPress={openReportProblem} />
       </ScrollView>
     </View>
   );
