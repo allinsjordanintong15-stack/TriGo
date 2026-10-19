@@ -30,8 +30,10 @@ Source documents (read these before planning any feature):
 
 ## Open decisions — DO NOT guess; ask me before implementing anything that depends on these
 1. What "quota" means (e.g., trips per driver per day? drivers per area?).
-2. GCash method: payment gateway (e.g., PayMongo/Xendit), manual reference-number
-   recording, or record-only.
+2. ~~GCash method: payment gateway (e.g., PayMongo/Xendit), manual reference-number
+   recording, or record-only.~~ DECIDED 2026-10-19 (docs/DECISIONS.md): no gateway, TriGo
+   moves no money. Drivers pay commission by GCash only and submit amount + reference
+   number; the admin verifies manually. Admin cash-outs are recorded only.
 3. Admin platform: inside the mobile app (role-based screens) or a separate web app.
 4. Map/location provider.
 5. Driver Rating, Earnings, Vehicle Fleet appear in prototypes but not in SRS scope.

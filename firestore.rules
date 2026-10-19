@@ -1017,8 +1017,9 @@ service cloud.firestore {
     // ─── Commission settings ───────────────────────────────────────────────
     // commissionSettings/active: { percentage, paymentPeriodDays, gracePeriodDays,
     // updatedAt, updatedBy }. Commission = percentage of the final fare (docs/DECISIONS.md).
-    // Stored only for now: nothing charges drivers yet. Admin-only read and write, always
-    // the complete object.
+    // Admins write, always the complete object. Admins and anyone with a drivers/{uid}
+    // record (including a revoked driver, who may still owe commission) read it, so the
+    // driver app can show and apply the percentage it charges. Passengers cannot read it.
 
     match /commissionSettings/active {
       function isValidCommissionWrite() {
@@ -1041,8 +1042,39 @@ service cloud.firestore {
           && data.updatedBy == request.auth.uid;
       }
 
-      allow read: if isAdmin();
+      allow read: if isAdmin()
+        || (isSignedIn() && exists(driverPath(request.auth.uid)));
       allow create, update: if isValidCommissionWrite();
+      allow delete: if false;
+    }
+
+    // ─── Payment settings ──────────────────────────────────────────────────
+    // paymentSettings/active: { gcashName, gcashNumber, updatedAt, updatedBy }. TriGo's GCash
+    // account that drivers pay commission to (System settings page). TriGo moves no money:
+    // drivers pay in GCash and report the reference; an admin verifies it (docs/DECISIONS.md).
+    // Admins write, always the complete object; admins and drivers (same as
+    // commissionSettings) read. gcashNumber is stored as 11 digits, e.g. 09171234567.
+
+    match /paymentSettings/active {
+      function isValidPaymentSettingsWrite() {
+        let data = request.resource.data;
+        let keys = ['gcashName', 'gcashNumber', 'updatedAt', 'updatedBy'];
+        return isAdmin()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.gcashName is string
+          && data.gcashName.size() > 0
+          && data.gcashName.size() <= 60
+          && data.gcashName == data.gcashName.trim()
+          && data.gcashNumber is string
+          && data.gcashNumber.matches('^09[0-9]{9}$')
+          && data.updatedAt == request.time
+          && data.updatedBy == request.auth.uid;
+      }
+
+      allow read: if isAdmin()
+        || (isSignedIn() && exists(driverPath(request.auth.uid)));
+      allow create, update: if isValidPaymentSettingsWrite();
       allow delete: if false;
     }
 

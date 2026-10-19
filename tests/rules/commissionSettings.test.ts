@@ -1,9 +1,9 @@
 /// <reference types="node" />
 
-// Firestore rules tests for commissionSettings/active: admin-only read and write (custom
-// claim `admin: true`), always the complete object { percentage, paymentPeriodDays,
+// Firestore rules tests for commissionSettings/active: admin-only write (custom claim
+// `admin: true`), always the complete object { percentage, paymentPeriodDays,
 // gracePeriodDays, updatedAt, updatedBy }, with updatedAt = server time and updatedBy = the
-// admin's uid. No delete.
+// admin's uid. Read by admins and anyone with a drivers/{uid} record. No delete.
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
@@ -38,6 +38,7 @@ setLogLevel('error');
 const ADMIN = 'admin1';
 const PASSENGER = 'passenger1';
 const DRIVER = 'driver1';
+const REVOKED_DRIVER = 'driver2';
 const PATH = 'commissionSettings/active';
 
 let testEnv: RulesTestEnvironment;
@@ -79,6 +80,18 @@ async function seedExisting(): Promise<void> {
   });
 }
 
+async function seedDriverRecord(uid: string, isVerified: boolean): Promise<void> {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore() as unknown as Firestore, 'drivers', uid), {
+      fullName: 'Test Driver',
+      vehicleType: 'tricycle',
+      isVerified,
+      isOnline: false,
+      isAvailable: false,
+    });
+  });
+}
+
 before(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,
@@ -101,7 +114,14 @@ describe('commissionSettings: read', () => {
     await assertSucceeds(getDoc(doc(adminDb(), PATH)));
   });
 
-  it('denies passengers, drivers, non-claim users and unauthenticated reads', async () => {
+  it('lets anyone with a driver record read, including a revoked driver', async () => {
+    await seedDriverRecord(DRIVER, true);
+    await seedDriverRecord(REVOKED_DRIVER, false);
+    await assertSucceeds(getDoc(doc(db(DRIVER), PATH)));
+    await assertSucceeds(getDoc(doc(db(REVOKED_DRIVER), PATH)));
+  });
+
+  it('denies passengers, users without a driver record, non-claim users and unauthenticated reads', async () => {
     await assertFails(getDoc(doc(db(PASSENGER), PATH)));
     await assertFails(getDoc(doc(db(DRIVER), PATH)));
     await assertFails(getDoc(doc(db(ADMIN, { admin: false }), PATH)));

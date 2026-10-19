@@ -2,8 +2,9 @@ import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore
 
 import { db } from '../firebase/config';
 
-// commissionSettings/active: admin-only (firestore.rules). Stored only: nothing charges
-// drivers yet. Commission = percentage of the final fare (docs/DECISIONS.md).
+// commissionSettings/active: admins write (firestore.rules); admins and drivers read it.
+// Stored only: nothing charges drivers yet. Commission = percentage of the final fare
+// (docs/DECISIONS.md).
 const COMMISSION_DOC = doc(db, 'commissionSettings', 'active');
 
 export type CommissionSettings = {

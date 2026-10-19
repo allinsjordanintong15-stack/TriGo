@@ -196,9 +196,16 @@ describe('admin reports: denied for everyone else', () => {
       await assertFails(cancelledCount(firestore()));
       await assertFails(requestsCount(firestore()));
       await assertFails(newPassengersCount(firestore()));
-      await assertFails(getDoc(doc(firestore(), 'commissionSettings', 'active')));
+      // Drivers read the commission percentage they are charged (commissionSettings.test.ts).
+      if (label !== 'a driver') {
+        await assertFails(getDoc(doc(firestore(), 'commissionSettings', 'active')));
+      }
     });
   }
+
+  it('lets a driver read only the commission settings, not the report aggregates', async () => {
+    await assertSucceeds(getDoc(doc(db(DRIVER), 'commissionSettings', 'active')));
+  });
 
   it('leaves the verified-drivers count to the existing driver read rule', async () => {
     // Signed-in users may already list verified drivers (passenger driver search), so the

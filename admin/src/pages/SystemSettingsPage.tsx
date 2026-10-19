@@ -14,6 +14,18 @@ import {
   type OutOfAreaSettings,
 } from '../settings/outOfAreaSettings';
 import {
+  formatGcashNumber,
+  GCASH_NAME_MAX_LENGTH,
+  loadPaymentSettings,
+  parseGcashName,
+  parseGcashNumber,
+  paymentSettingsEqual,
+  savePaymentSettings,
+  StalePaymentSettingsError,
+  type LoadedPaymentSettings,
+  type PaymentSettings,
+} from '../settings/paymentSettings';
+import {
   deleteSupportContact,
   LABEL_MAX_LENGTH,
   loadSupportContacts,
@@ -30,8 +42,249 @@ export function SystemSettingsPage() {
   return (
     <div className="stack">
       <OutOfAreaSettingsCard />
+      <PaymentAccountCard />
       <SupportContactsCard />
     </div>
+  );
+}
+
+// ─── TriGo GCash account ───────────────────────────────────────────────────
+
+type PaymentValues = { gcashName: string; gcashNumber: string };
+type PaymentErrors = Partial<Record<keyof PaymentValues, string>>;
+
+function toPaymentValues(saved: PaymentSettings | null): PaymentValues {
+  return {
+    gcashName: saved?.gcashName ?? '',
+    gcashNumber: saved ? formatGcashNumber(saved.gcashNumber) : '',
+  };
+}
+
+function parsePayment(values: PaymentValues): { settings: PaymentSettings | null; errors: PaymentErrors } {
+  const name = parseGcashName(values.gcashName);
+  const number = parseGcashNumber(values.gcashNumber);
+  const errors: PaymentErrors = {};
+  if ('error' in name) errors.gcashName = name.error;
+  if ('error' in number) errors.gcashNumber = number.error;
+  if ('value' in name && 'value' in number) {
+    return { settings: { gcashName: name.value, gcashNumber: number.value }, errors };
+  }
+  return { settings: null, errors };
+}
+
+function PaymentAccountCard() {
+  const { admin } = useAuth();
+  const [loaded, setLoaded] = useState<LoadedPaymentSettings | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [values, setValues] = useState<PaymentValues>(() => toPaymentValues(null));
+  const [touched, setTouched] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedMessage, setSavedMessage] = useState(false);
+
+  const reload = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const result = await loadPaymentSettings();
+      setLoaded(result);
+      setValues(toPaymentValues(result.saved));
+      setTouched(false);
+    } catch {
+      setLoadError('Could not load the GCash account. Check your connection and reload the page.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const { settings: parsed, errors } = useMemo(() => parsePayment(values), [values]);
+
+  if (loadError) {
+    return (
+      <div className="card">
+        <h2>TriGo GCash account</h2>
+        <div className="alert-error" role="alert">
+          {loadError}
+        </div>
+      </div>
+    );
+  }
+
+  if (!loaded) {
+    return <div className="card muted">Loading the GCash account…</div>;
+  }
+
+  const saved = loaded.saved;
+  const hasChanges = parsed !== null && !paymentSettingsEqual(parsed, saved);
+  const isPristine = values.gcashName === toPaymentValues(saved).gcashName
+    && values.gcashNumber === toPaymentValues(saved).gcashNumber;
+
+  function setField(field: keyof PaymentValues, value: string) {
+    setSavedMessage(false);
+    setSaveError(null);
+    setValues((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setTouched(true);
+    if (hasChanges) {
+      setSaveError(null);
+      setConfirming(true);
+    }
+  }
+
+  async function handleConfirm() {
+    if (!parsed || !admin || !loaded) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await savePaymentSettings(parsed, loaded.saved, admin.uid);
+      setConfirming(false);
+      await reload();
+      setSavedMessage(true);
+    } catch (error) {
+      setSaveError(
+        error instanceof StalePaymentSettingsError
+          ? error.message
+          : 'Could not save the GCash account. Check your connection and try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const rows = parsed
+    ? [
+        { label: 'Account name', old: saved?.gcashName ?? '(not set)', next: parsed.gcashName },
+        {
+          label: 'GCash number',
+          old: saved ? formatGcashNumber(saved.gcashNumber) : '(not set)',
+          next: formatGcashNumber(parsed.gcashNumber),
+        },
+      ]
+    : [];
+
+  return (
+    <>
+      <form className="card" onSubmit={handleSubmit} noValidate>
+        <h2>TriGo GCash account</h2>
+        <p className="muted">
+          Drivers pay their commission to this GCash account and enter the GCash reference number in the app. TriGo
+          does not move money: an admin checks each payment in this GCash account before confirming it.
+        </p>
+        <p className="muted small">
+          {saved
+            ? `Last updated ${loaded.updatedAt ? loaded.updatedAt.toLocaleString() : 'at an unknown time'}.`
+            : 'No GCash account is saved yet, so drivers have no payment instructions.'}{' '}
+          Only admins and drivers can see it.
+        </p>
+
+        <div className="fare-grid">
+          <label className="field" htmlFor="gcash-name">
+            <span>Account name</span>
+            <input
+              id="gcash-name"
+              value={values.gcashName}
+              onChange={(e) => setField('gcashName', e.target.value)}
+              onBlur={() => setTouched(true)}
+              aria-invalid={touched && errors.gcashName ? true : undefined}
+              disabled={saving}
+            />
+            <span className="hint">
+              {touched && errors.gcashName ? (
+                <span className="field-error">{errors.gcashName}</span>
+              ) : (
+                `The name GCash shows when sending, so drivers can check it is TriGo. At most ${GCASH_NAME_MAX_LENGTH} characters.`
+              )}
+            </span>
+          </label>
+
+          <label className="field" htmlFor="gcash-number">
+            <span>GCash number</span>
+            <input
+              id="gcash-number"
+              inputMode="tel"
+              value={values.gcashNumber}
+              onChange={(e) => setField('gcashNumber', e.target.value)}
+              onBlur={() => setTouched(true)}
+              aria-invalid={touched && errors.gcashNumber ? true : undefined}
+              disabled={saving}
+            />
+            <span className="hint">
+              {touched && errors.gcashNumber ? (
+                <span className="field-error">{errors.gcashNumber}</span>
+              ) : (
+                'Mobile number of the GCash account, e.g. 0917 123 4567.'
+              )}
+            </span>
+          </label>
+        </div>
+
+        {savedMessage && (
+          <div className="alert-success" role="status">
+            GCash account saved.
+          </div>
+        )}
+
+        <div className="form-actions">
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => {
+              setSavedMessage(false);
+              setTouched(false);
+              setValues(toPaymentValues(saved));
+            }}
+            disabled={saving || isPristine}
+          >
+            Reset
+          </button>
+          <button type="submit" className="btn-primary" disabled={saving || isPristine}>
+            Save changes
+          </button>
+        </div>
+      </form>
+
+      {confirming && parsed && (
+        <ConfirmDialog
+          title="Save the GCash account?"
+          confirmLabel="Save account"
+          busy={saving}
+          onConfirm={() => void handleConfirm()}
+          onCancel={() => setConfirming(false)}
+        >
+          <table className="change-table">
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Old</th>
+                <th />
+                <th>New</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.label} className={row.old !== row.next ? 'changed' : 'unchanged'}>
+                  <td>{row.label}</td>
+                  <td>{row.old}</td>
+                  <td aria-hidden="true">→</td>
+                  <td>{row.next}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="small">Drivers see the new account the next time they open their payment instructions.</p>
+          {saveError && (
+            <div className="alert-error" role="alert">
+              {saveError}
+            </div>
+          )}
+        </ConfirmDialog>
+      )}
+    </>
   );
 }
 
