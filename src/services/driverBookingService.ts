@@ -1,6 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { docToBooking } from '@/services/bookingService';
+import {
+  CommissionServiceError,
+  readCommissionContext,
+  shouldOpenNextPeriod,
+  writeCommission,
+} from '@/services/commissionService';
 import { docToDriverRecord } from '@/services/driverService';
 import { Booking, BookingStatus, PaymentMethod, VehicleType } from '@/types';
 import { canDriverCancelBooking, getDisplayFare } from '@/utils/booking';
@@ -341,6 +347,8 @@ export async function startTrip(bookingId: string, driverId: string): Promise<vo
 /**
  * T4: in_progress → completed. `finalFare` is the agreed fare (out-of-area) or the
  * estimated fare; it cannot be edited, and Firestore rules enforce the same value.
+ * When the admin has set a commission, the same commit records it for this driver
+ * (commissionService.writeCommission); Firestore rules require that.
  */
 export async function completeTrip(
   bookingId: string,
@@ -348,19 +356,54 @@ export async function completeTrip(
   // TEMP until Task 4: passenger selects method at booking
   paymentMethod: PaymentMethod,
 ): Promise<void> {
-  await runTripUpdate(async (transaction) => {
-    const booking = await getAssignedBooking(transaction, bookingId, driverId, ['in_progress']);
-    const driverUpdate = await getTripEndDriverUpdate(transaction, driverId);
+  // Whether the commission opens a new period is decided by the rules with server time.
+  // This phone decides with its own clock first; if the clocks disagree (close to the end
+  // of a period, or a wrong phone clock) the commit is refused and the other choice is the
+  // valid one, so it is tried once.
+  let openNextPeriod: boolean | null = null;
+  let usedChoice: boolean | null = null;
 
-    transaction.update(doc(firestore, COLLECTIONS.bookings, bookingId), {
-      status: 'completed',
-      completedAt: serverTimestamp(),
-      finalFare: getDisplayFare(booking),
-      paymentMethod,
-      updatedAt: serverTimestamp(),
-    });
-    transaction.update(doc(firestore, COLLECTIONS.drivers, driverId), driverUpdate);
-  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await runTransaction(firestore, async (transaction) => {
+        const booking = await getAssignedBooking(transaction, bookingId, driverId, ['in_progress']);
+        const driverUpdate = await getTripEndDriverUpdate(transaction, driverId);
+        const commission = await readCommissionContext(transaction, driverId);
+        const finalFare = getDisplayFare(booking);
+        usedChoice = openNextPeriod ?? shouldOpenNextPeriod(commission, Date.now());
+
+        transaction.update(doc(firestore, COLLECTIONS.bookings, bookingId), {
+          status: 'completed',
+          completedAt: serverTimestamp(),
+          finalFare,
+          paymentMethod,
+          updatedAt: serverTimestamp(),
+        });
+        transaction.update(doc(firestore, COLLECTIONS.drivers, driverId), driverUpdate);
+        writeCommission(
+          transaction,
+          commission,
+          driverId,
+          { bookingId, bookingType: booking.bookingType, finalFare },
+          usedChoice ?? false,
+        );
+      });
+      return;
+    } catch (error) {
+      if (error instanceof DriverBookingServiceError) {
+        throw error;
+      }
+      if (error instanceof CommissionServiceError) {
+        throw new DriverBookingServiceError(error.message);
+      }
+      const denied = (error as { code?: string }).code === 'permission-denied';
+      if (attempt === 0 && denied && usedChoice !== null) {
+        openNextPeriod = !usedChoice;
+        continue;
+      }
+      throw new DriverBookingServiceError(TRIP_UPDATE_FAILED_MESSAGE);
+    }
+  }
 }
 
 /** T6: the assigned driver cancels before the ride starts (accepted or arrived). */

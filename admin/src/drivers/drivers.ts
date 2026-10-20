@@ -13,10 +13,16 @@ import {
 
 import { readBooking, type AdminBooking } from '../bookings/bookings';
 import { db } from '../firebase/config';
-import { readDriver, type AdminDriver, type DriverContact } from './driverRecords';
+import {
+  normalizeVehiclePlate,
+  readDriver,
+  type AdminDriver,
+  type DriverContact,
+  type DriverVehicleType,
+} from './driverRecords';
 
 // Drivers page: every drivers/{uid} record with contact details from users/{uid}, a
-// driver's trip history, and revoke/restore of verification.
+// driver's trip history, revoke/restore of verification, and vehicle corrections.
 
 /** The trip history query returns at most this many bookings (newest first). */
 export const TRIP_HISTORY_LIMIT = 200;
@@ -127,6 +133,32 @@ export async function restoreDriver(uid: string, adminUid: string): Promise<void
       verificationNote: null,
       verificationUpdatedAt: serverTimestamp(),
       verificationUpdatedBy: adminUid,
+    });
+  });
+}
+
+export class VehicleConflictError extends Error {}
+
+/**
+ * Corrects the vehicle type and plate. The transaction re-reads the record because the
+ * rules refuse the change while the driver is on a trip or holding an out-of-area request.
+ */
+export async function updateDriverVehicle(uid: string, vehicleType: DriverVehicleType, vehiclePlate: string): Promise<void> {
+  const driverRef = doc(db, 'drivers', uid);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(driverRef);
+    if (!snap.exists()) throw new VehicleConflictError('This driver record no longer exists.');
+    const data = snap.data();
+    if (data.currentBookingId != null || data.currentRequestId != null) {
+      throw new VehicleConflictError(
+        'This driver is now on a trip or holding an out-of-area request. Try again after it ends.',
+      );
+    }
+    // Exact field set allowed by firestore.rules (drivers, admin vehicle update).
+    transaction.update(driverRef, {
+      vehicleType,
+      vehiclePlate: normalizeVehiclePlate(vehiclePlate),
+      updatedAt: serverTimestamp(),
     });
   });
 }

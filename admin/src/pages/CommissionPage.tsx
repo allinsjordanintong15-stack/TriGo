@@ -170,7 +170,7 @@ export function CommissionPage() {
   return (
     <div className="stack">
       <div className="alert-warning" role="note">
-        Stored only — commission is not charged to drivers yet.
+        Commission is recorded on every completed trip. Driver payments and enforcement are coming in the next steps.
       </div>
 
       <div className="card">
@@ -297,7 +297,10 @@ export function CommissionPage() {
               })}
             </tbody>
           </table>
-          <p className="muted small">Stored only — commission is not charged to drivers yet.</p>
+          <p className="muted small">
+            Commission is recorded on every completed trip. Driver payments and enforcement are coming in the next
+            steps.
+          </p>
           {saveError && (
             <div className="alert-error" role="alert">
               {saveError}

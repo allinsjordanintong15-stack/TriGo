@@ -81,6 +81,30 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
+    function commissionSettingsPath() {
+      return /databases/$(database)/documents/commissionSettings/active;
+    }
+
+    function commissionPath(bookingId) {
+      return /databases/$(database)/documents/commissions/$(bookingId);
+    }
+
+    function commissionAccountPath(uid) {
+      return /databases/$(database)/documents/commissionAccounts/$(uid);
+    }
+
+    function commissionPeriodPath(uid, seq) {
+      return /databases/$(database)/documents/commissionPeriods/$(uid + '_' + string(seq));
+    }
+
+    // A commission period ends at a Manila midnight (UTC+8, no daylight saving): the end
+    // of the `days`-th calendar day, counting the day of startAt as day 1. Epoch ms.
+    // The app computes the same (src/utils/commission.ts); nothing stores the end itself,
+    // so no client clock is ever trusted.
+    function periodEndMillis(startAt, days) {
+      return (math.floor((startAt.toMillis() + 28800000) / 86400000) + days) * 86400000 - 28800000;
+    }
+
     // At most 2 decimal places (centavos). Compared with a tolerance because e.g.
     // 8.15 * 100 is not exactly 815 in floating point.
     function hasAtMostTwoDecimals(value) {
@@ -353,7 +377,9 @@ service cloud.firestore {
             && request.resource.data.startedAt == request.time
             && onlyChanged(['status', 'startedAt', 'updatedAt'])
           )
-          // T4 in_progress → completed (paymentMethod recorded by the driver until Task 4)
+          // T4 in_progress → completed (paymentMethod recorded by the driver until Task 4).
+          // Once an admin has set a commission, the same commit must record it at
+          // commissions/{bookingId} (validated there); without settings there is none.
           || (
             resource.data.status == 'in_progress'
             && request.resource.data.status == 'completed'
@@ -361,6 +387,7 @@ service cloud.firestore {
             && request.resource.data.paymentMethod in ['cash', 'gcash']
             && isExpectedFinalFare()
             && onlyChanged(['status', 'completedAt', 'finalFare', 'paymentMethod', 'updatedAt'])
+            && (!exists(commissionSettingsPath()) || existsAfter(commissionPath(bookingId)))
           )
           // T6 driver cancels before the ride starts
           || (
@@ -703,6 +730,17 @@ service cloud.firestore {
           )
         );
 
+      // Admin corrects the vehicle (Drivers page): only the type, the plate (same format
+      // as the driver application) and updatedAt. Refused while the driver is on a trip or
+      // holding an out-of-area request, so a live booking never sees its vehicle change.
+      allow update: if isAdmin()
+        && onlyChanged(['vehicleType', 'vehiclePlate', 'updatedAt'])
+        && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
+        && isValidVehiclePlate(request.resource.data.vehiclePlate)
+        && request.resource.data.updatedAt == request.time
+        && resource.data.get('currentBookingId', null) == null
+        && resource.data.get('currentRequestId', null) == null;
+
       // A driver controls only their own duty status, position, current-trip link and
       // proposal reservation. Admin-managed fields (isVerified, name, vehicle, rating)
       // cannot be changed from the app. Being available requires being online, an
@@ -1020,6 +1058,8 @@ service cloud.firestore {
     // Admins write, always the complete object. Admins and anyone with a drivers/{uid}
     // record (including a revoked driver, who may still owe commission) read it, so the
     // driver app can show and apply the percentage it charges. Passengers cannot read it.
+    // Commission is recorded on every completed trip (Commission accrual below). Driver
+    // payments and enforcement are coming in the next steps.
 
     match /commissionSettings/active {
       function isValidCommissionWrite() {
@@ -1076,6 +1116,175 @@ service cloud.firestore {
         || (isSignedIn() && exists(driverPath(request.auth.uid)));
       allow create, update: if isValidPaymentSettingsWrite();
       allow delete: if false;
+    }
+
+    // ─── Commission accrual ────────────────────────────────────────────────
+    // When an admin has set commissionSettings/active, completing a trip (T4,
+    // driverBookingService.completeTrip) records its commission in the same commit:
+    //   commissions/{bookingId}: { driverId, bookingId, bookingType, finalFare, percentage,
+    //     amountCentavos, periodSeq, completedAt }, amount = round(finalFare × percentage)
+    //     centavos (= finalFare × percentage / 100 pesos, to the centavo), percentage snapshot.
+    //   commissionAccounts/{driverId}: { driverId, accruedCentavos, paidCentavos,
+    //     current: { seq, startAt, periodDays, graceDays, startCentavos },
+    //     unpaid: null | { seq, startAt, periodDays, graceDays }, lastBookingId, updatedAt }.
+    //     Running totals in integer centavos; payments (later) pay the oldest debt first.
+    //   commissionPeriods/{driverId}_{seq}: { driverId, seq, startAt, periodDays, graceDays,
+    //     startCentavos }, written when a period opens.
+    // A driver's first commission opens period 1. A period ends at periodEndMillis(startAt,
+    // periodDays) (Manila midnight); the grace period ends graceDays later. The first
+    // completion at or after the end opens the next period (period and grace days copied
+    // from the settings at that moment); the closed period becomes `unpaid` when it is the
+    // oldest one not fully paid. Only server time (request.time) is stored, never a time
+    // the app computed. Drivers read their own documents; admins read all. Nobody deletes.
+
+    match /commissions/{bookingId} {
+      function isValidCommissionCreate() {
+        let data = request.resource.data;
+        let keys = [
+          'driverId', 'bookingId', 'bookingType', 'finalFare', 'percentage', 'amountCentavos',
+          'periodSeq', 'completedAt'
+        ];
+        let booking = get(bookingPath(bookingId)).data;
+        let completed = getAfter(bookingPath(bookingId)).data;
+        let settings = get(commissionSettingsPath()).data;
+        let account = getAfter(commissionAccountPath(request.auth.uid)).data;
+        return isSignedIn()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.driverId == request.auth.uid
+          && data.bookingId == bookingId
+          // Only in the commit that completes this driver's trip.
+          && booking.status == 'in_progress'
+          && booking.driverId == request.auth.uid
+          && completed.status == 'completed'
+          && data.bookingType == booking.get('bookingType', 'standard')
+          && data.finalFare == completed.finalFare
+          && data.percentage == settings.percentage
+          && data.amountCentavos == math.round(completed.finalFare * settings.percentage * 1.0)
+          && account.lastBookingId == bookingId
+          && data.periodSeq == account.current.seq
+          && data.completedAt == request.time;
+      }
+
+      allow read: if isAdmin();
+      allow read: if isSignedIn() && resource.data.driverId == request.auth.uid;
+      allow create: if isValidCommissionCreate();
+      allow update, delete: if false;
+    }
+
+    match /commissionAccounts/{driverId} {
+      // The commission created in this commit (lastBookingId); it must be new.
+      function newCommission() {
+        return getAfter(commissionPath(request.resource.data.lastBookingId)).data;
+      }
+
+      function recordsNewCommission() {
+        return request.resource.data.lastBookingId is string
+          && !exists(commissionPath(request.resource.data.lastBookingId))
+          && newCommission().driverId == driverId;
+      }
+
+      // A period opened now, with the current settings.
+      function openedPeriod(seq, startCentavos) {
+        let settings = get(commissionSettingsPath()).data;
+        return {
+          'seq': seq,
+          'startAt': request.time,
+          'periodDays': settings.paymentPeriodDays,
+          'graceDays': settings.gracePeriodDays,
+          'startCentavos': startCentavos
+        };
+      }
+
+      // The oldest closed period not fully paid after the current one closes: unchanged when
+      // an older one is unpaid, else the closing period when anything is still owed.
+      function unpaidAfterClosing(before) {
+        return before.unpaid != null
+          ? before.unpaid
+          : (
+            before.paidCentavos < before.accruedCentavos
+              ? {
+                'seq': before.current.seq,
+                'startAt': before.current.startAt,
+                'periodDays': before.current.periodDays,
+                'graceDays': before.current.graceDays
+              }
+              : null
+          );
+      }
+
+      allow read: if isAdmin() || isOwner(driverId);
+
+      // The driver's first commission opens period 1.
+      allow create: if isOwner(driverId)
+        && request.resource.data.keys().hasAll([
+          'driverId', 'accruedCentavos', 'paidCentavos', 'current', 'unpaid', 'lastBookingId',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'driverId', 'accruedCentavos', 'paidCentavos', 'current', 'unpaid', 'lastBookingId',
+          'updatedAt'
+        ])
+        && request.resource.data.driverId == driverId
+        && recordsNewCommission()
+        && request.resource.data.accruedCentavos == newCommission().amountCentavos
+        && request.resource.data.paidCentavos == 0
+        && request.resource.data.current == openedPeriod(1, 0)
+        && request.resource.data.unpaid == null
+        && request.resource.data.updatedAt == request.time
+        && existsAfter(commissionPeriodPath(driverId, 1));
+
+      // Each later commission adds to the total, in its period or, once that period has
+      // ended, in a new one.
+      allow update: if isOwner(driverId)
+        && recordsNewCommission()
+        && request.resource.data.accruedCentavos
+          == resource.data.accruedCentavos + newCommission().amountCentavos
+        && request.resource.data.updatedAt == request.time
+        && (
+          (
+            request.time.toMillis()
+              < periodEndMillis(resource.data.current.startAt, resource.data.current.periodDays)
+            && onlyChanged(['accruedCentavos', 'lastBookingId', 'updatedAt'])
+          )
+          || (
+            request.time.toMillis()
+              >= periodEndMillis(resource.data.current.startAt, resource.data.current.periodDays)
+            && onlyChanged(['accruedCentavos', 'lastBookingId', 'updatedAt', 'current', 'unpaid'])
+            && request.resource.data.current
+              == openedPeriod(resource.data.current.seq + 1, resource.data.accruedCentavos)
+            && request.resource.data.unpaid == unpaidAfterClosing(resource.data)
+            && existsAfter(commissionPeriodPath(driverId, resource.data.current.seq + 1))
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /commissionPeriods/{periodId} {
+      // Written in the commit that opens the period on the driver's account.
+      function isValidPeriodCreate() {
+        let data = request.resource.data;
+        let keys = ['driverId', 'seq', 'startAt', 'periodDays', 'graceDays', 'startCentavos'];
+        let current = getAfter(commissionAccountPath(request.auth.uid)).data.current;
+        return isSignedIn()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.driverId == request.auth.uid
+          && data.seq is int
+          && periodId == request.auth.uid + '_' + string(data.seq)
+          && current.startAt == request.time
+          && data.seq == current.seq
+          && data.startAt == current.startAt
+          && data.periodDays == current.periodDays
+          && data.graceDays == current.graceDays
+          && data.startCentavos == current.startCentavos;
+      }
+
+      allow read: if isAdmin();
+      allow read: if isSignedIn() && resource.data.driverId == request.auth.uid;
+      allow create: if isValidPeriodCreate();
+      allow update, delete: if false;
     }
 
     // ─── Support contacts ──────────────────────────────────────────────────

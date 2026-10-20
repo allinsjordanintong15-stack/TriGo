@@ -2,8 +2,8 @@
 
 // Firestore rules tests for the Admin Website Drivers page: admins (custom claim
 // `admin: true`) read every driver record, list a driver's trips, and revoke or restore
-// verification. Revoking takes the driver offline; a revoked driver can still finish the
-// current trip but cannot go online or accept bookings.
+// verification, and correct vehicle details. Revoking takes the driver offline; a revoked
+// driver can still finish the current trip but cannot go online or accept bookings.
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
@@ -334,5 +334,74 @@ describe('admin drivers: the revoked driver in the app', () => {
     await assertSucceeds(
       updateDoc(doc(db(DRIVER), 'bookings', BOOKING), { status: 'arrived', arrivedAt: serverTimestamp(), updatedAt: serverTimestamp() }),
     );
+  });
+});
+
+/** What admin/src/drivers/drivers.ts updateDriverVehicle writes. */
+function vehicleEdit(overrides: DocumentData = {}): DocumentData {
+  return { vehicleType: 'motorcycle', vehiclePlate: 'XYZ-987', updatedAt: serverTimestamp(), ...overrides };
+}
+
+describe('admin drivers: edit vehicle details', () => {
+  it('lets an admin change the vehicle type and plate', async () => {
+    await assertSucceeds(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit()));
+    const after = await read(`drivers/${DRIVER}`);
+    if (after?.vehicleType !== 'motorcycle' || after.vehiclePlate !== 'XYZ-987') {
+      throw new Error('vehicle should be updated');
+    }
+  });
+
+  it('lets an admin change only the plate, or fix an invalid stored type, on a revoked driver too', async () => {
+    await assertSucceeds(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ vehicleType: 'tricycle' })));
+    await seed({ [`drivers/${REVOKED_DRIVER}`]: driverRecord({ isVerified: false, isOnline: false, isAvailable: false, vehicleType: 'Tricycle' }) });
+    await assertSucceeds(updateDoc(doc(adminDb(), 'drivers', REVOKED_DRIVER), vehicleEdit({ vehicleType: 'tricycle', vehiclePlate: 'GHI 9012' })));
+  });
+
+  it('requires vehicleType to be exactly tricycle or motorcycle', async () => {
+    for (const vehicleType of ['Tricycle', 'car', '', null, 1, ['tricycle']]) {
+      await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ vehicleType })));
+    }
+    const { vehicleType: _type, ...withoutType } = vehicleEdit();
+    await seed({ [`drivers/${DRIVER}`]: driverRecord({ vehicleType: 'bus' }) });
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), withoutType));
+  });
+
+  it('requires a valid plate (the driver application format)', async () => {
+    for (const vehiclePlate of ['', 'A', 'abc 1234', ' ABC1234', 'ABC1234-', 'ABC_1234', 'ABCDEFGHIJKLM', null, 1234]) {
+      await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ vehiclePlate })));
+    }
+    await assertSucceeds(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ vehiclePlate: 'AB' })));
+    await assertSucceeds(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ vehiclePlate: 'ABCDEFGHIJKL' })));
+  });
+
+  it('requires updatedAt to be the server time', async () => {
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ updatedAt: Timestamp.now() })));
+    const { updatedAt: _at, ...withoutUpdatedAt } = vehicleEdit();
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), withoutUpdatedAt));
+  });
+
+  it('denies changing any other field with the vehicle', async () => {
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ fullName: 'Someone Else' })));
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ rating: 5 })));
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ isVerified: false })));
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ isOnline: false, isAvailable: false })));
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ currentRequestId: 'r1' })));
+  });
+
+  it('denies the change while the driver is on a trip or holding an out-of-area request', async () => {
+    await seed({ [`drivers/${DRIVER}`]: driverRecord({ isAvailable: false, currentBookingId: BOOKING }) });
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit()));
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ currentBookingId: null })));
+    await seed({ [`drivers/${DRIVER}`]: driverRecord({ isAvailable: false, currentRequestId: 'request1' }) });
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit()));
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ currentRequestId: null })));
+  });
+
+  it('denies non-admins, including the driver themselves', async () => {
+    await assertFails(updateDoc(doc(db(ADMIN), 'drivers', DRIVER), vehicleEdit()));
+    await assertFails(updateDoc(doc(db(ADMIN, { admin: false }), 'drivers', DRIVER), vehicleEdit()));
+    await assertFails(updateDoc(doc(db(PASSENGER), 'drivers', DRIVER), vehicleEdit()));
+    await assertFails(updateDoc(doc(db(DRIVER), 'drivers', DRIVER), vehicleEdit()));
+    await assertFails(updateDoc(doc(db(DRIVER), 'drivers', DRIVER), { vehiclePlate: 'NEW 1', updatedAt: serverTimestamp() }));
   });
 });

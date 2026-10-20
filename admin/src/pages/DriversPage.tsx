@@ -130,9 +130,11 @@ export function DriversPage() {
                         <td className="cell-strong">{driver.fullName || '(no name)'}</td>
                         <td>
                           <div className="mono">{driver.vehiclePlate || '—'}</div>
-                          <div className="muted small">
-                            {driver.vehicleType ? VEHICLE_TYPE_LABELS[driver.vehicleType] : 'Unknown type'}
-                          </div>
+                          {driver.vehicleType ? (
+                            <div className="muted small">{VEHICLE_TYPE_LABELS[driver.vehicleType]}</div>
+                          ) : (
+                            <span className="status-badge status-rejected">Invalid vehicle type</span>
+                          )}
                         </td>
                         <td className="mono">{contact?.mobileNumber || '—'}</td>
                         <td>

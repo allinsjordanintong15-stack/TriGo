@@ -17,4 +17,7 @@ export const COLLECTIONS = {
   complaints: 'complaints',
   commissionSettings: 'commissionSettings',
   paymentSettings: 'paymentSettings',
+  commissions: 'commissions',
+  commissionAccounts: 'commissionAccounts',
+  commissionPeriods: 'commissionPeriods',
 } as const;

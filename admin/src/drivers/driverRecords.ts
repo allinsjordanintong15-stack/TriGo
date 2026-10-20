@@ -4,17 +4,38 @@ import { matchesMobile } from '../passengers/search';
 
 // drivers/{uid} as the admin Drivers page sees it. The driver writes their duty status and
 // trip links from the app; admins write only isVerified, isOnline/isAvailable (forced off
-// when revoking) and the verification* audit fields (firestore.rules). Kept free of
-// Firebase runtime imports.
+// when revoking), the verification* audit fields, and vehicleType/vehiclePlate while the
+// driver has no trip or request (firestore.rules). Kept free of Firebase runtime imports.
 
 export const MAX_VERIFICATION_NOTE_LENGTH = 500;
 
-export type DriverVehicleType = 'tricycle' | 'motorcycle';
+export const DRIVER_VEHICLE_TYPES = ['tricycle', 'motorcycle'] as const;
+
+export type DriverVehicleType = (typeof DRIVER_VEHICLE_TYPES)[number];
+
+// Same as the driver application (src/validations/driverApplication.ts) and
+// isValidVehiclePlate in firestore.rules.
+const PLATE_PATTERN = /^[A-Z0-9][A-Z0-9 -]{0,10}[A-Z0-9]$/;
+
+/** Uppercase, trim and collapse spaces, e.g. " abc  1234 " → "ABC 1234". */
+export function normalizeVehiclePlate(plate: string): string {
+  return plate.trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
+export function validateVehiclePlate(plate: string): string | null {
+  const normalized = normalizeVehiclePlate(plate);
+  if (!normalized) return 'Plate number is required.';
+  if (!PLATE_PATTERN.test(normalized)) {
+    return 'Enter a valid plate number (2–12 letters or numbers; spaces and hyphens allowed).';
+  }
+  return null;
+}
 
 export type AdminDriver = {
   uid: string;
   fullName: string;
   vehiclePlate: string;
+  /** null when the stored value is missing or not exactly 'tricycle' or 'motorcycle'. */
   vehicleType: DriverVehicleType | null;
   isVerified: boolean;
   isOnline: boolean;

@@ -13,23 +13,29 @@ import {
 } from '../bookings/bookings';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import {
+  DRIVER_VEHICLE_TYPES,
   DUTY_LABELS,
   dutyStatus,
   MAX_VERIFICATION_NOTE_LENGTH,
+  normalizeVehiclePlate,
+  validateVehiclePlate,
   VERIFICATION_BADGE_CLASS,
   VERIFICATION_LABELS,
   verificationStatus,
+  type DriverVehicleType,
 } from '../drivers/driverRecords';
 import {
   loadDriverDetail,
   restoreDriver,
   revokeDriver,
   TRIP_HISTORY_LIMIT,
+  updateDriverVehicle,
+  VehicleConflictError,
   VerificationConflictError,
   type DriverDetail,
 } from '../drivers/drivers';
 
-type Action = 'revoke' | 'restore';
+type Action = 'revoke' | 'restore' | 'vehicle';
 
 export function DriverDetailPage() {
   const { uid = '' } = useParams();
@@ -42,6 +48,10 @@ export function DriverDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [editingVehicle, setEditingVehicle] = useState(false);
+  const [vehicleType, setVehicleType] = useState<DriverVehicleType>('tricycle');
+  const [vehiclePlate, setVehiclePlate] = useState('');
+  const [plateTouched, setPlateTouched] = useState(false);
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -103,6 +113,23 @@ export function DriverDetailPage() {
       ? `At most ${MAX_VERIFICATION_NOTE_LENGTH} characters.`
       : null;
 
+  const plateError = validateVehiclePlate(vehiclePlate);
+  const newPlate = normalizeVehiclePlate(vehiclePlate);
+  const typeChanged = vehicleType !== driver.vehicleType;
+  const plateChanged = newPlate !== driver.vehiclePlate;
+  // The rules refuse vehicle changes while the driver has a trip or request.
+  const vehicleLocked = duty === 'on_trip' || duty === 'holding_request';
+
+  function startVehicleEdit() {
+    if (!detail) return;
+    setVehicleType(detail.driver.vehicleType ?? 'tricycle');
+    setVehiclePlate(detail.driver.vehiclePlate);
+    setPlateTouched(false);
+    setSaveError(null);
+    setMessage(null);
+    setEditingVehicle(true);
+  }
+
   async function handleConfirm() {
     if (!detail || !action || !admin) return;
     setSaving(true);
@@ -113,9 +140,13 @@ export function DriverDetailPage() {
         setMessage(`${detail.driver.fullName}'s verification was revoked. They are offline and cannot accept bookings.`);
         setReason('');
         setReasonTouched(false);
-      } else {
+      } else if (action === 'restore') {
         await restoreDriver(detail.driver.uid, admin.uid);
         setMessage(`${detail.driver.fullName}'s verification was restored. They can go online in the app.`);
+      } else {
+        await updateDriverVehicle(detail.driver.uid, vehicleType, vehiclePlate);
+        setMessage(`${detail.driver.fullName}'s vehicle details were updated.`);
+        setEditingVehicle(false);
       }
       setAction(null);
       setSaving(false);
@@ -123,7 +154,7 @@ export function DriverDetailPage() {
     } catch (error) {
       const denied = (error as { code?: string }).code === 'permission-denied';
       setSaveError(
-        error instanceof VerificationConflictError
+        error instanceof VerificationConflictError || error instanceof VehicleConflictError
           ? error.message
           : denied
             ? 'The change was refused. Reload the page and try again.'
@@ -154,7 +185,16 @@ export function DriverDetailPage() {
           <Detail label="Email" value={contact?.email ?? ''} />
           <Detail label="Mobile number" value={contact?.mobileNumber ?? ''} mono />
           <Detail label="Plate number" value={driver.vehiclePlate} mono />
-          <Detail label="Vehicle type" value={driver.vehicleType ? VEHICLE_TYPE_LABELS[driver.vehicleType] : 'Unknown'} />
+          <div className="detail-item">
+            <dt>Vehicle type</dt>
+            <dd>
+              {driver.vehicleType ? (
+                VEHICLE_TYPE_LABELS[driver.vehicleType]
+              ) : (
+                <span className="status-badge status-rejected">Invalid vehicle type</span>
+              )}
+            </dd>
+          </div>
           <Detail label="Rating" value={driver.rating ? driver.rating.toFixed(1) : 'No ratings yet'} />
           <Detail label="Now" value={DUTY_LABELS[duty]} />
           <Detail
@@ -259,6 +299,88 @@ export function DriverDetailPage() {
             >
               {verification === 'revoked' ? 'Restore verification…' : 'Verify driver…'}
             </button>
+          </>
+        )}
+      </section>
+
+      <section className="card review-panel" aria-labelledby="vehicle-heading">
+        <h3 id="vehicle-heading">Vehicle details</h3>
+        {vehicleLocked ? (
+          <p className="muted small">
+            {duty === 'on_trip'
+              ? 'This driver is on a trip. Vehicle details can be edited after the trip ends.'
+              : 'This driver is holding an out-of-area request. Vehicle details can be edited after it ends.'}
+          </p>
+        ) : !editingVehicle ? (
+          <>
+            <p className="muted small">Correct the vehicle type or plate number shown to passengers.</p>
+            <button type="button" className="btn-outline" onClick={startVehicleEdit} disabled={saving}>
+              Edit vehicle details
+            </button>
+          </>
+        ) : (
+          <>
+            <label className="field" htmlFor="vehicle-type">
+              <span>Vehicle type</span>
+              <select
+                id="vehicle-type"
+                value={vehicleType}
+                onChange={(e) => setVehicleType(e.target.value as DriverVehicleType)}
+                disabled={saving}
+              >
+                {DRIVER_VEHICLE_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {VEHICLE_TYPE_LABELS[type]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field" htmlFor="vehicle-plate">
+              <span>Plate number</span>
+              <input
+                id="vehicle-plate"
+                className="mono"
+                value={vehiclePlate}
+                onChange={(e) => {
+                  setVehiclePlate(e.target.value);
+                  setPlateTouched(true);
+                }}
+                aria-invalid={plateTouched && plateError ? true : undefined}
+                autoComplete="off"
+                disabled={saving}
+              />
+              <span className="hint">
+                {plateTouched && plateError ? (
+                  <span className="field-error">{plateError}</span>
+                ) : (
+                  'Saved in capitals, e.g. ABC 1234.'
+                )}
+              </span>
+            </label>
+            <div className="dialog-actions">
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => setEditingVehicle(false)}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  setPlateTouched(true);
+                  if (plateError) return;
+                  setSaveError(null);
+                  setMessage(null);
+                  setAction('vehicle');
+                }}
+                disabled={saving || (!typeChanged && !plateChanged)}
+              >
+                Save vehicle details…
+              </button>
+            </div>
           </>
         )}
       </section>
@@ -390,6 +512,38 @@ export function DriverDetailPage() {
             Verification: {VERIFICATION_LABELS[verification]} → Verified. The driver can go online and accept bookings
             again{driver.verificationNote ? '; the revoke reason is cleared' : ''}.
           </p>
+          {saveError && (
+            <div className="alert-error" role="alert">
+              {saveError}
+            </div>
+          )}
+        </ConfirmDialog>
+      )}
+
+      {action === 'vehicle' && (
+        <ConfirmDialog
+          title={`Update ${driver.fullName}'s vehicle?`}
+          confirmLabel="Save vehicle details"
+          busy={saving}
+          onConfirm={() => void handleConfirm()}
+          onCancel={() => setAction(null)}
+        >
+          <table className="change-table">
+            <tbody>
+              <tr className={typeChanged ? 'changed' : 'unchanged'}>
+                <td>Vehicle type</td>
+                <td>
+                  {typeChanged
+                    ? `${driver.vehicleType ? VEHICLE_TYPE_LABELS[driver.vehicleType] : 'Invalid'} → ${VEHICLE_TYPE_LABELS[vehicleType]}`
+                    : VEHICLE_TYPE_LABELS[vehicleType]}
+                </td>
+              </tr>
+              <tr className={plateChanged ? 'changed' : 'unchanged'}>
+                <td>Plate number</td>
+                <td className="mono">{plateChanged ? `${driver.vehiclePlate || '—'} → ${newPlate}` : newPlate}</td>
+              </tr>
+            </tbody>
+          </table>
           {saveError && (
             <div className="alert-error" role="alert">
               {saveError}
