@@ -19,9 +19,11 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection,
+  count,
   deleteDoc,
   doc,
   getDoc,
+  getAggregateFromServer,
   getDocs,
   limit,
   orderBy,
@@ -29,6 +31,7 @@ import {
   serverTimestamp,
   setDoc,
   setLogLevel,
+  sum,
   Timestamp,
   updateDoc,
   where,
@@ -381,5 +384,33 @@ describe('commission payments: reads', () => {
     await assertFails(
       setDoc(doc(db(DRIVER), 'earningsLedger', 'totals'), { collectedCentavos: 0, cashedOutCentavos: 0, lastPaymentId: PAYMENT, updatedAt: serverTimestamp() }),
     );
+  });
+});
+
+// ─── Admin Earnings page ────────────────────────────────────────────────────
+
+describe('commission payments: admin Earnings page reads', () => {
+  beforeEach(async () => {
+    await seed({
+      'commissions/booking1': { driverId: DRIVER, amountCentavos: 450, completedAt: Timestamp.now() },
+      'commissions/booking2': { driverId: OTHER_DRIVER, amountCentavos: 1205, completedAt: Timestamp.now() },
+      'earningsLedger/totals': { collectedCentavos: 700, cashedOutCentavos: 0, lastPaymentId: 'old', updatedAt: Timestamp.now() },
+    });
+  });
+
+  it('lets an admin load the totals and every driver balance (admin/src/earnings/earnings.ts)', async () => {
+    const totals = await assertSucceeds(
+      getAggregateFromServer(collection(adminDb(), 'commissions'), { earned: sum('amountCentavos'), commissions: count() }),
+    );
+    if (totals.data().earned !== 1655 || totals.data().commissions !== 2) throw new Error('wrong totals');
+    await assertSucceeds(getDoc(doc(adminDb(), 'earningsLedger', 'totals')));
+    await assertSucceeds(getDocs(collection(adminDb(), 'commissionAccounts')));
+    await assertSucceeds(getDoc(doc(adminDb(), 'drivers', DRIVER)));
+  });
+
+  it('denies drivers the totals and other balances', async () => {
+    await assertFails(getAggregateFromServer(collection(db(DRIVER), 'commissions'), { earned: sum('amountCentavos') }));
+    await assertFails(getDocs(collection(db(DRIVER), 'commissionAccounts')));
+    await assertFails(getDoc(doc(db(DRIVER), 'commissionAccounts', OTHER_DRIVER)));
   });
 });
