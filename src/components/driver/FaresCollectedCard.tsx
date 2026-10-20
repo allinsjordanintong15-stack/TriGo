@@ -13,7 +13,7 @@ interface FaresCollectedCardProps {
 
 /**
  * Fares collected on the driver's completed trips (sum of finalFare). These are gross
- * amounts: commission is not shown until the commission feature exists.
+ * amounts; the commission owed on them is on the Earnings tab (CommissionCard).
  */
 export function FaresCollectedCard({
   today,

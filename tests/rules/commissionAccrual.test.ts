@@ -23,10 +23,13 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
   setLogLevel,
+  startAfter,
   Timestamp,
   updateDoc,
   where,
@@ -358,6 +361,35 @@ describe('commission accrual: reads', () => {
     await assertSucceeds(getDoc(doc(db(DRIVER), 'commissionPeriods', `${DRIVER}_1`)));
     await assertSucceeds(getDocs(query(collection(db(DRIVER), 'commissions'), where('driverId', '==', DRIVER))));
     await assertSucceeds(getDocs(query(collection(db(DRIVER), 'commissionPeriods'), where('driverId', '==', DRIVER))));
+  });
+
+  it('lets the driver run the Earnings tab reads (commissionService.getCommissionAccount, fetchDriverCommissions)', async () => {
+    const firestore = db(DRIVER);
+    await assertSucceeds(getDoc(doc(firestore, 'commissionSettings', 'active')));
+    await assertSucceeds(getDoc(doc(firestore, 'commissionAccounts', DRIVER)));
+    const first = await assertSucceeds(
+      getDocs(query(collection(firestore, 'commissions'), where('driverId', '==', DRIVER), orderBy('completedAt', 'desc'), limit(20))),
+    );
+    if (first.size !== 1) throw new Error(`expected 1 commission, got ${first.size}`);
+    await assertSucceeds(
+      getDocs(
+        query(
+          collection(firestore, 'commissions'),
+          where('driverId', '==', DRIVER),
+          orderBy('completedAt', 'desc'),
+          startAfter(first.docs[0]),
+          limit(20),
+        ),
+      ),
+    );
+  });
+
+  it("denies the Earnings tab query for another driver's commissions, or without the driver filter", async () => {
+    await assertFails(
+      getDocs(query(collection(db(OTHER_DRIVER), 'commissions'), where('driverId', '==', DRIVER), orderBy('completedAt', 'desc'), limit(20))),
+    );
+    await assertFails(getDocs(query(collection(db(DRIVER), 'commissions'), orderBy('completedAt', 'desc'), limit(20))));
+    await assertFails(getDocs(collection(db(PASSENGER), 'commissionAccounts')));
   });
 
   it("denies other drivers and passengers reading a driver's commission", async () => {

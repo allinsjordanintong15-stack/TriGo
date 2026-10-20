@@ -1,5 +1,6 @@
 import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { ActiveTripBanner } from '@/components/driver/ActiveTripBanner';
+import { CommissionCard } from '@/components/driver/CommissionCard';
 import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
 import { DutyToggle } from '@/components/driver/DutyToggle';
 import { FaresCollectedCard } from '@/components/driver/FaresCollectedCard';
@@ -11,15 +12,16 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useAuth } from '@/hooks/useAuth';
+import { useCommissionAccount } from '@/hooks/useCommissionAccount';
 import { DRIVER_ACCESS_REVOKED, DriverAccessStatus, useDriverAccess } from '@/hooks/useDriverAccess';
-import { FaresCollected, getDriverFaresCollectedSince } from '@/services/driverBookingService';
+import { useFaresCollected } from '@/hooks/useFaresCollected';
 import { becomeAvailable, DriverServiceError, goOffline, goOnline } from '@/services/driverService';
 import { getCurrentCoordinates, LocationServiceError } from '@/services/locationService';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { isProposalOutcome, PROPOSAL_OUTCOME_TEXT, ProposalState } from '@/utils/outOfAreaProposal';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import { ComponentProps, ReactNode, useCallback, useEffect, useState } from 'react';
+import { router } from 'expo-router';
+import { ComponentProps, ReactNode, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -78,26 +80,6 @@ function getGreeting(date: Date): string {
   return 'Good evening';
 }
 
-function getStartOfToday(): Date {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  return start;
-}
-
-/** Monday 00:00 of the current week, device time. */
-function getStartOfWeek(): Date {
-  const start = getStartOfToday();
-  const daysSinceMonday = (start.getDay() + 6) % 7;
-  start.setDate(start.getDate() - daysSinceMonday);
-  return start;
-}
-
-interface FaresSummary {
-  today: FaresCollected | null;
-  thisWeek: FaresCollected | null;
-  error: boolean;
-}
-
 export default function DriverHomeScreen() {
   const insets = useSafeAreaInsets();
   const { profile: driver } = useAuth();
@@ -125,30 +107,8 @@ export default function DriverHomeScreen() {
     return () => clearInterval(timer);
   }, [isWaitingForPassenger]);
 
-  // Refreshed whenever the tab gains focus, so just-finished trips count.
-  const [fares, setFares] = useState<FaresSummary>({ today: null, thisWeek: null, error: false });
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!driverId) return;
-      let active = true;
-
-      Promise.all([
-        getDriverFaresCollectedSince(driverId, getStartOfToday()),
-        getDriverFaresCollectedSince(driverId, getStartOfWeek()),
-      ])
-        .then(([today, thisWeek]) => {
-          if (active) setFares({ today, thisWeek, error: false });
-        })
-        .catch(() => {
-          if (active) setFares((current) => ({ ...current, error: true }));
-        });
-
-      return () => {
-        active = false;
-      };
-    }, [driverId]),
-  );
+  const fares = useFaresCollected(driverId);
+  const commission = useCommissionAccount(driverId);
 
   async function handleGoOnline() {
     if (!driverRecord || !canPerformDriverActions) return;
@@ -386,6 +346,16 @@ export default function DriverHomeScreen() {
             thisWeek={fares.thisWeek}
             error={fares.error}
             onViewHistory={() => router.navigate('/driver/trips')}
+          />
+        ) : null}
+
+        {/* Hidden when the admin has not set a commission and nothing was ever recorded. */}
+        {driverRecord &&
+        (commission.loading || commission.error || commission.settings || commission.account) ? (
+          <CommissionCard
+            state={commission}
+            variant="summary"
+            onOpen={() => router.navigate('/driver/earnings')}
           />
         ) : null}
       </ScrollView>

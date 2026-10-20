@@ -32,3 +32,97 @@ export function graceEndMillis(startAtMillis: number, periodDays: number, graceD
 export function centavosToPesos(centavos: number): number {
   return centavos / 100;
 }
+
+// ─── Account status (driver Earnings tab) ───────────────────────────────────
+
+/** A commission period as the status helper needs it (epoch ms instead of Timestamps). */
+export interface PeriodTimes {
+  startAtMillis: number;
+  periodDays: number;
+  graceDays: number;
+}
+
+/** commissionAccounts/{uid}, see firestore.rules (Commission accrual). */
+export interface CommissionAccountTimes {
+  accruedCentavos: number;
+  paidCentavos: number;
+  current: PeriodTimes & { seq: number; startCentavos: number };
+  /** The oldest closed period that is not fully paid. */
+  unpaid: (PeriodTimes & { seq: number }) | null;
+}
+
+/**
+ * paid_up: nothing owed. due: only the running period is owed, before its end.
+ * overdue: a period has ended unpaid, still within its grace period.
+ * suspended: the grace period of an unpaid period has ended.
+ */
+export type CommissionStatus = 'paid_up' | 'due' | 'overdue' | 'suspended';
+
+export interface CommissionStatusSummary {
+  status: CommissionStatus;
+  /** Everything owed: accrued − paid. */
+  balanceCentavos: number;
+  /** The part of the balance from periods that have ended. */
+  overdueCentavos: number;
+  /** The period the driver should pay next: the oldest unpaid one, or the running one. */
+  dueAtMillis: number | null;
+  graceEndsAtMillis: number | null;
+}
+
+/**
+ * Where the driver stands at `nowMillis`. A running period that has ended counts as
+ * closed even before the next trip opens a new one (the rules see it the same way).
+ */
+export function commissionStatus(
+  account: CommissionAccountTimes,
+  nowMillis: number,
+): CommissionStatusSummary {
+  const balanceCentavos = Math.max(0, account.accruedCentavos - account.paidCentavos);
+  const { current, unpaid } = account;
+  const currentDue = periodEndMillis(current.startAtMillis, current.periodDays);
+  const currentGraceEnd = graceEndMillis(current.startAtMillis, current.periodDays, current.graceDays);
+
+  if (balanceCentavos === 0) {
+    return {
+      status: 'paid_up',
+      balanceCentavos,
+      overdueCentavos: 0,
+      dueAtMillis: null,
+      graceEndsAtMillis: null,
+    };
+  }
+
+  const currentEnded = nowMillis >= currentDue;
+  const overdueCentavos = currentEnded
+    ? balanceCentavos
+    : Math.max(0, current.startCentavos - account.paidCentavos);
+  // The oldest unpaid period sets the deadline; else the running period does.
+  const dueAtMillis = unpaid ? periodEndMillis(unpaid.startAtMillis, unpaid.periodDays) : currentDue;
+  const graceEndsAtMillis = unpaid
+    ? graceEndMillis(unpaid.startAtMillis, unpaid.periodDays, unpaid.graceDays)
+    : currentGraceEnd;
+
+  const status: CommissionStatus =
+    unpaid || currentEnded
+      ? nowMillis >= graceEndsAtMillis
+        ? 'suspended'
+        : 'overdue'
+      : 'due';
+  return { status, balanceCentavos, overdueCentavos, dueAtMillis, graceEndsAtMillis };
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * The Manila calendar day that a period end (a Manila midnight) closes, e.g. "Oct 26,
+ * 2026" for Oct 27 00:00. Computed by hand so it never depends on the phone's time zone.
+ */
+export function formatPeriodEndDay(endMillis: number): string {
+  const manila = new Date(endMillis - 1 + MANILA_OFFSET_MS);
+  return `${MONTHS[manila.getUTCMonth()]} ${manila.getUTCDate()}, ${manila.getUTCFullYear()}`;
+}
+
+/** The Manila calendar day of an instant, e.g. a period start. */
+export function formatManilaDay(millis: number): string {
+  return formatPeriodEndDay(millis + 1);
+}

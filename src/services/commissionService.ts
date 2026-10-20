@@ -1,13 +1,21 @@
 import { COLLECTIONS, firestore } from '@/firebase';
 import { BookingType } from '@/types';
-import { commissionCentavos, periodEndMillis } from '@/utils/commission';
+import { CommissionAccountTimes, commissionCentavos, periodEndMillis } from '@/utils/commission';
 import {
+  collection,
   doc,
   DocumentData,
   getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  QueryDocumentSnapshot,
   serverTimestamp,
+  startAfter,
   Timestamp,
   Transaction,
+  where,
 } from 'firebase/firestore';
 
 /**
@@ -284,4 +292,100 @@ export function writeCommission(
     periodSeq,
     completedAt: serverTimestamp(),
   });
+}
+
+// ─── Reads for the driver Earnings tab ──────────────────────────────────────
+
+/** The driver's commission account, or null before their first commission. */
+export async function getCommissionAccount(driverId: string): Promise<CommissionAccountTimes | null> {
+  let data: DocumentData | undefined;
+  try {
+    data = (await getDoc(doc(firestore, COLLECTIONS.commissionAccounts, driverId))).data();
+  } catch {
+    throw new CommissionServiceError(
+      'Unable to load your commission. Please check your internet connection and try again.',
+    );
+  }
+  if (!data) return null;
+  const state = readAccountState(data);
+  if (!state) {
+    throw new CommissionServiceError(
+      'Your commission account could not be read. Please update the app and try again.',
+    );
+  }
+  const times = (period: PeriodState) => ({
+    seq: period.seq,
+    startAtMillis: period.startAt.toMillis(),
+    periodDays: period.periodDays,
+    graceDays: period.graceDays,
+  });
+  return {
+    accruedCentavos: state.accruedCentavos,
+    paidCentavos: state.paidCentavos,
+    current: { ...times(state.current), startCentavos: state.current.startCentavos },
+    unpaid: state.unpaid ? times(state.unpaid) : null,
+  };
+}
+
+/** commissions/{bookingId}: the commission recorded when a trip was completed. */
+export interface CommissionRecord {
+  bookingId: string;
+  bookingType: BookingType;
+  finalFare: number;
+  percentage: number;
+  amountCentavos: number;
+  periodSeq: number;
+  completedAt: Date | null;
+}
+
+export const COMMISSION_PAGE_SIZE = 20;
+
+export type CommissionCursor = QueryDocumentSnapshot<DocumentData>;
+
+export interface CommissionPage {
+  commissions: CommissionRecord[];
+  cursor: CommissionCursor | null;
+  hasMore: boolean;
+}
+
+/** The driver's commissions, newest first, 20 at a time. */
+export async function fetchDriverCommissions(
+  driverId: string,
+  after: CommissionCursor | null = null,
+): Promise<CommissionPage> {
+  // Composite index commissions (driverId ASC, completedAt DESC) in firestore.indexes.json.
+  const constraints = [
+    where('driverId', '==', driverId),
+    orderBy('completedAt', 'desc'),
+    ...(after ? [startAfter(after)] : []),
+    limit(COMMISSION_PAGE_SIZE),
+  ];
+
+  try {
+    const snapshot = await getDocs(query(collection(firestore, COLLECTIONS.commissions), ...constraints));
+    return {
+      commissions: snapshot.docs.map((d) => {
+        const data = d.data();
+        return {
+          bookingId: d.id,
+          bookingType: data.bookingType,
+          finalFare: data.finalFare,
+          percentage: data.percentage,
+          amountCentavos: data.amountCentavos,
+          periodSeq: data.periodSeq,
+          completedAt: data.completedAt instanceof Timestamp ? data.completedAt.toDate() : null,
+        };
+      }),
+      cursor: snapshot.docs[snapshot.docs.length - 1] ?? after,
+      hasMore: snapshot.docs.length === COMMISSION_PAGE_SIZE,
+    };
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    console.warn('[TriGo] fetchDriverCommissions failed', error);
+    throw new CommissionServiceError(
+      code === 'failed-precondition'
+        ? 'Commission history is not available yet: the database index is still being set up.'
+        : 'Unable to load your commission history. Please check your internet connection and try again.',
+    );
+  }
 }
