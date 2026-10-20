@@ -14,6 +14,7 @@ const NAV_ITEMS: { to: string; label: string; end?: boolean }[] = [
   { to: '/drivers', label: 'Driver verification' },
   { to: '/fares', label: 'Fare settings' },
   { to: '/tariffs', label: 'Barangay tariffs' },
+  { to: '/earnings', label: 'Earnings' },
   { to: '/commission', label: 'Commission' },
   { to: '/settings', label: 'System settings' },
 ];

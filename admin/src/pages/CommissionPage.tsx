@@ -170,7 +170,8 @@ export function CommissionPage() {
   return (
     <div className="stack">
       <div className="alert-warning" role="note">
-        Commission is recorded on every completed trip. Driver payments and enforcement are coming in the next steps.
+        Commission is recorded on every completed trip. Drivers pay it by GCash and you confirm their payments on the
+        Earnings page. Enforcement for overdue drivers is coming in a later step.
       </div>
 
       <div className="card">
@@ -298,8 +299,8 @@ export function CommissionPage() {
             </tbody>
           </table>
           <p className="muted small">
-            Commission is recorded on every completed trip. Driver payments and enforcement are coming in the next
-            steps.
+            Commission is recorded on every completed trip. Drivers pay it by GCash and you confirm their payments on
+            the Earnings page. Enforcement for overdue drivers is coming in a later step.
           </p>
           {saveError && (
             <div className="alert-error" role="alert">

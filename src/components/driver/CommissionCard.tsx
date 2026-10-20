@@ -59,8 +59,8 @@ interface CommissionCardProps {
 }
 
 /**
- * The driver's commission: what they owe TriGo on completed trips and by when. Read-only
- * (paying in the app comes with commission payments).
+ * The driver's commission: what they owe TriGo on completed trips and by when. Paying is
+ * a separate card on the Earnings tab (CommissionPaymentForm).
  */
 export function CommissionCard({ state, variant, onOpen }: CommissionCardProps) {
   const { loading, error, settings, account } = state;
@@ -116,7 +116,9 @@ export function CommissionCard({ state, variant, onOpen }: CommissionCardProps) 
             {rate ? <Text style={styles.note}>Commission: {rate}.</Text> : null}
             <Text style={styles.note}>
               A new period starts with your first completed trip after the current one ends.
-              Paying by GCash in the app is coming soon.
+              {summary.balanceCentavos > 0
+                ? ' Pay by GCash below; your balance goes down once TriGo confirms the payment.'
+                : ''}
             </Text>
           </View>
         ) : null}

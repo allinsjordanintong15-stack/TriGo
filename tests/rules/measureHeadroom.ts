@@ -3,6 +3,7 @@
 // Measures how far heavy commits are from Firestore's limit of 1000 rules expressions per
 // request, in the limit's own units. Not a test (not *.test.ts); run it under the emulator:
 //   npx firebase emulators:exec --only firestore --project demo-trigo-rules "node tests/rules/measureHeadroom.ts"
+// (TRIGO_HEADROOM=payments in the environment: commission payment scenarios only.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
 // binary search finds the largest N at which the valid commit still succeeds. The same
@@ -26,16 +27,26 @@ import {
 
 import {
   account,
+  ADMIN,
   APPLICANT_DRIVER,
   appWrites,
   baseDocs,
+  commitConfirm,
+  commitSubmit,
   commitWrites,
+  confirmWrites,
   DAY_MS,
   DRIVER,
   HOUR_MS,
+  multiPeriodDocs,
   outOfAreaInProgressBooking,
   PASSENGER,
+  PAYMENT,
+  REFERENCE,
+  submittedDocs,
+  submitWrites,
   tripDocs,
+  unpaidFrom,
   type Period,
   type Writes,
 } from './commissionFixtures.ts';
@@ -61,6 +72,13 @@ type Target =
   | 'period'
   | 'confirm: request accept'
   | 'confirm: booking create'
+  | 'payment submit'
+  | 'reference create'
+  | 'payment review'
+  | 'account credit'
+  | 'ledger create'
+  | 'ledger update'
+  | 'reference free'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -89,6 +107,25 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'confirm: booking create': [
     '        && isValidOutOfAreaBookingCreate();',
     '        && isValidOutOfAreaBookingCreate()\n        && pad();',
+  ],
+  'payment submit': ['      allow create: if isValidPaymentCreate();', '      allow create: if isValidPaymentCreate() && pad();'],
+  'reference create': ['      allow create: if isValidReferenceCreate();', '      allow create: if isValidReferenceCreate() && pad();'],
+  'payment review': ['      allow update: if isValidPaymentReview();', '      allow update: if isValidPaymentReview() && pad();'],
+  'account credit': [
+    "      allow update: if isAdmin()\n        && onlyChanged(['paidCentavos'",
+    "      allow update: if isAdmin()\n        && pad()\n        && onlyChanged(['paidCentavos'",
+  ],
+  'ledger create': [
+    "      allow create: if isAdmin()\n        && request.resource.data.keys().hasAll(['collectedCentavos'",
+    "      allow create: if isAdmin()\n        && pad()\n        && request.resource.data.keys().hasAll(['collectedCentavos'",
+  ],
+  'ledger update': [
+    "      allow update: if isAdmin()\n        && onlyChanged(['collectedCentavos'",
+    "      allow update: if isAdmin()\n        && pad()\n        && onlyChanged(['collectedCentavos'",
+  ],
+  'reference free': [
+    '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
+    '      allow delete: if isAdmin()\n        && pad()\n        && get(paymentPath(resource.data.paymentId))',
   ],
 };
 
@@ -140,8 +177,8 @@ async function loadRules(content: string): Promise<void> {
 
 // ─── Scenarios ──────────────────────────────────────────────────────────────
 
-function db(uid: string): Firestore {
-  return testEnv.authenticatedContext(uid).firestore() as unknown as Firestore;
+function db(uid: string, claims: Record<string, unknown> = {}): Firestore {
+  return testEnv.authenticatedContext(uid, claims).firestore() as unknown as Firestore;
 }
 
 async function seed(docs: Record<string, DocumentData>): Promise<void> {
@@ -276,6 +313,52 @@ const confirm: Scenario = {
   },
 };
 
+// Commission payments (commissionPayments.test.ts): periods 1–3 closed (start totals 0,
+// 300, 600), period 4 running from 900, period 1 unpaid.
+const { docs: MULTI, periods: PERIODS } = multiPeriodDocs();
+const LEDGER = { collectedCentavos: 5000, cashedOutCentavos: 0, lastPaymentId: 'old', updatedAt: Timestamp.now() };
+
+function paymentConfirm(label: string, amount: number, unpaid: Period | null, withLedger: boolean): Scenario {
+  return {
+    label,
+    targets: ['payment review', 'account credit', withLedger ? 'ledger update' : 'ledger create'],
+    run: async () => {
+      await seed({ ...MULTI, ...submittedDocs(amount), ...(withLedger ? { 'earningsLedger/totals': LEDGER } : {}) });
+      await commitConfirm(
+        db(ADMIN, { admin: true }),
+        confirmWrites({ amountCentavos: amount, paidAfter: amount, unpaid, collectedBefore: withLedger ? 5000 : null }),
+      );
+    },
+  };
+}
+
+const paymentSubmit: Scenario = {
+  label: 'payment submit (payment + reference lock)',
+  targets: ['payment submit', 'reference create'],
+  run: async () => {
+    await seed(MULTI);
+    await commitSubmit(db(DRIVER), submitWrites(700));
+  },
+};
+
+const paymentReject: Scenario = {
+  label: 'payment reject (payment + reference freed)',
+  targets: ['payment review', 'reference free'],
+  run: async () => {
+    await seed({ ...MULTI, ...submittedDocs(700) });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'commissionPayments', PAYMENT), {
+      status: 'rejected',
+      rejectionReason: 'No GCash payment with this reference',
+      reviewedAt: serverTimestamp(),
+      reviewedBy: ADMIN,
+    });
+    batch.delete(doc(firestore, 'paymentReferences', REFERENCE));
+    await batch.commit();
+  },
+};
+
 const SCENARIOS: Scenario[] = [
   completion('completion: no commission settings', () => tripDocs({ settings: null }), () => appWrites({ settings: null })),
   completion('completion: standard, first trip (account create)', () => tripDocs(), () => appWrites()),
@@ -318,7 +401,15 @@ const SCENARIOS: Scenario[] = [
     APPLICANT_DRIVER,
   ),
   confirm,
+  paymentSubmit,
+  paymentConfirm('payment confirm: pointer stays on period 1 (reads periods 1 and 2), first ledger', 299, unpaidFrom(PERIODS[0]), false),
+  paymentConfirm('payment confirm: pointer 1 → 3 (reads period 3; next is current), ledger update', 700, unpaidFrom(PERIODS[2]), true),
+  paymentConfirm('payment confirm: all closed periods paid (pointer cleared), ledger update', 900, null, true),
+  paymentReject,
 ];
+
+// TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
+const ONLY_PAYMENTS = process.env.TRIGO_HEADROOM === 'payments';
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -365,7 +456,7 @@ async function maxTerms(scenario: Scenario, target: Target): Promise<{ terms: nu
 try {
   const cal = await maxTerms(calibration, 'calibration');
   console.log(`${calibration.label}: ${cal.terms} terms fit in a whole budget of 1000`);
-  for (const scenario of SCENARIOS) {
+  for (const scenario of SCENARIOS.filter((s) => !ONLY_PAYMENTS || s.label.startsWith('payment'))) {
     console.log(scenario.label);
     for (const target of scenario.targets) {
       const result = await maxTerms(scenario, target);

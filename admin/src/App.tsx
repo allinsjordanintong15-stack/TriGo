@@ -12,6 +12,7 @@ import { DriverApplicationPage } from './pages/DriverApplicationPage';
 import { DriverDetailPage } from './pages/DriverDetailPage';
 import { DriversPage } from './pages/DriversPage';
 import { DriverVerificationPage } from './pages/DriverVerificationPage';
+import { EarningsPage } from './pages/EarningsPage';
 import { FareSettingsPage } from './pages/FareSettingsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
 import { PassengersPage } from './pages/PassengersPage';
@@ -44,6 +45,7 @@ export function App() {
             <Route path="/fares" element={<FareSettingsPage />} />
             <Route path="/tariffs" element={<BarangayTariffsPage />} />
             <Route path="/commission" element={<CommissionPage />} />
+            <Route path="/earnings" element={<EarningsPage />} />
             <Route path="/settings" element={<SystemSettingsPage />} />
             <Route path="/passengers" element={<PassengersPage />} />
             <Route path="/passengers/:uid" element={<PassengerDetailPage />} />

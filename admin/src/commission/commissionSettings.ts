@@ -4,7 +4,8 @@ import { db } from '../firebase/config';
 
 // commissionSettings/active: admins write (firestore.rules); admins and drivers read it.
 // Commission = percentage of the final fare (docs/DECISIONS.md). Commission is recorded on
-// every completed trip. Driver payments and enforcement are coming in the next steps.
+// every completed trip; drivers pay by GCash and admins confirm payments (Earnings page).
+// Enforcement for overdue drivers is coming in a later step.
 const COMMISSION_DOC = doc(db, 'commissionSettings', 'active');
 
 export type CommissionSettings = {

@@ -1,4 +1,6 @@
 import { CommissionCard, formatPercentage } from '@/components/driver/CommissionCard';
+import { CommissionPaymentForm } from '@/components/driver/CommissionPaymentForm';
+import { CommissionPaymentRow } from '@/components/driver/CommissionPaymentRow';
 import { FaresCollectedCard } from '@/components/driver/FaresCollectedCard';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -9,11 +11,16 @@ import { useDriverAccess } from '@/hooks/useDriverAccess';
 import { useFaresCollected } from '@/hooks/useFaresCollected';
 import {
   CommissionCursor,
+  CommissionPayment,
   CommissionRecord,
   CommissionServiceError,
   fetchDriverCommissions,
+  fetchDriverPayments,
+  getPaymentSettings,
+  PaymentCursor,
+  PaymentSettings,
 } from '@/services/commissionService';
-import { centavosToPesos } from '@/utils/commission';
+import { centavosToPesos, commissionStatus } from '@/utils/commission';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -40,8 +47,9 @@ function formatCompletedAt(date: Date | null): string {
 }
 
 /**
- * Earnings: fares collected (before commission), the commission owed to TriGo, and the
- * commission recorded on each completed trip. Read-only.
+ * Earnings: fares collected (before commission), the commission owed to TriGo, paying it
+ * by GCash (reported here, confirmed by an admin), the driver's payments and the
+ * commission recorded on each completed trip.
  */
 export default function DriverEarningsScreen() {
   const insets = useSafeAreaInsets();
@@ -55,6 +63,79 @@ export default function DriverEarningsScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const cursor = useRef<CommissionCursor | null>(null);
+
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null | undefined>(undefined);
+  const [payments, setPayments] = useState<CommissionPayment[] | null>(null);
+  const [paymentsHasMore, setPaymentsHasMore] = useState(false);
+  const [loadingMorePayments, setLoadingMorePayments] = useState(false);
+  const [paymentsError, setPaymentsError] = useState('');
+  const [paymentsVersion, setPaymentsVersion] = useState(0);
+  const paymentsCursor = useRef<PaymentCursor | null>(null);
+
+  // TriGo's GCash account and the first page of payments: on focus and after submitting.
+  useFocusEffect(
+    useCallback(() => {
+      if (!driverId) return;
+      let active = true;
+
+      getPaymentSettings()
+        .then((settings) => {
+          if (active) setPaymentSettings(settings);
+        })
+        .catch(() => {
+          if (active) setPaymentSettings((current) => current ?? null);
+        });
+
+      fetchDriverPayments(driverId)
+        .then((page) => {
+          if (!active) return;
+          paymentsCursor.current = page.cursor;
+          setPayments(page.payments);
+          setPaymentsHasMore(page.hasMore);
+          setPaymentsError('');
+        })
+        .catch((err) => {
+          if (!active) return;
+          setPayments((current) => current ?? []);
+          setPaymentsError(errorMessage(err));
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [driverId, paymentsVersion]),
+  );
+
+  async function loadMorePayments() {
+    if (!driverId || !paymentsCursor.current) return;
+
+    setLoadingMorePayments(true);
+    try {
+      const page = await fetchDriverPayments(driverId, paymentsCursor.current);
+      paymentsCursor.current = page.cursor;
+      setPayments((current) => {
+        const known = new Set((current ?? []).map((item) => item.paymentId));
+        return [...(current ?? []), ...page.payments.filter((item) => !known.has(item.paymentId))];
+      });
+      setPaymentsHasMore(page.hasMore);
+      setPaymentsError('');
+    } catch (err) {
+      setPaymentsError(errorMessage(err));
+    } finally {
+      setLoadingMorePayments(false);
+    }
+  }
+
+  const { reload: reloadCommission } = commission;
+  const handlePaymentSubmitted = useCallback(() => {
+    reloadCommission();
+    setPaymentsVersion((current) => current + 1);
+  }, [reloadCommission]);
+
+  const summary = commission.account ? commissionStatus(commission.account, Date.now()) : null;
+  const pendingCentavos = (payments ?? [])
+    .filter((payment) => payment.status === 'pending')
+    .reduce((total, payment) => total + payment.amountCentavos, 0);
 
   // Reload the first page whenever the tab gains focus, so just-finished trips appear.
   useFocusEffect(
@@ -119,6 +200,37 @@ export default function DriverEarningsScreen() {
             />
 
             <CommissionCard state={commission} variant="full" />
+
+            {driverId && summary && summary.balanceCentavos > 0 ? (
+              <CommissionPaymentForm
+                driverId={driverId}
+                balanceCentavos={summary.balanceCentavos}
+                suggestedCentavos={
+                  summary.overdueCentavos > 0 ? summary.overdueCentavos : summary.balanceCentavos
+                }
+                pendingCentavos={pendingCentavos}
+                paymentSettings={paymentSettings}
+                onSubmitted={handlePaymentSubmitted}
+              />
+            ) : null}
+
+            {payments && payments.length > 0 ? (
+              <>
+                <Text style={styles.sectionTitle}>Your payments</Text>
+                {payments.map((payment) => (
+                  <CommissionPaymentRow key={payment.paymentId} payment={payment} />
+                ))}
+                {paymentsHasMore ? (
+                  <Button
+                    title="Load More"
+                    variant="secondary"
+                    loading={loadingMorePayments}
+                    onPress={loadMorePayments}
+                  />
+                ) : null}
+              </>
+            ) : null}
+            <ErrorBanner message={paymentsError} />
 
             <Text style={styles.sectionTitle}>Commission per trip</Text>
             <ErrorBanner message={error} />

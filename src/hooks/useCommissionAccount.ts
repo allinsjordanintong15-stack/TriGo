@@ -18,17 +18,24 @@ export interface CommissionAccountState {
   account: CommissionAccountTimes | null;
 }
 
+export interface CommissionAccount extends CommissionAccountState {
+  /** Loads again, e.g. after submitting a payment. */
+  reload: () => void;
+}
+
 /**
- * The driver's commission account and the current settings (Home and Earnings). Read-only;
- * refreshed whenever the screen gains focus, so a just-completed trip is included.
+ * The driver's commission account and the current settings (Home and Earnings). Refreshed
+ * whenever the screen gains focus, so a just-completed trip is included, and on reload().
  */
-export function useCommissionAccount(driverId: string | null): CommissionAccountState {
+export function useCommissionAccount(driverId: string | null): CommissionAccount {
   const [state, setState] = useState<CommissionAccountState>({
     loading: true,
     error: '',
     settings: null,
     account: null,
   });
+  const [version, setVersion] = useState(0);
+  const reload = useCallback(() => setVersion((current) => current + 1), []);
 
   useFocusEffect(
     useCallback(() => {
@@ -54,8 +61,8 @@ export function useCommissionAccount(driverId: string | null): CommissionAccount
       return () => {
         active = false;
       };
-    }, [driverId]),
+    }, [driverId, version]),
   );
 
-  return state;
+  return { ...state, reload };
 }

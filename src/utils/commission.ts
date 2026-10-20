@@ -126,3 +126,47 @@ export function formatPeriodEndDay(endMillis: number): string {
 export function formatManilaDay(millis: number): string {
   return formatPeriodEndDay(millis + 1);
 }
+
+// ─── Payments ───────────────────────────────────────────────────────────────
+
+/** Smallest payment the rules accept: ₱1.00. */
+export const MIN_PAYMENT_CENTAVOS = 100;
+
+/**
+ * "150", "150.5", "1,250.75" → centavos; null when not a peso amount with at most two
+ * decimals.
+ */
+export function parsePesoAmount(text: string): number | null {
+  const cleaned = text.replace(/[,\s₱]/g, '');
+  if (!/^[0-9]+(\.[0-9]{1,2})?$/.test(cleaned)) return null;
+  const [whole, fraction = ''] = cleaned.split('.');
+  return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+}
+
+export function validatePaymentAmount(text: string, balanceCentavos: number): string | null {
+  const centavos = parsePesoAmount(text);
+  if (centavos === null) return 'Enter an amount in pesos, e.g. 150 or 150.50.';
+  if (centavos < MIN_PAYMENT_CENTAVOS) return 'The smallest payment is ₱1.00.';
+  if (centavos > balanceCentavos) return 'This is more than your commission balance.';
+  return null;
+}
+
+/** GCash reference numbers are digits; spaces are removed ("1234 567 890123"). */
+export function normalizeGcashReference(text: string): string {
+  return text.replace(/\s+/g, '');
+}
+
+/** Same pattern as firestore.rules (commissionPayments). */
+export function validateGcashReference(text: string): string | null {
+  const reference = normalizeGcashReference(text);
+  if (!reference) return 'Enter the GCash reference number.';
+  if (!/^[0-9]{10,20}$/.test(reference)) {
+    return 'The reference number is 10 to 20 digits, as shown on your GCash receipt.';
+  }
+  return null;
+}
+
+/** 70000 → "700.00", for prefilling the amount field. */
+export function centavosToAmountText(centavos: number): string {
+  return (centavos / 100).toFixed(2);
+}

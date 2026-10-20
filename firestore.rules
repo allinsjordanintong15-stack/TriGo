@@ -97,6 +97,25 @@ service cloud.firestore {
       return /databases/$(database)/documents/commissionPeriods/$(uid + '_' + string(seq));
     }
 
+    function paymentPath(paymentId) {
+      return /databases/$(database)/documents/commissionPayments/$(paymentId);
+    }
+
+    function paymentReferencePath(reference) {
+      return /databases/$(database)/documents/paymentReferences/$(reference);
+    }
+
+    function ledgerPath() {
+      return /databases/$(database)/documents/earningsLedger/totals;
+    }
+
+    // An admin confirms this pending payment in the current commit.
+    function isConfirmedInThisCommit(paymentId) {
+      return paymentId is string
+        && get(paymentPath(paymentId)).data.status == 'pending'
+        && getAfter(paymentPath(paymentId)).data.status == 'confirmed';
+    }
+
     // A commission period ends at a Manila midnight (UTC+8, no daylight saving): the end
     // of the `days`-th calendar day, counting the day of startAt as day 1. Epoch ms.
     // The app computes the same (src/utils/commission.ts); nothing stores the end itself,
@@ -1058,8 +1077,8 @@ service cloud.firestore {
     // Admins write, always the complete object. Admins and anyone with a drivers/{uid}
     // record (including a revoked driver, who may still owe commission) read it, so the
     // driver app can show and apply the percentage it charges. Passengers cannot read it.
-    // Commission is recorded on every completed trip (Commission accrual below). Driver
-    // payments and enforcement are coming in the next steps.
+    // Commission is recorded on every completed trip (Commission accrual below) and paid by
+    // GCash, confirmed by an admin (Commission payments). Enforcement comes in a later step.
 
     match /commissionSettings/active {
       function isValidCommissionWrite() {
@@ -1126,8 +1145,9 @@ service cloud.firestore {
     //     centavos (= finalFare × percentage / 100 pesos, to the centavo), percentage snapshot.
     //   commissionAccounts/{driverId}: { driverId, accruedCentavos, paidCentavos,
     //     current: { seq, startAt, periodDays, graceDays, startCentavos },
-    //     unpaid: null | { seq, startAt, periodDays, graceDays }, lastBookingId, updatedAt }.
-    //     Running totals in integer centavos; payments (later) pay the oldest debt first.
+    //     unpaid: null | { seq, startAt, periodDays, graceDays }, lastBookingId, updatedAt,
+    //     lastPaymentId (after the first confirmed payment) }. Running totals in integer
+    //     centavos; confirmed payments pay the oldest debt first (Commission payments).
     //   commissionPeriods/{driverId}_{seq}: { driverId, seq, startAt, periodDays, graceDays,
     //     startCentavos }, written when a period opens.
     // A driver's first commission opens period 1. A period ends at periodEndMillis(startAt,
@@ -1258,6 +1278,54 @@ service cloud.firestore {
           )
         );
 
+      // Where a closed period's debt ends: the next period's start total (the current
+      // period's when it is the next one).
+      function nextStartCentavos(before, seq) {
+        return seq + 1 == before.current.seq
+          ? before.current.startCentavos
+          : get(commissionPeriodPath(driverId, seq + 1)).data.startCentavos;
+      }
+
+      // After paying up to `paid` (oldest debt first): no unpaid period once every closed
+      // period is paid, else the closed period s with startCentavos(s) <= paid <
+      // startCentavos(s + 1), copied from its period document.
+      function isUnpaidAfterPaying(before, paid, unpaid) {
+        return paid >= before.current.startCentavos
+          ? unpaid == null
+          : (
+            unpaid != null
+            && unpaid.seq is int
+            && unpaid.seq >= 1
+            && unpaid.seq < before.current.seq
+            && isPeriodOwing(before, paid, unpaid, get(commissionPeriodPath(driverId, unpaid.seq)).data)
+          );
+      }
+
+      function isPeriodOwing(before, paid, unpaid, period) {
+        return unpaid == {
+            'seq': period.seq,
+            'startAt': period.startAt,
+            'periodDays': period.periodDays,
+            'graceDays': period.graceDays
+          }
+          && period.startCentavos <= paid
+          && paid < nextStartCentavos(before, unpaid.seq);
+      }
+
+      // Admin confirms a payment (Earnings page): in the commit that confirms it, paid
+      // grows by the payment, never past what was recorded, and the unpaid pointer moves to
+      // the oldest period still owed.
+      allow update: if isAdmin()
+        && onlyChanged(['paidCentavos', 'unpaid', 'lastPaymentId', 'updatedAt'])
+        && isConfirmedInThisCommit(request.resource.data.lastPaymentId)
+        && get(paymentPath(request.resource.data.lastPaymentId)).data.driverId == driverId
+        && request.resource.data.paidCentavos
+          == resource.data.paidCentavos
+            + get(paymentPath(request.resource.data.lastPaymentId)).data.amountCentavos
+        && request.resource.data.paidCentavos <= resource.data.accruedCentavos
+        && request.resource.data.updatedAt == request.time
+        && isUnpaidAfterPaying(resource.data, request.resource.data.paidCentavos, request.resource.data.unpaid);
+
       allow delete: if false;
     }
 
@@ -1285,6 +1353,126 @@ service cloud.firestore {
       allow read: if isSignedIn() && resource.data.driverId == request.auth.uid;
       allow create: if isValidPeriodCreate();
       allow update, delete: if false;
+    }
+
+    // ─── Commission payments ───────────────────────────────────────────────
+    // A driver pays by GCash outside the app, then reports it (Earnings tab):
+    //   commissionPayments/{autoId}: { driverId, amountCentavos, reference, status: 'pending',
+    //     submittedAt }; an admin later sets status 'confirmed' or 'rejected' (with
+    //     rejectionReason), reviewedAt and reviewedBy (Earnings page).
+    //   paymentReferences/{reference}: { paymentId, driverId, createdAt }, created in the same
+    //     commit. Creating fails when the document exists, so a GCash reference number can be
+    //     submitted only once. Rejecting deletes it so the right payment can be resubmitted;
+    //     a confirmed reference stays forever.
+    // The amount is ₱1.00 up to the balance (accrued − confirmed paid); pending payments are
+    // not subtracted, the confirm caps paid at accrued instead. Confirming credits the
+    // driver's account (lastPaymentId, oldest debt first) and earningsLedger/totals
+    // (collectedCentavos) in the same commit. Nobody deletes payments.
+
+    match /commissionPayments/{paymentId} {
+      function isValidPaymentCreate() {
+        let data = request.resource.data;
+        let keys = ['driverId', 'amountCentavos', 'reference', 'status', 'submittedAt'];
+        let account = get(commissionAccountPath(request.auth.uid)).data;
+        return isSignedIn()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.driverId == request.auth.uid
+          && data.amountCentavos is int
+          && data.amountCentavos >= 100
+          && data.amountCentavos <= account.accruedCentavos - account.paidCentavos
+          && data.reference is string
+          && data.reference.matches('^[0-9]{10,20}$')
+          && data.status == 'pending'
+          && data.submittedAt == request.time
+          && getAfter(paymentReferencePath(data.reference)).data.paymentId == paymentId;
+      }
+
+      function isValidPaymentReview() {
+        let data = request.resource.data;
+        return isAdmin()
+          && resource.data.status == 'pending'
+          && data.reviewedAt == request.time
+          && data.reviewedBy == request.auth.uid
+          && (
+            (
+              data.status == 'confirmed'
+              && onlyChanged(['status', 'reviewedAt', 'reviewedBy'])
+              && getAfter(commissionAccountPath(resource.data.driverId)).data.lastPaymentId == paymentId
+              && getAfter(ledgerPath()).data.lastPaymentId == paymentId
+            )
+            || (
+              data.status == 'rejected'
+              && onlyChanged(['status', 'rejectionReason', 'reviewedAt', 'reviewedBy'])
+              && data.rejectionReason is string
+              && data.rejectionReason.trim().size() > 0
+              && data.rejectionReason.size() <= 300
+              && !existsAfter(paymentReferencePath(resource.data.reference))
+            )
+          );
+      }
+
+      allow read: if isAdmin();
+      allow read: if isSignedIn() && resource.data.driverId == request.auth.uid;
+      allow create: if isValidPaymentCreate();
+      allow update: if isValidPaymentReview();
+      allow delete: if false;
+    }
+
+    match /paymentReferences/{reference} {
+      // Created with the payment that uses it (new in this commit, same driver).
+      function isValidReferenceCreate() {
+        let data = request.resource.data;
+        let keys = ['paymentId', 'driverId', 'createdAt'];
+        let payment = getAfter(paymentPath(data.paymentId)).data;
+        return isSignedIn()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.driverId == request.auth.uid
+          && data.createdAt == request.time
+          && data.paymentId is string
+          && !exists(paymentPath(data.paymentId))
+          && payment.driverId == request.auth.uid
+          && payment.reference == reference;
+      }
+
+      // A driver can check a reference that is free or their own (to explain a refusal);
+      // another driver's reference is not readable.
+      allow get: if isAdmin()
+        || (isSignedIn() && (resource == null || resource.data.driverId == request.auth.uid));
+      allow list: if isAdmin();
+      allow create: if isValidReferenceCreate();
+      // Freed only by rejecting its pending payment in the same commit.
+      allow delete: if isAdmin()
+        && get(paymentPath(resource.data.paymentId)).data.status == 'pending'
+        && getAfter(paymentPath(resource.data.paymentId)).data.status == 'rejected';
+      allow update: if false;
+    }
+
+    // earningsLedger/totals: { collectedCentavos, cashedOutCentavos, lastPaymentId, updatedAt }.
+    // Commission TriGo has collected (confirmed payments). Created by the first confirm.
+    // Admins only.
+    match /earningsLedger/totals {
+      function isPaymentCredit() {
+        return isConfirmedInThisCommit(request.resource.data.lastPaymentId)
+          && request.resource.data.updatedAt == request.time;
+      }
+
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll(['collectedCentavos', 'cashedOutCentavos', 'lastPaymentId', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['collectedCentavos', 'cashedOutCentavos', 'lastPaymentId', 'updatedAt'])
+        && isPaymentCredit()
+        && request.resource.data.collectedCentavos
+          == get(paymentPath(request.resource.data.lastPaymentId)).data.amountCentavos
+        && request.resource.data.cashedOutCentavos == 0;
+      allow update: if isAdmin()
+        && onlyChanged(['collectedCentavos', 'lastPaymentId', 'updatedAt'])
+        && isPaymentCredit()
+        && request.resource.data.collectedCentavos
+          == resource.data.collectedCentavos
+            + get(paymentPath(request.resource.data.lastPaymentId)).data.amountCentavos;
+      allow delete: if false;
     }
 
     // ─── Support contacts ──────────────────────────────────────────────────

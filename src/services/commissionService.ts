@@ -1,6 +1,11 @@
 import { COLLECTIONS, firestore } from '@/firebase';
 import { BookingType } from '@/types';
-import { CommissionAccountTimes, commissionCentavos, periodEndMillis } from '@/utils/commission';
+import {
+  CommissionAccountTimes,
+  commissionCentavos,
+  normalizeGcashReference,
+  periodEndMillis,
+} from '@/utils/commission';
 import {
   collection,
   doc,
@@ -16,6 +21,7 @@ import {
   Timestamp,
   Transaction,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 
 /**
@@ -386,6 +392,123 @@ export async function fetchDriverCommissions(
       code === 'failed-precondition'
         ? 'Commission history is not available yet: the database index is still being set up.'
         : 'Unable to load your commission history. Please check your internet connection and try again.',
+    );
+  }
+}
+
+// ─── Commission payments ────────────────────────────────────────────────────
+// The driver pays TriGo by GCash outside the app, then reports the amount and GCash
+// reference number here; an admin checks it and confirms or rejects it (admin Earnings
+// page). See firestore.rules (Commission payments).
+
+export type CommissionPaymentStatus = 'pending' | 'confirmed' | 'rejected';
+
+export interface CommissionPayment {
+  paymentId: string;
+  amountCentavos: number;
+  reference: string;
+  status: CommissionPaymentStatus;
+  rejectionReason: string | null;
+  submittedAt: Date | null;
+  reviewedAt: Date | null;
+}
+
+/**
+ * Reports a GCash payment: commissionPayments/{autoId} (pending) and the reference lock
+ * paymentReferences/{reference} in one commit. Firestore rules refuse a reference that was
+ * already submitted and an amount above the balance (recorded − confirmed paid).
+ */
+export async function submitCommissionPayment(
+  driverId: string,
+  amountCentavos: number,
+  reference: string,
+): Promise<void> {
+  const normalized = normalizeGcashReference(reference);
+  const batch = writeBatch(firestore);
+  const paymentRef = doc(collection(firestore, COLLECTIONS.commissionPayments));
+  const referenceRef = doc(firestore, COLLECTIONS.paymentReferences, normalized);
+  batch.set(paymentRef, {
+    driverId,
+    amountCentavos,
+    reference: normalized,
+    status: 'pending',
+    submittedAt: serverTimestamp(),
+  });
+  batch.set(referenceRef, { paymentId: paymentRef.id, driverId, createdAt: serverTimestamp() });
+
+  try {
+    await batch.commit();
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'permission-denied') {
+      throw new CommissionServiceError(
+        'Unable to submit your payment. Please check your internet connection and try again.',
+      );
+    }
+    // The rules do not say why. A used reference is the common case: it exists (this
+    // driver's) or cannot be read (another driver's).
+    const used = await getDoc(referenceRef).then(
+      (snapshot) => snapshot.exists(),
+      () => true,
+    );
+    throw new CommissionServiceError(
+      used
+        ? 'This GCash reference number was already submitted. Check the number on your GCash receipt.'
+        : 'The amount is more than your commission balance. Please check the amount and try again.',
+    );
+  }
+}
+
+export type PaymentCursor = QueryDocumentSnapshot<DocumentData>;
+
+export interface PaymentPage {
+  payments: CommissionPayment[];
+  cursor: PaymentCursor | null;
+  hasMore: boolean;
+}
+
+export const PAYMENT_PAGE_SIZE = 20;
+
+/** The driver's reported payments, newest first, 20 at a time. */
+export async function fetchDriverPayments(
+  driverId: string,
+  after: PaymentCursor | null = null,
+): Promise<PaymentPage> {
+  // Composite index commissionPayments (driverId ASC, submittedAt DESC).
+  const constraints = [
+    where('driverId', '==', driverId),
+    orderBy('submittedAt', 'desc'),
+    ...(after ? [startAfter(after)] : []),
+    limit(PAYMENT_PAGE_SIZE),
+  ];
+
+  try {
+    const snapshot = await getDocs(
+      query(collection(firestore, COLLECTIONS.commissionPayments), ...constraints),
+    );
+    return {
+      payments: snapshot.docs.map((d) => {
+        const data = d.data();
+        return {
+          paymentId: d.id,
+          amountCentavos: data.amountCentavos,
+          reference: data.reference,
+          status:
+            data.status === 'confirmed' || data.status === 'rejected' ? data.status : 'pending',
+          rejectionReason: typeof data.rejectionReason === 'string' ? data.rejectionReason : null,
+          submittedAt: data.submittedAt instanceof Timestamp ? data.submittedAt.toDate() : null,
+          reviewedAt: data.reviewedAt instanceof Timestamp ? data.reviewedAt.toDate() : null,
+        };
+      }),
+      cursor: snapshot.docs[snapshot.docs.length - 1] ?? after,
+      hasMore: snapshot.docs.length === PAYMENT_PAGE_SIZE,
+    };
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    console.warn('[TriGo] fetchDriverPayments failed', error);
+    throw new CommissionServiceError(
+      code === 'failed-precondition'
+        ? 'Payment history is not available yet: the database index is still being set up.'
+        : 'Unable to load your payments. Please check your internet connection and try again.',
     );
   }
 }

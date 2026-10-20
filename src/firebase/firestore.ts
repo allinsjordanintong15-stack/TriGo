@@ -20,4 +20,6 @@ export const COLLECTIONS = {
   commissions: 'commissions',
   commissionAccounts: 'commissionAccounts',
   commissionPeriods: 'commissionPeriods',
+  commissionPayments: 'commissionPayments',
+  paymentReferences: 'paymentReferences',
 } as const;
