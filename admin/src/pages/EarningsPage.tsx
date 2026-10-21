@@ -37,6 +37,7 @@ import {
   rejectPayment,
   type PendingPayment,
 } from '../earnings/payments';
+import { useAdminCounts } from '../lib/adminCounts';
 import { downloadCsv } from '../lib/csv';
 import { toDateInputValue } from '../lib/dateRange';
 
@@ -71,6 +72,7 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
 
 export function EarningsPage() {
   const { admin } = useAuth();
+  const { refreshCounts } = useAdminCounts();
   const [totals, setTotals] = useState<EarningsTotals | null>(null);
   const [balances, setBalances] = useState<DriverBalance[] | null>(null);
   const [payments, setPayments] = useState<PendingPayment[] | null>(null);
@@ -152,6 +154,7 @@ export function EarningsPage() {
       }
       setReview(null);
       setSaving(false);
+      refreshCounts();
       await reload();
     } catch (error) {
       const denied = (error as { code?: string }).code === 'permission-denied';

@@ -23,11 +23,13 @@ import {
   type ComplaintDetail,
   type ComplaintStatus,
 } from '../complaints/complaints';
+import { useAdminCounts } from '../lib/adminCounts';
 
 export function ComplaintDetailPage() {
   const { complaintId = '' } = useParams();
   const [searchParams] = useSearchParams();
   const { admin } = useAuth();
+  const { refreshCounts } = useAdminCounts();
   const [detail, setDetail] = useState<ComplaintDetail | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<ComplaintStatus>('open');
@@ -110,6 +112,7 @@ export function ComplaintDetailPage() {
       setMessage(statusChanged ? `Status changed to ${COMPLAINT_STATUS_LABELS[status]}.` : 'Notes saved.');
       setConfirming(false);
       setSaving(false);
+      if (statusChanged) refreshCounts();
       await reload();
     } catch (error) {
       const denied = (error as { code?: string }).code === 'permission-denied';

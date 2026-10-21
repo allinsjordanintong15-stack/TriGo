@@ -15,6 +15,7 @@ import {
   type DriverApplication,
   type VehicleType,
 } from '../drivers/driverApplications';
+import { useAdminCounts } from '../lib/adminCounts';
 
 type Decision = 'approve' | 'reject';
 
@@ -23,6 +24,7 @@ const STATUS_LABELS = { pending: 'Pending', approved: 'Approved', rejected: 'Rej
 export function DriverApplicationPage() {
   const { uid = '' } = useParams();
   const navigate = useNavigate();
+  const { refreshCounts } = useAdminCounts();
   const [application, setApplication] = useState<DriverApplication | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [vehicleType, setVehicleType] = useState<VehicleType>('tricycle');
@@ -99,9 +101,11 @@ export function DriverApplicationPage() {
     try {
       if (decision === 'approve') {
         await approveApplication(application, vehicleType, approveRemarks);
+        refreshCounts();
         navigate('/drivers', { state: { message: `${application.fullName} was approved as a driver.` } });
       } else {
         await rejectApplication(application, rejectRemarks);
+        refreshCounts();
         navigate('/drivers', { state: { message: `${application.fullName}'s application was rejected.` } });
       }
     } catch (error) {

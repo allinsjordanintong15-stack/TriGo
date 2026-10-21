@@ -158,6 +158,8 @@ things stand.
     not in scope yet.
 - **Driver rating is display only.** `drivers.rating` is shown, but there is no rating flow
   that updates it.
+- **Standard bookings never expire.** A standard booking that no driver accepts stays
+  `pending` until the passenger cancels it; only out-of-area requests have an expiry.
 - **No Cloud Functions.** Expired out-of-area requests are never rewritten; they are shown
   as expired from `expiresAt`. Every balance change is a client write checked by the rules.
 
