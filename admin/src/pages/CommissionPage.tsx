@@ -171,7 +171,8 @@ export function CommissionPage() {
     <div className="stack">
       <div className="alert-warning" role="note">
         Commission is recorded on every completed trip. Drivers pay it by GCash and you confirm their payments on the
-        Earnings page. Enforcement for overdue drivers is coming in a later step.
+        Earnings page. A driver who still owes after the grace period is suspended from accepting new requests until
+        the overdue amount is confirmed paid.
       </div>
 
       <div className="card">
@@ -300,7 +301,8 @@ export function CommissionPage() {
           </table>
           <p className="muted small">
             Commission is recorded on every completed trip. Drivers pay it by GCash and you confirm their payments on
-            the Earnings page. Enforcement for overdue drivers is coming in a later step.
+            the Earnings page. A driver who still owes after the grace period is suspended from accepting new requests
+            until the overdue amount is confirmed paid.
           </p>
           {saveError && (
             <div className="alert-error" role="alert">

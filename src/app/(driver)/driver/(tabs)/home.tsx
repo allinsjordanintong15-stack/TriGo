@@ -1,5 +1,6 @@
 import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { ActiveTripBanner } from '@/components/driver/ActiveTripBanner';
+import { CommissionBanner } from '@/components/driver/CommissionBanner';
 import { CommissionCard } from '@/components/driver/CommissionCard';
 import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
 import { DutyToggle } from '@/components/driver/DutyToggle';
@@ -337,6 +338,10 @@ export default function DriverHomeScreen() {
         ) : null}
 
         <ErrorBanner message={error} />
+
+        {driverRecord ? (
+          <CommissionBanner state={commission} onOpen={() => router.navigate('/driver/earnings')} />
+        ) : null}
 
         {statusCard}
 

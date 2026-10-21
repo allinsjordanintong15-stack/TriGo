@@ -3,6 +3,7 @@ import { BookingType } from '@/types';
 import {
   CommissionAccountTimes,
   commissionCentavos,
+  commissionStatus,
   normalizeGcashReference,
   periodEndMillis,
 } from '@/utils/commission';
@@ -331,6 +332,20 @@ export async function getCommissionAccount(driverId: string): Promise<Commission
     current: { ...times(state.current), startCentavos: state.current.startCentavos },
     unpaid: state.unpaid ? times(state.unpaid) : null,
   };
+}
+
+/** Shown when a suspended driver tries to accept a request; the rules refuse it anyway. */
+export const COMMISSION_SUSPENDED_MESSAGE =
+  'Your commission is overdue and your grace period has ended. Pay the overdue amount on the Earnings tab; you can accept new requests once TriGo confirms your payment.';
+
+/**
+ * True when the driver may not accept new requests (T1 accept, out-of-area propose)
+ * because commission is still owed after a grace period (firestore.rules
+ * isCommissionSuspended). Finishing a current trip and the out-of-area claim stay allowed.
+ */
+export async function isCommissionSuspended(driverId: string): Promise<boolean> {
+  const account = await getCommissionAccount(driverId);
+  return account !== null && commissionStatus(account, Date.now()).status === 'suspended';
 }
 
 /** commissions/{bookingId}: the commission recorded when a trip was completed. */

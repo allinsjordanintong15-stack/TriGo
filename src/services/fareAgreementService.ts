@@ -1,4 +1,9 @@
 import { COLLECTIONS, firestore } from '@/firebase';
+import {
+  COMMISSION_SUSPENDED_MESSAGE,
+  CommissionServiceError,
+  isCommissionSuspended,
+} from '@/services/commissionService';
 import { DriverRecord, FareAgreement } from '@/types';
 import { doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
@@ -21,7 +26,8 @@ export interface FareProposalInput {
  * do not choose an amount). One batch claims the request (negotiating, with the fare in
  * the proposal fields) and reserves the driver (currentRequestId, not available);
  * Firestore rules require both in the same commit and the fare to equal
- * standardEstimatedFare. The passenger still has to confirm.
+ * standardEstimatedFare. The passenger still has to confirm. A driver suspended for overdue
+ * commission is refused first (the rules refuse the commit too).
  */
 export async function createProposal(input: FareProposalInput): Promise<FareAgreement> {
   const fare = input.standardEstimatedFare;
@@ -50,8 +56,13 @@ export async function createProposal(input: FareProposalInput): Promise<FareAgre
   });
 
   try {
+    if (await isCommissionSuspended(input.driverId)) {
+      throw new FareAgreementServiceError(COMMISSION_SUSPENDED_MESSAGE);
+    }
     await batch.commit();
   } catch (error) {
+    if (error instanceof FareAgreementServiceError) throw error;
+    if (error instanceof CommissionServiceError) throw new FareAgreementServiceError(error.message);
     if ((error as { code?: string }).code === 'permission-denied') {
       // Taken by another driver, cancelled or expired, or this driver is no longer
       // online, available and free.

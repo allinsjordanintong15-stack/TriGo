@@ -410,3 +410,141 @@ export function commitConfirm(firestore: Firestore, writes: ConfirmWrites, payme
   if (writes.ledger?.kind === 'update') batch.update(doc(firestore, 'earningsLedger', 'totals'), writes.ledger.data);
   return batch.commit();
 }
+
+// ─── Commission enforcement ─────────────────────────────────────────────────
+// The exact writes driverBookingService.acceptBooking (T1), fareAgreementService.createProposal
+// (propose) and driverBookingService.claimOutOfAreaBooking (claim) make.
+
+export const REQUEST = 'request1';
+export const OUT_OF_AREA_FARE = 520;
+
+/** An online, available driver with no trip or reservation. */
+export function availableDriverRecord(): DocumentData {
+  return { ...driverRecord(null), isAvailable: true };
+}
+
+/** commissionAccounts/{driverId} as stored. */
+export function accountDoc(state: Account, driverId = DRIVER): DocumentData {
+  return { driverId, ...state, lastBookingId: 'olderBooking', updatedAt: Timestamp.now() };
+}
+
+/** An open standard booking (T1 accept starts from it). */
+export function openBooking(): DocumentData {
+  return inProgressBooking(DRIVER, { driverId: null, status: 'pending' });
+}
+
+export function commitAccept(firestore: Firestore, driverId = DRIVER): Promise<void> {
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, 'bookings', BOOKING), {
+    driverId,
+    status: 'accepted',
+    acceptedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.update(doc(firestore, 'drivers', driverId), {
+    isAvailable: false,
+    currentBookingId: BOOKING,
+    updatedAt: serverTimestamp(),
+  });
+  return batch.commit();
+}
+
+function requestFareAgreement(overrides: DocumentData = {}): DocumentData {
+  return {
+    standardEstimatedFare: OUT_OF_AREA_FARE,
+    driverProposedFare: OUT_OF_AREA_FARE,
+    agreedFare: OUT_OF_AREA_FARE,
+    agreedByPassenger: false,
+    agreedByDriver: true,
+    agreedAt: null,
+    ...overrides,
+  };
+}
+
+/** An open out-of-area request (propose starts from it). */
+export function openRequest(overrides: DocumentData = {}): DocumentData {
+  return {
+    passengerId: PASSENGER,
+    pickupLocation: location('Poblacion, Trinidad'),
+    destination: location('Tagbilaran City'),
+    vehicleType: 'tricycle',
+    distanceKm: 48.5,
+    standardEstimatedFare: OUT_OF_AREA_FARE,
+    suggestedAgreementFare: null,
+    agreedFare: null,
+    status: 'searching',
+    driverId: null,
+    fareAgreement: null,
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+    expiresAt: Timestamp.fromMillis(Date.now() + 30 * 60 * 1000),
+    ...overrides,
+  };
+}
+
+export function commitPropose(firestore: Firestore, driverId = DRIVER): Promise<void> {
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, 'outOfAreaRequests', REQUEST), {
+    status: 'negotiating',
+    driverId,
+    suggestedAgreementFare: OUT_OF_AREA_FARE,
+    fareAgreement: requestFareAgreement(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.update(doc(firestore, 'drivers', driverId), {
+    currentRequestId: REQUEST,
+    isAvailable: false,
+    updatedAt: serverTimestamp(),
+  });
+  return batch.commit();
+}
+
+/**
+ * The passenger confirmed DRIVER on REQUEST: the request is accepted, the driver still
+ * reserved for it, and the unclaimed booking waits at bookings/{REQUEST}.
+ */
+export function claimDocs(driverId = DRIVER): Record<string, DocumentData> {
+  const agreed = requestFareAgreement({ agreedByPassenger: true, agreedAt: Timestamp.now() });
+  return {
+    [`drivers/${driverId}`]: { ...driverRecord(null), currentRequestId: REQUEST },
+    [`outOfAreaRequests/${REQUEST}`]: openRequest({
+      status: 'accepted',
+      driverId,
+      suggestedAgreementFare: OUT_OF_AREA_FARE,
+      agreedFare: OUT_OF_AREA_FARE,
+      fareAgreement: agreed,
+    }),
+    [`bookings/${REQUEST}`]: {
+      ...inProgressBooking(driverId, {
+        driverId: null,
+        status: 'pending',
+        bookingType: 'out_of_area',
+        destination: location('Tagbilaran City'),
+        distanceKm: 48.5,
+        estimatedFare: OUT_OF_AREA_FARE,
+        driverProposedFare: OUT_OF_AREA_FARE,
+        agreedFare: OUT_OF_AREA_FARE,
+        outOfAreaRequestId: REQUEST,
+      }),
+      fareAgreement: agreed,
+      acceptedAt: null,
+    },
+  };
+}
+
+export function commitClaim(firestore: Firestore, driverId = DRIVER): Promise<void> {
+  const batch = writeBatch(firestore);
+  batch.update(doc(firestore, 'bookings', REQUEST), {
+    driverId,
+    status: 'accepted',
+    acceptedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.update(doc(firestore, 'drivers', driverId), {
+    currentBookingId: REQUEST,
+    currentRequestId: null,
+    isAvailable: false,
+    updatedAt: serverTimestamp(),
+  });
+  return batch.commit();
+}

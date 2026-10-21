@@ -3,7 +3,8 @@
 // Measures how far heavy commits are from Firestore's limit of 1000 rules expressions per
 // request, in the limit's own units. Not a test (not *.test.ts); run it under the emulator:
 //   npx firebase emulators:exec --only firestore --project demo-trigo-rules "node tests/rules/measureHeadroom.ts"
-// (TRIGO_HEADROOM=payments in the environment: commission payment scenarios only.)
+// (TRIGO_HEADROOM=payments in the environment: commission payment scenarios only;
+// TRIGO_HEADROOM=enforcement: T1 accept, propose, claim and the out-of-area confirm only.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
 // binary search finds the largest N at which the valid commit still succeeds. The same
@@ -27,11 +28,18 @@ import {
 
 import {
   account,
+  accountDoc,
   ADMIN,
   APPLICANT_DRIVER,
   appWrites,
+  availableDriverRecord,
   baseDocs,
+  BOOKING,
+  claimDocs,
+  commitAccept,
+  commitClaim,
   commitConfirm,
+  commitPropose,
   commitSubmit,
   commitWrites,
   confirmWrites,
@@ -39,10 +47,14 @@ import {
   DRIVER,
   HOUR_MS,
   multiPeriodDocs,
+  openBooking,
+  openRequest,
   outOfAreaInProgressBooking,
   PASSENGER,
   PAYMENT,
+  periodDoc,
   REFERENCE,
+  REQUEST as OPEN_REQUEST,
   submittedDocs,
   submitWrites,
   tripDocs,
@@ -70,6 +82,9 @@ type Target =
   | 'account create'
   | 'account update'
   | 'period'
+  | 'T1 accept'
+  | 'propose'
+  | 'claim'
   | 'confirm: request accept'
   | 'confirm: booking create'
   | 'payment submit'
@@ -100,6 +115,18 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
     '      allow update: if isOwner(driverId)\n        && pad()\n        && recordsNewCommission()',
   ],
   period: ['      allow create: if isValidPeriodCreate();', '      allow create: if isValidPeriodCreate() && pad();'],
+  'T1 accept': [
+    "        && !isCommissionSuspended()\n        && request.resource.data.status == 'accepted'",
+    "        && !isCommissionSuspended()\n        && pad()\n        && request.resource.data.status == 'accepted'",
+  ],
+  propose: [
+    "        && !isCommissionSuspended()\n        && request.resource.data.status == 'negotiating'",
+    "        && !isCommissionSuspended()\n        && pad()\n        && request.resource.data.status == 'negotiating'",
+  ],
+  claim: [
+    '        && get(requestPath(bookingId)).data.driverId == request.auth.uid\n',
+    '        && get(requestPath(bookingId)).data.driverId == request.auth.uid\n        && pad()\n',
+  ],
   'confirm: request accept': [
     "            && getAfter(bookingPath(requestId)).data.bookingType == 'out_of_area'\n",
     "            && getAfter(bookingPath(requestId)).data.bookingType == 'out_of_area'\n            && pad()\n",
@@ -313,6 +340,42 @@ const confirm: Scenario = {
   },
 };
 
+// New work (commissionEnforcement.test.ts) with the costliest account that still passes
+// isCommissionSuspended(): an unpaid closed period inside its grace period, so both halves
+// of the check are evaluated.
+const inGrace = account(2 * DAY_MS, { unpaid: unpaidFrom(periodDoc(1, 0, 8 * DAY_MS)) });
+
+function newWork(
+  label: string,
+  target: 'T1 accept' | 'propose',
+  withAccount: boolean,
+  driverId = DRIVER,
+): Scenario {
+  return {
+    label,
+    targets: [target, 'driver record'],
+    run: async () => {
+      await seed({
+        [`drivers/${driverId}`]: availableDriverRecord(),
+        [`bookings/${BOOKING}`]: openBooking(),
+        [`outOfAreaRequests/${OPEN_REQUEST}`]: openRequest(),
+        ...(withAccount ? { [`commissionAccounts/${driverId}`]: accountDoc(inGrace, driverId) } : {}),
+      });
+      if (target === 'T1 accept') await commitAccept(db(driverId), driverId);
+      else await commitPropose(db(driverId), driverId);
+    },
+  };
+}
+
+const claim: Scenario = {
+  label: 'out-of-area claim (rules unchanged), account inside grace',
+  targets: ['claim', 'driver record'],
+  run: async () => {
+    await seed({ ...claimDocs(), [`commissionAccounts/${DRIVER}`]: accountDoc(inGrace) });
+    await commitClaim(db(DRIVER));
+  },
+};
+
 // Commission payments (commissionPayments.test.ts): periods 1–3 closed (start totals 0,
 // 300, 600), period 4 running from 900, period 1 unpaid.
 const { docs: MULTI, periods: PERIODS } = multiPeriodDocs();
@@ -400,6 +463,13 @@ const SCENARIOS: Scenario[] = [
     () => appWrites({ driverId: APPLICANT_DRIVER, finalFare: FARE, bookingType: 'out_of_area' }),
     APPLICANT_DRIVER,
   ),
+  newWork('T1 accept: no commission account', 'T1 accept', false),
+  newWork('T1 accept: account inside grace', 'T1 accept', true),
+  newWork('T1 accept: account inside grace, approved-applicant driver', 'T1 accept', true, APPLICANT_DRIVER),
+  newWork('propose: no commission account', 'propose', false),
+  newWork('propose: account inside grace', 'propose', true),
+  newWork('propose: account inside grace, approved-applicant driver', 'propose', true, APPLICANT_DRIVER),
+  claim,
   confirm,
   paymentSubmit,
   paymentConfirm('payment confirm: pointer stays on period 1 (reads periods 1 and 2), first ledger', 299, unpaidFrom(PERIODS[0]), false),
@@ -410,6 +480,8 @@ const SCENARIOS: Scenario[] = [
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
 const ONLY_PAYMENTS = process.env.TRIGO_HEADROOM === 'payments';
+const ONLY_ENFORCEMENT = process.env.TRIGO_HEADROOM === 'enforcement';
+const ENFORCEMENT_LABELS = /^(T1 accept|propose|out-of-area claim|out-of-area confirm)/;
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -456,7 +528,12 @@ async function maxTerms(scenario: Scenario, target: Target): Promise<{ terms: nu
 try {
   const cal = await maxTerms(calibration, 'calibration');
   console.log(`${calibration.label}: ${cal.terms} terms fit in a whole budget of 1000`);
-  for (const scenario of SCENARIOS.filter((s) => !ONLY_PAYMENTS || s.label.startsWith('payment'))) {
+  const selected = SCENARIOS.filter(
+    (s) =>
+      (!ONLY_PAYMENTS || s.label.startsWith('payment')) &&
+      (!ONLY_ENFORCEMENT || ENFORCEMENT_LABELS.test(s.label)),
+  );
+  for (const scenario of selected) {
     console.log(scenario.label);
     for (const target of scenario.targets) {
       const result = await maxTerms(scenario, target);

@@ -54,7 +54,8 @@ export interface CommissionAccountTimes {
 /**
  * paid_up: nothing owed. due: only the running period is owed, before its end.
  * overdue: a period has ended unpaid, still within its grace period.
- * suspended: the grace period of an unpaid period has ended.
+ * suspended: the grace period of an unpaid period has ended; the driver cannot accept new
+ * requests until the overdue amount is confirmed paid (firestore.rules isCommissionSuspended).
  */
 export type CommissionStatus = 'paid_up' | 'due' | 'overdue' | 'suspended';
 

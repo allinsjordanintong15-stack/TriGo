@@ -2,7 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { docToBooking } from '@/services/bookingService';
 import {
+  COMMISSION_SUSPENDED_MESSAGE,
   CommissionServiceError,
+  isCommissionSuspended,
   readCommissionContext,
   shouldOpenNextPeriod,
   writeCommission,
@@ -115,6 +117,10 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
   const driverRef = doc(firestore, COLLECTIONS.drivers, driverId);
 
   try {
+    if (await isCommissionSuspended(driverId)) {
+      throw new DriverBookingServiceError(COMMISSION_SUSPENDED_MESSAGE);
+    }
+
     await runTransaction(firestore, async (transaction) => {
       const driverSnapshot = await transaction.get(driverRef);
       const driverData = driverSnapshot.data();
@@ -172,6 +178,9 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
   } catch (error) {
     if (error instanceof DriverBookingServiceError) {
       throw error;
+    }
+    if (error instanceof CommissionServiceError) {
+      throw new DriverBookingServiceError(error.message);
     }
 
     const code = (error as { code?: string }).code;

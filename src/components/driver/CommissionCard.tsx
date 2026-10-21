@@ -16,7 +16,7 @@ const STATUS_LABELS: Record<CommissionStatus, string> = {
   paid_up: 'Paid up',
   due: 'Due',
   overdue: 'Overdue',
-  suspended: 'Grace period over',
+  suspended: 'Suspended',
 };
 
 const STATUS_COLORS: Record<CommissionStatus, { bg: string; text: string }> = {
@@ -47,7 +47,7 @@ function statusMessage(summary: CommissionStatusSummary): string {
     case 'overdue':
       return `Your payment was due by the end of ${due}. Please pay by the end of ${graceEnd} (grace period).`;
     case 'suspended':
-      return `Your grace period ended on ${graceEnd}. Please pay as soon as possible.`;
+      return `Your grace period ended on ${graceEnd}. You cannot accept new requests until TriGo confirms your payment of the overdue amount.`;
   }
 }
 

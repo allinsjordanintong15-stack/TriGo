@@ -124,6 +124,30 @@ service cloud.firestore {
       return (math.floor((startAt.toMillis() + 28800000) / 86400000) + days) * 86400000 - 28800000;
     }
 
+    // When the grace period after a commission period (account.current or account.unpaid)
+    // ends. Epoch ms.
+    function graceEndMillis(period) {
+      return periodEndMillis(period.startAt, period.periodDays) + period.graceDays * 86400000;
+    }
+
+    // Commission enforcement: the signed-in driver still owes commission after a grace
+    // period ended, either the oldest unpaid closed period's or the running period's once
+    // it has ended (src/utils/commission.ts commissionStatus 'suspended'). It blocks only
+    // new work: T1 accept and the out-of-area propose. A confirmed payment that covers the
+    // overdue amount clears it (the unpaid pointer moves on), with no other write.
+    function isCommissionSuspended() {
+      let path = commissionAccountPath(request.auth.uid);
+      return exists(path) && isSuspendedAccount(get(path).data);
+    }
+
+    function isSuspendedAccount(account) {
+      return (account.unpaid != null && request.time.toMillis() >= graceEndMillis(account.unpaid))
+        || (
+          account.paidCentavos < account.accruedCentavos
+          && request.time.toMillis() >= graceEndMillis(account.current)
+        );
+    }
+
     // At most 2 decimal places (centavos). Compared with a tolerance because e.g.
     // 8.15 * 100 is not exactly 815 in floating point.
     function hasAtMostTwoDecimals(value) {
@@ -332,9 +356,9 @@ service cloud.firestore {
         && isValidOutOfAreaBookingCreate();
 
       // T1 accept: a verified driver who is online, available, not on another trip, not
-      // reserved by an out-of-area proposal and has the requested vehicle type claims an
-      // open standard booking. The same commit must mark the driver unavailable and link
-      // drivers/{uid}.currentBookingId to this booking.
+      // reserved by an out-of-area proposal, not suspended for overdue commission and has
+      // the requested vehicle type claims an open standard booking. The same commit must
+      // mark the driver unavailable and link drivers/{uid}.currentBookingId to this booking.
       allow update: if isVerifiedDriver()
         && resource.data.get('bookingType', 'standard') == 'standard'
         && resource.data.status == 'pending'
@@ -345,6 +369,7 @@ service cloud.firestore {
         && driverDoc().data.get('currentBookingId', null) == null
         && driverDoc().data.get('currentRequestId', null) == null
         && driverDoc().data.vehicleType == resource.data.vehicleType
+        && !isCommissionSuspended()
         && request.resource.data.status == 'accepted'
         && request.resource.data.driverId == request.auth.uid
         && request.resource.data.acceptedAt == request.time
@@ -458,11 +483,12 @@ service cloud.firestore {
         && resource.data.driverId == request.auth.uid;
 
       // Propose (fareAgreementService.createProposal): a verified driver who is online,
-      // available, not on a trip, not already reserved and has the requested vehicle type
-      // accepts an open, unexpired request. The fare is locked to the request's admin
-      // per-km fare (standardEstimatedFare); drivers no longer choose an amount. The same
-      // commit must reserve the driver (drivers/{uid}.currentRequestId = this request, not
-      // available). The passenger still has to confirm.
+      // available, not on a trip, not already reserved, not suspended for overdue commission
+      // and has the requested vehicle type accepts an open, unexpired request. The fare is
+      // locked to the request's admin per-km fare (standardEstimatedFare); drivers no longer
+      // choose an amount. The same commit must reserve the driver
+      // (drivers/{uid}.currentRequestId = this request, not available). The passenger still
+      // has to confirm.
       allow update: if isVerifiedDriver()
         && resource.data.status == 'searching'
         && resource.data.driverId == null
@@ -473,6 +499,7 @@ service cloud.firestore {
         && driverDoc().data.get('currentBookingId', null) == null
         && driverDoc().data.get('currentRequestId', null) == null
         && driverDoc().data.vehicleType == resource.data.vehicleType
+        && !isCommissionSuspended()
         && request.resource.data.status == 'negotiating'
         && request.resource.data.driverId == request.auth.uid
         && request.resource.data.fareAgreement is map

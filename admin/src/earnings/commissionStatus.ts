@@ -30,7 +30,8 @@ export type AccountTimes = {
 /**
  * paid_up: nothing owed. due: only the running period is owed, before its end.
  * overdue: a period has ended unpaid, within its grace period.
- * suspended: the grace period of an unpaid period has ended ("Grace period over").
+ * suspended: the grace period of an unpaid period has ended; the driver cannot accept new
+ * requests until the overdue amount is confirmed paid (firestore.rules isCommissionSuspended).
  */
 export type CommissionStatus = 'paid_up' | 'due' | 'overdue' | 'suspended';
 
@@ -38,7 +39,7 @@ export const COMMISSION_STATUS_LABELS: Record<CommissionStatus, string> = {
   paid_up: 'Paid up',
   due: 'Due',
   overdue: 'Overdue',
-  suspended: 'Grace period over',
+  suspended: 'Suspended',
 };
 
 export const COMMISSION_STATUS_BADGE_CLASS: Record<CommissionStatus, string> = {
@@ -90,5 +91,5 @@ export function formatPeriodEndDay(endMillis: number | null): string {
   return `${MONTHS[manila.getUTCMonth()]} ${manila.getUTCDate()}, ${manila.getUTCFullYear()}`;
 }
 
-/** Status order for sorting: grace period over first, paid up last. */
+/** Status order for sorting: suspended first, paid up last. */
 export const STATUS_ORDER: Record<CommissionStatus, number> = { suspended: 0, overdue: 1, due: 2, paid_up: 3 };

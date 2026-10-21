@@ -1,3 +1,4 @@
+import { CommissionBanner } from '@/components/driver/CommissionBanner';
 import { DriverRequestCard } from '@/components/driver/DriverRequestCard';
 import { OutOfAreaRequestCard } from '@/components/driver/OutOfAreaRequestCard';
 import { Button } from '@/components/ui/Button';
@@ -6,6 +7,7 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
+import { useCommissionAccount } from '@/hooks/useCommissionAccount';
 import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
 import { getDeclinedBookingIds, subscribeToOpenBookings } from '@/services/driverBookingService';
 import { OpenOutOfAreaRequest, subscribeToOpenOutOfAreaRequests } from '@/services/driverService';
@@ -30,6 +32,7 @@ export default function DriverRequestsScreen() {
   const [now, setNow] = useState(() => Date.now());
 
   const driverId = driverRecord?.driverId ?? null;
+  const commission = useCommissionAccount(driverId);
   const vehicleType = driverRecord?.vehicleType ?? null;
   const isOnline = driverRecord?.isOnline === true;
   const isAvailable = driverRecord?.isAvailable === true;
@@ -287,12 +290,23 @@ export default function DriverRequestsScreen() {
   return (
     <View style={styles.container}>
       <ScreenHeader title="Ride Requests" />
+      {status === 'verified' ? (
+        <CommissionBanner
+          state={commission}
+          onOpen={() => router.navigate('/driver/earnings')}
+          style={styles.commissionBanner}
+        />
+      ) : null}
       {body}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  commissionBanner: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+  },
   gateWithAction: {
     flex: 1,
     justifyContent: 'center',

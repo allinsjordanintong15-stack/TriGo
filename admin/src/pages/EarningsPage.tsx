@@ -250,7 +250,7 @@ export function EarningsPage() {
               <option value="all">All drivers ({balanceRows.length})</option>
               <option value="owing">Owing ({balanceRows.length - statusCounts.paid_up})</option>
               <option value="overdue">Overdue ({statusCounts.overdue})</option>
-              <option value="suspended">Grace period over ({statusCounts.suspended})</option>
+              <option value="suspended">Suspended ({statusCounts.suspended})</option>
             </select>
           </label>
         </div>
