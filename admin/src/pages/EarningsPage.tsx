@@ -1,9 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import { formatDateTime } from '../bookings/bookings';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import {
+  CASH_OUT_METHOD_LABELS,
+  CASH_OUT_METHODS,
+  CashOutConflictError,
+  isCalendarDate,
+  loadCashOuts,
+  MAX_CASH_OUT_NOTE_LENGTH,
+  MAX_CASH_OUT_REFERENCE_LENGTH,
+  parsePesoAmount,
+  recordCashOut,
+  type CashOut,
+  type CashOutInput,
+  type CashOutMethod,
+} from '../earnings/cashOuts';
 import {
   COMMISSION_STATUS_BADGE_CLASS,
   COMMISSION_STATUS_LABELS,
@@ -16,16 +30,44 @@ import { loadDriverBalances, loadEarningsTotals, type DriverBalance, type Earnin
 import {
   confirmPayment,
   formatCentavos,
+  loadAllPayments,
   loadPendingPayments,
   MAX_REJECTION_REASON_LENGTH,
   PaymentConflictError,
   rejectPayment,
   type PendingPayment,
 } from '../earnings/payments';
+import { downloadCsv } from '../lib/csv';
+import { toDateInputValue } from '../lib/dateRange';
 
 type Review = { kind: 'confirm' | 'reject'; payment: PendingPayment };
 
 type BalanceFilter = 'all' | 'owing' | 'overdue' | 'suspended';
+
+type CashOutForm = { method: CashOutMethod; amount: string; reference: string; cashedOutOn: string; note: string };
+
+const emptyCashOutForm = (): CashOutForm => ({
+  method: 'gcash',
+  amount: '',
+  reference: '',
+  cashedOutOn: toDateInputValue(new Date()),
+  note: '',
+});
+
+/** Centavos as a plain CSV number, e.g. 70050 → "700.50". */
+function csvPeso(centavos: number): string {
+  return (centavos / 100).toFixed(2);
+}
+
+function csvDateTime(date: Date | null): string {
+  return date ? date.toISOString() : '';
+}
+
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  confirmed: 'Confirmed',
+  rejected: 'Rejected',
+};
 
 export function EarningsPage() {
   const { admin } = useAuth();
@@ -42,18 +84,26 @@ export function EarningsPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [cashOuts, setCashOuts] = useState<CashOut[] | null>(null);
+  const [cashOutForm, setCashOutForm] = useState<CashOutForm>(emptyCashOutForm);
+  const [cashOutTouched, setCashOutTouched] = useState(false);
+  const [pendingCashOut, setPendingCashOut] = useState<CashOutInput | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const reload = useCallback(async () => {
     setLoadError(null);
     try {
-      const [nextTotals, nextBalances, nextPayments] = await Promise.all([
+      const [nextTotals, nextBalances, nextPayments, nextCashOuts] = await Promise.all([
         loadEarningsTotals(),
         loadDriverBalances(),
         loadPendingPayments(),
+        loadCashOuts(),
       ]);
       setTotals(nextTotals);
       setBalances(nextBalances);
       setPayments(nextPayments);
+      setCashOuts(nextCashOuts);
       setLoadedAt(Date.now());
     } catch {
       setLoadError('Could not load earnings. Check your connection and reload the page.');
@@ -116,6 +166,68 @@ export function EarningsPage() {
     }
   }
 
+  const available = totals?.availableCentavos ?? 0;
+  const cashOutAmount = parsePesoAmount(cashOutForm.amount);
+  const today = toDateInputValue(new Date());
+  const cashOutErrors: Partial<Record<keyof CashOutForm, string>> = {};
+  if (cashOutAmount === null) cashOutErrors.amount = 'Enter an amount in pesos, e.g. 1500 or 1500.50.';
+  else if (cashOutAmount > available) cashOutErrors.amount = `At most the available ${formatCentavos(available)}.`;
+  if (!cashOutForm.reference.trim()) cashOutErrors.reference = 'Enter the reference from the GCash, Maya or bank app.';
+  else if (cashOutForm.reference.trim().length > MAX_CASH_OUT_REFERENCE_LENGTH) {
+    cashOutErrors.reference = `At most ${MAX_CASH_OUT_REFERENCE_LENGTH} characters.`;
+  }
+  if (!isCalendarDate(cashOutForm.cashedOutOn)) cashOutErrors.cashedOutOn = 'Choose the day the money was moved.';
+  else if (cashOutForm.cashedOutOn > today) cashOutErrors.cashedOutOn = 'The date cannot be in the future.';
+  if (cashOutForm.note.trim().length > MAX_CASH_OUT_NOTE_LENGTH) {
+    cashOutErrors.note = `At most ${MAX_CASH_OUT_NOTE_LENGTH} characters.`;
+  }
+
+  function setCashOutField<K extends keyof CashOutForm>(field: K, value: CashOutForm[K]) {
+    setCashOutForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function handleCashOutSubmit(event: FormEvent) {
+    event.preventDefault();
+    setCashOutTouched(true);
+    setMessage(null);
+    if (Object.keys(cashOutErrors).length > 0 || cashOutAmount === null) return;
+    setSaveError(null);
+    setPendingCashOut({
+      method: cashOutForm.method,
+      amountCentavos: cashOutAmount,
+      reference: cashOutForm.reference.trim(),
+      cashedOutOn: cashOutForm.cashedOutOn,
+      note: cashOutForm.note.trim(),
+    });
+  }
+
+  async function handleRecordCashOut() {
+    if (!pendingCashOut || !admin) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const availableAfter = await recordCashOut(pendingCashOut, admin.uid);
+      setMessage(
+        `Recorded a ${CASH_OUT_METHOD_LABELS[pendingCashOut.method]} cash-out of ${formatCentavos(pendingCashOut.amountCentavos)}. Available is now ${formatCentavos(availableAfter)}.`,
+      );
+      setPendingCashOut(null);
+      setCashOutForm(emptyCashOutForm());
+      setCashOutTouched(false);
+      setSaving(false);
+      await reload();
+    } catch (error) {
+      const denied = (error as { code?: string }).code === 'permission-denied';
+      setSaveError(
+        error instanceof CashOutConflictError
+          ? error.message
+          : denied
+            ? 'The cash-out was refused. Reload the page and try again.'
+            : 'Could not save the cash-out. Check your connection and try again.',
+      );
+      setSaving(false);
+    }
+  }
+
   const balanceRows = useMemo(
     () =>
       (balances ?? [])
@@ -141,6 +253,71 @@ export function EarningsPage() {
     return summary.status === filter;
   });
 
+  const stamp = toDateInputValue(new Date());
+  const nameOf = (driverId: string) => balances?.find((row) => row.driverId === driverId)?.driverName ?? '';
+
+  function exportBalances() {
+    downloadCsv(`trigo-driver-balances-${stamp}.csv`, [
+      ['Driver ID', 'Driver', 'Status', 'Balance (PHP)', 'Overdue (PHP)', 'Due by end of', 'Grace ends', 'Paid (PHP)', 'Recorded (PHP)'],
+      ...balanceRows.map(({ driverId, driverName, account, summary }) =>
+        summary && account
+          ? [
+              driverId,
+              driverName,
+              COMMISSION_STATUS_LABELS[summary.status],
+              csvPeso(summary.balanceCentavos),
+              csvPeso(summary.overdueCentavos),
+              formatPeriodEndDay(summary.dueAtMillis),
+              formatPeriodEndDay(summary.graceEndsAtMillis),
+              csvPeso(account.paidCentavos),
+              csvPeso(account.accruedCentavos),
+            ]
+          : [driverId, driverName, 'Unreadable', '', '', '', '', '', ''],
+      ),
+    ]);
+  }
+
+  async function exportPayments() {
+    setExportError(null);
+    setExporting(true);
+    try {
+      const all = await loadAllPayments();
+      downloadCsv(`trigo-commission-payments-${stamp}.csv`, [
+        ['Payment ID', 'Submitted', 'Driver ID', 'Driver', 'Amount (PHP)', 'GCash reference', 'Status', 'Reviewed', 'Rejection reason'],
+        ...all.map((payment) => [
+          payment.paymentId,
+          csvDateTime(payment.submittedAt),
+          payment.driverId,
+          nameOf(payment.driverId),
+          csvPeso(payment.amountCentavos),
+          payment.reference,
+          PAYMENT_STATUS_LABELS[payment.status] ?? payment.status,
+          csvDateTime(payment.reviewedAt),
+          payment.rejectionReason,
+        ]),
+      ]);
+    } catch {
+      setExportError('Could not load the payments. Check your connection and try again.');
+    }
+    setExporting(false);
+  }
+
+  function exportCashOuts() {
+    downloadCsv(`trigo-cash-outs-${stamp}.csv`, [
+      ['Cash-out ID', 'Date moved', 'Method', 'Amount (PHP)', 'Reference', 'Note', 'Recorded', 'Recorded by'],
+      ...(cashOuts ?? []).map((cashOut) => [
+        cashOut.cashOutId,
+        cashOut.cashedOutOn,
+        cashOut.method ? CASH_OUT_METHOD_LABELS[cashOut.method] : '',
+        csvPeso(cashOut.amountCentavos),
+        cashOut.reference,
+        cashOut.note,
+        csvDateTime(cashOut.createdAt),
+        cashOut.createdBy,
+      ]),
+    ]);
+  }
+
   const balance = (payment: PendingPayment) =>
     payment.accruedCentavos !== null && payment.paidCentavos !== null
       ? payment.accruedCentavos - payment.paidCentavos
@@ -163,7 +340,7 @@ export function EarningsPage() {
         </div>
         <p className="muted">
           TriGo&apos;s commission on completed trips. TriGo moves no money: drivers pay by GCash and you confirm each
-          payment below.
+          payment below. Cash-outs are only recorded here, after you move the money in the GCash, Maya or bank app.
         </p>
         {loadError && (
           <div className="alert-error" role="alert">
@@ -187,7 +364,17 @@ export function EarningsPage() {
       )}
 
       <div className="card">
-        <h3>Pending commission payments</h3>
+        <div className="card-header">
+          <h3>Pending commission payments</h3>
+          <button type="button" className="btn-outline" onClick={() => void exportPayments()} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export all payments (CSV)'}
+          </button>
+        </div>
+        {exportError && (
+          <div className="alert-error" role="alert">
+            {exportError}
+          </div>
+        )}
         <p className="muted">
           Drivers pay commission to TriGo&apos;s GCash account and report the amount and GCash reference number in
           the app. Check each one in GCash before confirming. Confirming lowers the driver&apos;s balance; rejecting
@@ -253,6 +440,9 @@ export function EarningsPage() {
               <option value="suspended">Suspended ({statusCounts.suspended})</option>
             </select>
           </label>
+          <button type="button" className="btn-outline" onClick={exportBalances} disabled={!balances}>
+            Export balances (CSV)
+          </button>
         </div>
         <p className="muted small">
           Drivers with recorded commission. Due dates and grace ends are the end of that day, Manila time. Overdue =
@@ -311,6 +501,207 @@ export function EarningsPage() {
           </div>
         )}
       </div>
+
+      <div className="card">
+        <div className="card-header">
+          <h3>Cash-outs</h3>
+          <button type="button" className="btn-outline" onClick={exportCashOuts} disabled={!cashOuts}>
+            Export cash-outs (CSV)
+          </button>
+        </div>
+        <div className="alert-warning">
+          Recording only: TriGo does not move any money. Move it first in the real GCash, Maya or bank app, then
+          record it here with that app&apos;s reference. Records cannot be edited or deleted.
+        </div>
+
+        <form onSubmit={handleCashOutSubmit} noValidate>
+          <p className="muted small">
+            Available to cash out: <strong>{totals ? formatCentavos(available) : '—'}</strong> (collected − cashed
+            out).
+          </p>
+          <div className="fare-grid">
+            <label className="field" htmlFor="cash-out-method">
+              <span>Method</span>
+              <select
+                id="cash-out-method"
+                value={cashOutForm.method}
+                onChange={(e) => setCashOutField('method', e.target.value as CashOutMethod)}
+                disabled={saving}
+              >
+                {CASH_OUT_METHODS.map((method) => (
+                  <option key={method} value={method}>
+                    {CASH_OUT_METHOD_LABELS[method]}
+                  </option>
+                ))}
+              </select>
+              <span className="hint" />
+            </label>
+            <label className="field" htmlFor="cash-out-amount">
+              <span>Amount (₱)</span>
+              <input
+                id="cash-out-amount"
+                inputMode="decimal"
+                value={cashOutForm.amount}
+                onChange={(e) => setCashOutField('amount', e.target.value)}
+                aria-invalid={cashOutTouched && cashOutErrors.amount ? true : undefined}
+                disabled={saving}
+              />
+              <span className="hint">
+                {cashOutTouched && cashOutErrors.amount ? (
+                  <span className="field-error">{cashOutErrors.amount}</span>
+                ) : (
+                  `At most ${formatCentavos(available)}`
+                )}
+              </span>
+            </label>
+            <label className="field" htmlFor="cash-out-reference">
+              <span>Reference</span>
+              <input
+                id="cash-out-reference"
+                value={cashOutForm.reference}
+                onChange={(e) => setCashOutField('reference', e.target.value)}
+                aria-invalid={cashOutTouched && cashOutErrors.reference ? true : undefined}
+                disabled={saving}
+              />
+              <span className="hint">
+                {cashOutTouched && cashOutErrors.reference ? (
+                  <span className="field-error">{cashOutErrors.reference}</span>
+                ) : (
+                  `${cashOutForm.reference.trim().length}/${MAX_CASH_OUT_REFERENCE_LENGTH}`
+                )}
+              </span>
+            </label>
+            <label className="field" htmlFor="cash-out-date">
+              <span>Date moved</span>
+              <input
+                id="cash-out-date"
+                type="date"
+                max={today}
+                value={cashOutForm.cashedOutOn}
+                onChange={(e) => setCashOutField('cashedOutOn', e.target.value)}
+                aria-invalid={cashOutTouched && cashOutErrors.cashedOutOn ? true : undefined}
+                disabled={saving}
+              />
+              <span className="hint">
+                {cashOutTouched && cashOutErrors.cashedOutOn && (
+                  <span className="field-error">{cashOutErrors.cashedOutOn}</span>
+                )}
+              </span>
+            </label>
+          </div>
+          <label className="field" htmlFor="cash-out-note">
+            <span>Note (optional)</span>
+            <textarea
+              id="cash-out-note"
+              rows={2}
+              value={cashOutForm.note}
+              onChange={(e) => setCashOutField('note', e.target.value)}
+              aria-invalid={cashOutTouched && cashOutErrors.note ? true : undefined}
+              disabled={saving}
+            />
+            <span className="hint">
+              {cashOutTouched && cashOutErrors.note ? (
+                <span className="field-error">{cashOutErrors.note}</span>
+              ) : (
+                `${cashOutForm.note.trim().length}/${MAX_CASH_OUT_NOTE_LENGTH}`
+              )}
+            </span>
+          </label>
+          <div className="form-actions">
+            <button type="submit" className="btn-primary" disabled={saving || !totals || available <= 0}>
+              Record cash-out…
+            </button>
+          </div>
+        </form>
+
+        {loadError ? null : !cashOuts ? (
+          <p className="muted">Loading cash-outs…</p>
+        ) : cashOuts.length === 0 ? (
+          <p className="muted">No cash-outs recorded yet.</p>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Date moved</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Reference</th>
+                  <th scope="col">Note</th>
+                  <th scope="col">Recorded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cashOuts.map((cashOut) => (
+                  <tr key={cashOut.cashOutId}>
+                    <td>{cashOut.cashedOutOn}</td>
+                    <td>{cashOut.method ? CASH_OUT_METHOD_LABELS[cashOut.method] : '—'}</td>
+                    <td className="cell-strong">{formatCentavos(cashOut.amountCentavos)}</td>
+                    <td className="mono">{cashOut.reference}</td>
+                    <td className="small">{cashOut.note || '—'}</td>
+                    <td className="muted small">{formatDateTime(cashOut.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {pendingCashOut && (
+        <ConfirmDialog
+          title={`Record a ${CASH_OUT_METHOD_LABELS[pendingCashOut.method]} cash-out of ${formatCentavos(pendingCashOut.amountCentavos)}?`}
+          confirmLabel="Record cash-out"
+          busy={saving}
+          onConfirm={() => void handleRecordCashOut()}
+          onCancel={() => setPendingCashOut(null)}
+        >
+          <p>
+            Record only if the money has already been moved in the {CASH_OUT_METHOD_LABELS[pendingCashOut.method]}{' '}
+            app. TriGo does not move it. This record cannot be edited or deleted.
+          </p>
+          <table className="change-table">
+            <tbody>
+              <tr className="unchanged">
+                <td>Date moved</td>
+                <td>{pendingCashOut.cashedOutOn}</td>
+              </tr>
+              <tr className="unchanged">
+                <td>Reference</td>
+                <td className="mono">{pendingCashOut.reference}</td>
+              </tr>
+              {pendingCashOut.note && (
+                <tr className="unchanged">
+                  <td>Note</td>
+                  <td>{pendingCashOut.note}</td>
+                </tr>
+              )}
+              {totals && (
+                <>
+                  <tr className="changed">
+                    <td>Cashed out</td>
+                    <td>
+                      {formatCentavos(totals.cashedOutCentavos)} →{' '}
+                      {formatCentavos(totals.cashedOutCentavos + pendingCashOut.amountCentavos)}
+                    </td>
+                  </tr>
+                  <tr className="changed">
+                    <td>Available</td>
+                    <td>
+                      {formatCentavos(available)} → {formatCentavos(available - pendingCashOut.amountCentavos)}
+                    </td>
+                  </tr>
+                </>
+              )}
+            </tbody>
+          </table>
+          {saveError && (
+            <div className="alert-error" role="alert">
+              {saveError}
+            </div>
+          )}
+        </ConfirmDialog>
+      )}
 
       {review?.kind === 'confirm' && (
         <ConfirmDialog

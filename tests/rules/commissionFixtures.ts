@@ -548,3 +548,46 @@ export function commitClaim(firestore: Firestore, driverId = DRIVER): Promise<vo
   });
   return batch.commit();
 }
+
+// ─── Cash-outs ──────────────────────────────────────────────────────────────
+// The exact writes admin/src/earnings/cashOuts.ts recordCashOut makes: the cash-out and the
+// ledger update adding it, in one commit.
+
+export const CASH_OUT = 'cashOut1';
+
+/** earningsLedger/totals with ₱50.00 collected and ₱10.00 already cashed out. */
+export function ledgerDoc(collectedCentavos = 5000, cashedOutCentavos = 1000): DocumentData {
+  return { collectedCentavos, cashedOutCentavos, lastPaymentId: 'old', updatedAt: Timestamp.now() };
+}
+
+export function cashOutDoc(amountCentavos: number): DocumentData {
+  return {
+    method: 'gcash',
+    amountCentavos,
+    reference: 'GC-2026-10-21-0001',
+    cashedOutOn: '2026-10-21',
+    note: 'Moved to the operator account',
+    createdAt: serverTimestamp(),
+    createdBy: ADMIN,
+  };
+}
+
+export type CashOutWrites = { cashOut?: DocumentData; ledger?: DocumentData };
+
+export function cashOutWrites(amountCentavos: number, cashedOutBefore = 1000, cashOutId = CASH_OUT): Required<CashOutWrites> {
+  return {
+    cashOut: cashOutDoc(amountCentavos),
+    ledger: {
+      cashedOutCentavos: cashedOutBefore + amountCentavos,
+      lastCashOutId: cashOutId,
+      updatedAt: serverTimestamp(),
+    },
+  };
+}
+
+export function commitCashOut(firestore: Firestore, writes: CashOutWrites, cashOutId = CASH_OUT): Promise<void> {
+  const batch = writeBatch(firestore);
+  if (writes.cashOut) batch.set(doc(firestore, 'cashOuts', cashOutId), writes.cashOut);
+  if (writes.ledger) batch.update(doc(firestore, 'earningsLedger', 'totals'), writes.ledger);
+  return batch.commit();
+}

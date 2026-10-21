@@ -3,7 +3,7 @@
 // Measures how far heavy commits are from Firestore's limit of 1000 rules expressions per
 // request, in the limit's own units. Not a test (not *.test.ts); run it under the emulator:
 //   npx firebase emulators:exec --only firestore --project demo-trigo-rules "node tests/rules/measureHeadroom.ts"
-// (TRIGO_HEADROOM=payments in the environment: commission payment scenarios only;
+// (TRIGO_HEADROOM=payments in the environment: commission payment and cash-out scenarios only;
 // TRIGO_HEADROOM=enforcement: T1 accept, propose, claim and the out-of-area confirm only.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
@@ -35,8 +35,10 @@ import {
   availableDriverRecord,
   baseDocs,
   BOOKING,
+  cashOutWrites,
   claimDocs,
   commitAccept,
+  commitCashOut,
   commitClaim,
   commitConfirm,
   commitPropose,
@@ -46,6 +48,7 @@ import {
   DAY_MS,
   DRIVER,
   HOUR_MS,
+  ledgerDoc,
   multiPeriodDocs,
   openBooking,
   openRequest,
@@ -94,6 +97,8 @@ type Target =
   | 'ledger create'
   | 'ledger update'
   | 'reference free'
+  | 'cash-out create'
+  | 'ledger cash-out'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -149,6 +154,11 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'ledger update': [
     "      allow update: if isAdmin()\n        && onlyChanged(['collectedCentavos'",
     "      allow update: if isAdmin()\n        && pad()\n        && onlyChanged(['collectedCentavos'",
+  ],
+  'cash-out create': ['      allow create: if isValidCashOutCreate();', '      allow create: if isValidCashOutCreate() && pad();'],
+  'ledger cash-out': [
+    "      allow update: if isAdmin()\n        && onlyChanged(['cashedOutCentavos'",
+    "      allow update: if isAdmin()\n        && pad()\n        && onlyChanged(['cashedOutCentavos'",
   ],
   'reference free': [
     '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
@@ -422,6 +432,15 @@ const paymentReject: Scenario = {
   },
 };
 
+const cashOut: Scenario = {
+  label: 'payment ledger: cash-out (cash-out + ledger update)',
+  targets: ['cash-out create', 'ledger cash-out'],
+  run: async () => {
+    await seed({ 'earningsLedger/totals': ledgerDoc() });
+    await commitCashOut(db(ADMIN, { admin: true }), cashOutWrites(2500));
+  },
+};
+
 const SCENARIOS: Scenario[] = [
   completion('completion: no commission settings', () => tripDocs({ settings: null }), () => appWrites({ settings: null })),
   completion('completion: standard, first trip (account create)', () => tripDocs(), () => appWrites()),
@@ -476,6 +495,7 @@ const SCENARIOS: Scenario[] = [
   paymentConfirm('payment confirm: pointer 1 → 3 (reads period 3; next is current), ledger update', 700, unpaidFrom(PERIODS[2]), true),
   paymentConfirm('payment confirm: all closed periods paid (pointer cleared), ledger update', 900, null, true),
   paymentReject,
+  cashOut,
 ];
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).

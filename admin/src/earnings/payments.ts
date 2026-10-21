@@ -192,3 +192,32 @@ export async function rejectPayment(paymentId: string, adminUid: string, reason:
     transaction.delete(doc(db, 'paymentReferences', payment.reference));
   });
 }
+
+export type PaymentRecord = {
+  paymentId: string;
+  driverId: string;
+  amountCentavos: number;
+  reference: string;
+  status: string;
+  submittedAt: Date | null;
+  reviewedAt: Date | null;
+  rejectionReason: string;
+};
+
+/** Every payment (any status), newest first, for the CSV export (single-field index). */
+export async function loadAllPayments(): Promise<PaymentRecord[]> {
+  const snapshot = await getDocs(query(collection(db, 'commissionPayments'), orderBy('submittedAt', 'desc')));
+  return snapshot.docs.map((d) => {
+    const data = d.data();
+    return {
+      paymentId: d.id,
+      driverId: String(data.driverId ?? ''),
+      amountCentavos: typeof data.amountCentavos === 'number' ? data.amountCentavos : 0,
+      reference: String(data.reference ?? ''),
+      status: String(data.status ?? ''),
+      submittedAt: (data.submittedAt as Timestamp | undefined)?.toDate?.() ?? null,
+      reviewedAt: (data.reviewedAt as Timestamp | undefined)?.toDate?.() ?? null,
+      rejectionReason: String(data.rejectionReason ?? ''),
+    };
+  });
+}

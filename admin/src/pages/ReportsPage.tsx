@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
+import { downloadCsv } from '../lib/csv';
 import { defaultDateRange, parseDateRange } from '../lib/dateRange';
 import { ColumnChart, type ColumnDatum } from '../reports/ColumnChart';
-import { DEFAULT_REPORT_DAYS, MAX_REPORT_DAYS, roundPeso, toCsv } from '../reports/reportMath';
+import { DEFAULT_REPORT_DAYS, MAX_REPORT_DAYS, roundPeso } from '../reports/reportMath';
 import { loadReport, type Report } from '../reports/reports';
 
 const PRESETS = [7, 30, 90] as const;
@@ -17,15 +18,6 @@ function plural(count: number, word: string): string {
 
 function percent(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—';
-}
-
-function downloadCsv(fileName: string, rows: (string | number)[][]) {
-  const url = URL.createObjectURL(new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 export function ReportsPage() {

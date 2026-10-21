@@ -109,6 +109,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/earningsLedger/totals;
     }
 
+    function cashOutPath(cashOutId) {
+      return /databases/$(database)/documents/cashOuts/$(cashOutId);
+    }
+
     // An admin confirms this pending payment in the current commit.
     function isConfirmedInThisCommit(paymentId) {
       return paymentId is string
@@ -1476,9 +1480,9 @@ service cloud.firestore {
       allow update: if false;
     }
 
-    // earningsLedger/totals: { collectedCentavos, cashedOutCentavos, lastPaymentId, updatedAt }.
-    // Commission TriGo has collected (confirmed payments). Created by the first confirm.
-    // Admins only.
+    // earningsLedger/totals: { collectedCentavos, cashedOutCentavos, lastPaymentId,
+    // lastCashOutId (after the first cash-out), updatedAt }. Commission TriGo has collected
+    // (confirmed payments) and cashed out. Created by the first confirm. Admins only.
     match /earningsLedger/totals {
       function isPaymentCredit() {
         return isConfirmedInThisCommit(request.resource.data.lastPaymentId)
@@ -1499,7 +1503,52 @@ service cloud.firestore {
         && request.resource.data.collectedCentavos
           == resource.data.collectedCentavos
             + get(paymentPath(request.resource.data.lastPaymentId)).data.amountCentavos;
+      // A cash-out created in this commit adds its amount; never more than collected.
+      allow update: if isAdmin()
+        && onlyChanged(['cashedOutCentavos', 'lastCashOutId', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.lastCashOutId is string
+        && !exists(cashOutPath(request.resource.data.lastCashOutId))
+        && request.resource.data.cashedOutCentavos
+          == resource.data.cashedOutCentavos
+            + getAfter(cashOutPath(request.resource.data.lastCashOutId)).data.amountCentavos
+        && request.resource.data.cashedOutCentavos <= resource.data.collectedCentavos;
       allow delete: if false;
+    }
+
+    // ─── Cash-outs ─────────────────────────────────────────────────────────
+    // cashOuts/{autoId}: { method: gcash / maya / bank_transfer, amountCentavos, reference,
+    // cashedOutOn ('YYYY-MM-DD'), note ('' when none), createdAt, createdBy }. A record of
+    // commission an admin moved out of TriGo's GCash in the real GCash, Maya or bank app;
+    // TriGo moves no money. Created with the earningsLedger/totals update that adds it to
+    // cashedOutCentavos (at most collectedCentavos). Immutable: mistakes are corrected by
+    // a later decision, never by editing or deleting.
+
+    match /cashOuts/{cashOutId} {
+      function isValidCashOutCreate() {
+        let data = request.resource.data;
+        let keys = ['method', 'amountCentavos', 'reference', 'cashedOutOn', 'note', 'createdAt', 'createdBy'];
+        return isAdmin()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.method in ['gcash', 'maya', 'bank_transfer']
+          && data.amountCentavos is int
+          && data.amountCentavos > 0
+          && data.reference is string
+          && data.reference.trim().size() > 0
+          && data.reference.size() <= 60
+          && data.cashedOutOn is string
+          && data.cashedOutOn.matches('^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')
+          && data.note is string
+          && data.note.size() <= 300
+          && data.createdAt == request.time
+          && data.createdBy == request.auth.uid
+          && getAfter(ledgerPath()).data.lastCashOutId == cashOutId;
+      }
+
+      allow read: if isAdmin();
+      allow create: if isValidCashOutCreate();
+      allow update, delete: if false;
     }
 
     // ─── Support contacts ──────────────────────────────────────────────────
