@@ -1,9 +1,10 @@
 /// <reference types="node" />
 
 // Firestore rules tests for the Admin Website Reports page: the exact count/sum aggregate
-// queries it runs (admin/src/reports/reports.ts) are allowed for admins (custom claim
-// `admin: true`) and denied for everyone else. No rule was added for Reports; these pin
-// the existing admin read rules to the queries.
+// queries it runs (admin/src/reports/reports.ts), including recorded commission (sum of
+// commissions by completedAt), are allowed for admins (custom claim `admin: true`) and
+// denied for everyone else. No rule was added for Reports; these pin the existing admin
+// read rules to the queries.
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
@@ -22,7 +23,6 @@ import {
   doc,
   getAggregateFromServer,
   getCountFromServer,
-  getDoc,
   orderBy,
   query,
   setDoc,
@@ -114,6 +114,25 @@ function newPassengersCount(firestore: Firestore) {
   return getCountFromServer(query(collection(firestore, 'users'), where('role', '==', 'passenger'), ...inRange('createdAt')));
 }
 
+function recordedCommissionSum(firestore: Firestore) {
+  return getAggregateFromServer(query(collection(firestore, 'commissions'), ...inRange('completedAt')), {
+    centavos: sum('amountCentavos'),
+  });
+}
+
+function commission(bookingId: string, amountCentavos: number, completedAt: Timestamp): DocumentData {
+  return {
+    driverId: DRIVER,
+    bookingId,
+    bookingType: 'standard',
+    finalFare: amountCentavos / 10,
+    percentage: 10,
+    amountCentavos,
+    periodSeq: 1,
+    completedAt,
+  };
+}
+
 function verifiedDriversCount(firestore: Firestore) {
   return getCountFromServer(query(collection(firestore, 'drivers'), where('isVerified', '==', true)));
 }
@@ -147,6 +166,10 @@ beforeEach(async () => {
       'outOfAreaRequests/r1': { passengerId: PASSENGER, status: 'cancelled', createdAt: daysAgo(1) },
       'outOfAreaRequests/old': { passengerId: PASSENGER, status: 'cancelled', createdAt: daysAgo(20) },
       'commissionSettings/active': { percentage: 10, paymentPeriodDays: 7, gracePeriodDays: 3 },
+      // Recorded at 10% (342) and at an older 12% rate (478): the sum uses what was recorded.
+      'commissions/b1': commission('b1', 342, daysAgo(2)),
+      'commissions/b2': commission('b2', 478, daysAgo(1)),
+      'commissions/old': commission('old', 9990, daysAgo(20)),
     };
     for (const [path, data] of Object.entries(docs)) await setDoc(doc(firestore, path), data);
   });
@@ -175,8 +198,9 @@ describe('admin reports: aggregates an admin can run', () => {
     if (results.join(',') !== '1,1,1,1') throw new Error(`expected 1,1,1,1, got ${results.join(',')}`);
   });
 
-  it('reads the commission rate', async () => {
-    await assertSucceeds(getDoc(doc(adminDb(), 'commissionSettings', 'active')));
+  it('sums the commission recorded in the range', async () => {
+    const { centavos } = (await assertSucceeds(recordedCommissionSum(adminDb()))).data();
+    if (centavos !== 820) throw new Error(`expected 820 centavos, got ${centavos}`);
   });
 });
 
@@ -196,16 +220,10 @@ describe('admin reports: denied for everyone else', () => {
       await assertFails(cancelledCount(firestore()));
       await assertFails(requestsCount(firestore()));
       await assertFails(newPassengersCount(firestore()));
-      // Drivers read the commission percentage they are charged (commissionSettings.test.ts).
-      if (label !== 'a driver') {
-        await assertFails(getDoc(doc(firestore(), 'commissionSettings', 'active')));
-      }
+      // A driver reads only their own commissions (driverId filter), never everyone's.
+      await assertFails(recordedCommissionSum(firestore()));
     });
   }
-
-  it('lets a driver read only the commission settings, not the report aggregates', async () => {
-    await assertSucceeds(getDoc(doc(db(DRIVER), 'commissionSettings', 'active')));
-  });
 
   it('leaves the verified-drivers count to the existing driver read rule', async () => {
     // Signed-in users may already list verified drivers (passenger driver search), so the

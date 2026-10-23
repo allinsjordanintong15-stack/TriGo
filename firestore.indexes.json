@@ -88,6 +88,14 @@
       ]
     },
     {
+      "collectionGroup": "commissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "completedAt", "order": "DESCENDING" },
+        { "fieldPath": "amountCentavos", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "commissionPayments",
       "queryScope": "COLLECTION",
       "fields": [

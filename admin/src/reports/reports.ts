@@ -1,10 +1,8 @@
 import {
   collection,
   count,
-  doc,
   getAggregateFromServer,
   getCountFromServer,
-  getDoc,
   orderBy,
   query,
   sum,
@@ -20,8 +18,10 @@ import { buildPeriods, roundPeso, type Granularity, type Period } from './report
 // Reports & Analytics: server-side count/sum aggregates only, so no booking documents are
 // downloaded. A completed or cancelled booking is dated by updatedAt, which is set when it
 // is completed or cancelled and never changes afterwards (same as the driver app's fares
-// summary). Each query has a composite index in firestore.indexes.json; the explicit
-// orderBy('…', 'desc') matches those indexes.
+// summary). Commission is the commission actually recorded (commissions/*, dated by
+// completedAt, the same server time as the trip's completion), not an estimate. Each query
+// has a composite index in firestore.indexes.json; the explicit orderBy('…', 'desc')
+// matches those indexes.
 
 export type PeriodRow = {
   period: Period;
@@ -42,11 +42,13 @@ export type Report = {
   newPassengers: number;
   /** Current count, not limited to the range. */
   verifiedDrivers: number;
-  /** commissionSettings/active.percentage, or null when not saved yet. */
-  commissionPercentage: number | null;
+  /** Sum of commissions recorded in the range, in integer centavos. */
+  recordedCommissionCentavos: number;
 };
 
-function inRange(field: string, range: { start: Date; end: Date }): QueryConstraint[] {
+type Range = { start: Date; end: Date };
+
+function inRange(field: string, range: Range): QueryConstraint[] {
   return [
     where(field, '>=', Timestamp.fromDate(range.start)),
     where(field, '<', Timestamp.fromDate(range.end)),
@@ -55,7 +57,7 @@ function inRange(field: string, range: { start: Date; end: Date }): QueryConstra
 }
 
 /** Index: bookings (status, updatedAt DESC, finalFare DESC), or with bookingType first. */
-async function completed(range: { start: Date; end: Date }, bookingType?: 'standard' | 'out_of_area'): Promise<TypeRow> {
+export async function completedTrips(range: Range, bookingType?: 'standard' | 'out_of_area'): Promise<TypeRow> {
   const constraints = [
     ...(bookingType ? [where('bookingType', '==', bookingType)] : []),
     where('status', '==', 'completed'),
@@ -70,33 +72,40 @@ async function completed(range: { start: Date; end: Date }, bookingType?: 'stand
 }
 
 /** Index: bookings (status, updatedAt DESC). */
-async function cancelled(range: { start: Date; end: Date }): Promise<number> {
+export async function cancelledBookings(range: Range): Promise<number> {
   const q = query(collection(db, 'bookings'), where('status', '==', 'cancelled'), ...inRange('updatedAt', range));
   return (await getCountFromServer(q)).data().count;
+}
+
+/** Index: commissions (completedAt DESC, amountCentavos DESC). Integer centavos. */
+export async function recordedCommission(range: Range): Promise<number> {
+  const q = query(collection(db, 'commissions'), ...inRange('completedAt', range));
+  const snapshot = await getAggregateFromServer(q, { centavos: sum('amountCentavos') });
+  // Integer centavos, so the sum is exact; rounding only guards against a stray float.
+  return Math.round(snapshot.data().centavos ?? 0);
 }
 
 export async function loadReport(range: DateRange): Promise<Report> {
   const { granularity, periods } = buildPeriods(range);
 
-  const [rows, standard, outOfArea, requestsSnap, passengersSnap, driversSnap, commissionSnap] = await Promise.all([
+  const [rows, standard, outOfArea, requestsSnap, passengersSnap, driversSnap, recordedCommissionCentavos] = await Promise.all([
     Promise.all(
       periods.map(async (period): Promise<PeriodRow> => {
-        const [done, cancelledBookings] = await Promise.all([completed(period), cancelled(period)]);
-        return { period, completedTrips: done.trips, fares: done.fares, cancelledBookings };
+        const [done, cancelled] = await Promise.all([completedTrips(period), cancelledBookings(period)]);
+        return { period, completedTrips: done.trips, fares: done.fares, cancelledBookings: cancelled };
       }),
     ),
-    completed(range, 'standard'),
-    completed(range, 'out_of_area'),
+    completedTrips(range, 'standard'),
+    completedTrips(range, 'out_of_area'),
     // Single-field index on createdAt (automatic).
     getCountFromServer(query(collection(db, 'outOfAreaRequests'), ...inRange('createdAt', range))),
     // Index: users (role, createdAt DESC).
     getCountFromServer(query(collection(db, 'users'), where('role', '==', 'passenger'), ...inRange('createdAt', range))),
     // Single-field index on isVerified (automatic).
     getCountFromServer(query(collection(db, 'drivers'), where('isVerified', '==', true))),
-    getDoc(doc(db, 'commissionSettings', 'active')),
+    recordedCommission(range),
   ]);
 
-  const percentage = commissionSnap.data()?.percentage;
   return {
     granularity,
     rows,
@@ -109,6 +118,6 @@ export async function loadReport(range: DateRange): Promise<Report> {
     outOfAreaRequests: requestsSnap.data().count,
     newPassengers: passengersSnap.data().count,
     verifiedDrivers: driversSnap.data().count,
-    commissionPercentage: typeof percentage === 'number' ? percentage : null,
+    recordedCommissionCentavos,
   };
 }

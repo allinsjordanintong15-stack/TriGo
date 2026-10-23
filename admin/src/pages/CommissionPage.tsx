@@ -25,7 +25,7 @@ type Field = keyof CommissionSettings;
 type FormValues = Record<Field, string>;
 type FormErrors = Partial<Record<Field, string>>;
 
-const DEFAULT_EXAMPLE_FARE = '80';
+const DEFAULT_EXAMPLE_FARE = '80.00';
 
 const FIELDS: { field: Field; label: string; hint: string }[] = [
   { field: 'percentage', label: 'Commission (%)', hint: 'Percentage of the final fare, more than 0 and up to 100.' },

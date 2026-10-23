@@ -76,7 +76,8 @@ function readPeriod(value: unknown): PeriodTimes | null {
   };
 }
 
-function readAccount(data: DocumentData): AccountTimes | null {
+/** commissionAccounts/{uid}, or null when its shape is not one this website understands. */
+export function readAccount(data: DocumentData): AccountTimes | null {
   const current = readPeriod(data.current);
   if (
     typeof data.accruedCentavos !== 'number' ||

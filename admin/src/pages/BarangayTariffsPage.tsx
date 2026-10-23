@@ -6,7 +6,7 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
 import { parseAmount } from '../fares/fareSettings';
-import { formatPeso } from '../lib/format';
+import { amountInputValue, formatPeso } from '../lib/format';
 import { BARANGAYS, type BarangayId } from '../tariffs/barangays';
 import {
   loadTariffs,
@@ -33,7 +33,11 @@ function toFormValues(saved: SavedTariffs): FormValues {
   for (const { id } of BARANGAYS) {
     const tariff = saved[id];
     values[id] = tariff
-      ? { tricycle: String(tariff.tricycle), motorcycle: String(tariff.motorcycle), active: tariff.active }
+      ? {
+          tricycle: amountInputValue(tariff.tricycle),
+          motorcycle: amountInputValue(tariff.motorcycle),
+          active: tariff.active,
+        }
       : { tricycle: '', motorcycle: '', active: false };
   }
   return values;

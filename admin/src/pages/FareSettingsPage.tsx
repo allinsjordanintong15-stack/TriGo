@@ -17,7 +17,7 @@ import {
   type LoadedFares,
   type VehicleType,
 } from '../fares/fareSettings';
-import { formatPeso, lastUpdated } from '../lib/format';
+import { amountInputValue, formatPeso, lastUpdated } from '../lib/format';
 
 type FareField = 'baseFare' | 'perKm';
 type FormValues = Record<VehicleType, Record<FareField, string>>;
@@ -34,8 +34,8 @@ function toFormValues(fares: Fares): FormValues {
   const values = {} as FormValues;
   for (const type of VEHICLE_TYPES) {
     values[type] = {
-      baseFare: String(fares[type].baseFare),
-      perKm: String(fares[type].perKm),
+      baseFare: amountInputValue(fares[type].baseFare),
+      perKm: amountInputValue(fares[type].perKm),
     };
   }
   return values;
@@ -159,11 +159,13 @@ export function FareSettingsPage() {
         <div className="formula">
           Fare = base fare + (per-km rate × distance in km), rounded to the nearest centavo
         </div>
+        <p className="muted formula-note">
+          New fares apply to bookings made after saving; bookings already confirmed keep their fare.
+        </p>
         <p className="muted small">
           {usingDefaults
             ? 'No fare settings are saved yet, so the app uses its built-in defaults shown below.'
-            : lastUpdated(loaded.updatedAt)}{' '}
-          New fares apply to bookings made after saving; bookings already confirmed keep their fare.
+            : lastUpdated(loaded.updatedAt)}
         </p>
       </div>
 

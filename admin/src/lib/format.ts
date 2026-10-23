@@ -59,3 +59,8 @@ export function formatIsoDay(value: string): string {
 export function lastUpdated(date: Date | null): string {
   return `Last updated ${date ? formatDateTime(date) : 'at an unknown time'}.`;
 }
+
+/** A peso amount as an editable input value with 2 decimals, e.g. 20.5 → "20.50". */
+export function amountInputValue(amount: number): string {
+  return amount.toFixed(2);
+}

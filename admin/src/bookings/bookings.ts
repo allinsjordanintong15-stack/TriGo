@@ -39,6 +39,8 @@ export type AdminBooking = {
   startedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
+  /** The request an out-of-area booking was confirmed from. */
+  outOfAreaRequestId: string | null;
 };
 
 function toDate(value: unknown): Date | null {
@@ -75,6 +77,7 @@ export function readBooking(bookingId: string, data: DocumentData): AdminBooking
     startedAt: toDate(data.startedAt),
     completedAt: toDate(data.completedAt),
     cancelledAt: toDate(data.cancelledAt),
+    outOfAreaRequestId: typeof data.outOfAreaRequestId === 'string' ? data.outOfAreaRequestId : null,
   };
 }
 

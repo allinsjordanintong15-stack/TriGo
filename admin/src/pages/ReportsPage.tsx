@@ -4,9 +4,9 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
 import { downloadCsv } from '../lib/csv';
 import { defaultDateRange, parseDateRange } from '../lib/dateRange';
-import { formatCount, formatPeso, plural } from '../lib/format';
+import { formatCentavos, formatCount, formatPeso, plural } from '../lib/format';
 import { ColumnChart, type ColumnDatum } from '../reports/ColumnChart';
-import { DEFAULT_REPORT_DAYS, MAX_REPORT_DAYS, roundPeso } from '../reports/reportMath';
+import { DEFAULT_REPORT_DAYS, MAX_REPORT_DAYS } from '../reports/reportMath';
 import { loadReport, type Report } from '../reports/reports';
 
 const PRESETS = [7, 30, 90] as const;
@@ -70,11 +70,6 @@ export function ReportsPage() {
     value: row.fares,
   }));
 
-  const commission =
-    report && report.commissionPercentage !== null
-      ? roundPeso((report.totals.fares * report.commissionPercentage) / 100)
-      : null;
-
   function exportPeriods() {
     if (!report) return;
     downloadCsv(`trigo-report-by-${unit}-${applied.from}-to-${applied.to}.csv`, [
@@ -107,8 +102,7 @@ export function ReportsPage() {
       ['Out-of-area requests', report.outOfAreaRequests],
       ['New passengers', report.newPassengers],
       ['Verified drivers (now)', report.verifiedDrivers],
-      ['Commission rate (current, %)', report.commissionPercentage ?? 'Not set'],
-      ['Commission at current rate (PHP, estimate)', commission !== null ? commission.toFixed(2) : 'Not set'],
+      ['Recorded commission (PHP)', (report.recordedCommissionCentavos / 100).toFixed(2)],
     ]);
   }
 
@@ -177,14 +171,7 @@ export function ReportsPage() {
           <div className="stat-grid">
             <Stat label="Completed trips" value={formatCount(report.totals.completedTrips)} />
             <Stat label="Fares collected" value={formatPeso(report.totals.fares)} />
-            <Stat
-              label={
-                report.commissionPercentage !== null
-                  ? `Commission at ${report.commissionPercentage}% (estimate)`
-                  : 'Commission (rate not set)'
-              }
-              value={commission !== null ? formatPeso(commission) : '—'}
-            />
+            <Stat label="Recorded commission" value={formatCentavos(report.recordedCommissionCentavos)} />
             <Stat label="Cancelled bookings" value={formatCount(report.totals.cancelledBookings)} />
             <Stat
               label="Completion rate"
@@ -234,11 +221,6 @@ export function ReportsPage() {
                 </tbody>
               </table>
             </div>
-            {report.commissionPercentage !== null && (
-              <p className="muted small">
-                Estimated at the current rate. Recorded commission is on the Earnings page.
-              </p>
-            )}
           </div>
 
           <div className="card">
