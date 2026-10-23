@@ -231,9 +231,10 @@ h2 {
   min-height: 100vh;
 }
 
-/* Compact sidebar: every group fits a 1366×768 laptop window without scrolling (brand 56px,
-   11 links × 36px, 4 group labels, one account row ≈ 600px). On shorter windows the whole
-   sidebar scrolls as one; there is no inner scroll box. */
+/* Compact sidebar: every group fits a 1366×768 laptop window without scrolling (brand 53px,
+   11 links × 36px, 4 group labels, one account row ≈ 595px). Windows up to 640px tall get a
+   tighter layout (≈ 505px, see the max-height query below). The sidebar never shows its own
+   scrollbar; on an even shorter window it still scrolls with the wheel or keyboard. */
 .sidebar {
   position: fixed;
   top: 0;
@@ -244,9 +245,14 @@ h2 {
   flex-direction: column;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
   background: var(--color-primary-dark);
   color: var(--color-white);
   z-index: 20;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none;
 }
 
 .sidebar-brand {
@@ -395,6 +401,23 @@ h2 {
   padding: 4px 10px;
   font-size: 13px;
   line-height: 18px;
+}
+
+@media (min-width: 768px) and (max-height: 640px) {
+  .sidebar-brand {
+    padding: 6px var(--space-md);
+  }
+
+  .sidebar-nav a {
+    min-height: 30px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  .nav-group-label {
+    padding-top: 4px;
+    padding-bottom: 1px;
+  }
 }
 
 .content {
