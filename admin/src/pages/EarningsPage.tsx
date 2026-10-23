@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -46,7 +46,14 @@ import { formatCentavos, formatDateTime, formatIsoDay, plural } from '../lib/for
 
 type Review = { kind: 'confirm' | 'reject'; payment: PendingPayment };
 
-type BalanceFilter = 'all' | 'owing' | 'overdue' | 'suspended';
+type BalanceFilter = 'all' | 'owing' | 'behind' | 'overdue' | 'suspended';
+
+const BALANCE_FILTERS: BalanceFilter[] = ['all', 'owing', 'behind', 'overdue', 'suspended'];
+
+/** ?balances=behind etc. (Dashboard links); anything else shows all drivers. */
+function parseBalanceFilter(value: string | null): BalanceFilter {
+  return BALANCE_FILTERS.find((filter) => filter === value) ?? 'all';
+}
 
 type CashOutForm = { method: CashOutMethod; amount: string; reference: string; cashedOutOn: string; note: string };
 
@@ -80,7 +87,8 @@ export function EarningsPage() {
   const [balances, setBalances] = useState<DriverBalance[] | null>(null);
   const [payments, setPayments] = useState<PendingPayment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<BalanceFilter>('all');
+  const [searchParams] = useSearchParams();
+  const [filter, setFilter] = useState<BalanceFilter>(() => parseBalanceFilter(searchParams.get('balances')));
   // Statuses depend on the time; fixed per load so the table does not change while read.
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [review, setReview] = useState<Review | null>(null);
@@ -118,6 +126,12 @@ export function EarningsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Dashboard links (/earnings?balances=behind#balances) scroll to the balances once loaded.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (balances && hash === '#balances') document.getElementById('balances')?.scrollIntoView({ block: 'start' });
+  }, [balances, hash]);
 
   function open(kind: Review['kind'], payment: PendingPayment) {
     setReview({ kind, payment });
@@ -256,6 +270,7 @@ export function EarningsPage() {
   const shownRows = balanceRows.filter(({ summary }) => {
     if (filter === 'all' || !summary) return true;
     if (filter === 'owing') return summary.status !== 'paid_up';
+    if (filter === 'behind') return summary.status === 'overdue' || summary.status === 'suspended';
     return summary.status === filter;
   });
 
@@ -426,7 +441,7 @@ export function EarningsPage() {
         )}
       </div>
 
-      <div className="card">
+      <div className="card" id="balances">
         <div className="card-header">
           <h3>Driver balances</h3>
           <label className="field filter-field" htmlFor="balance-filter">
@@ -434,6 +449,7 @@ export function EarningsPage() {
             <select id="balance-filter" value={filter} onChange={(e) => setFilter(e.target.value as BalanceFilter)}>
               <option value="all">All drivers ({balanceRows.length})</option>
               <option value="owing">Owing ({balanceRows.length - statusCounts.paid_up})</option>
+              <option value="behind">Overdue or suspended ({statusCounts.overdue + statusCounts.suspended})</option>
               <option value="overdue">Overdue ({statusCounts.overdue})</option>
               <option value="suspended">Suspended ({statusCounts.suspended})</option>
             </select>

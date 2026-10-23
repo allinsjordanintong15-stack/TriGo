@@ -17,12 +17,16 @@ type ColumnChartProps = {
   integer: boolean;
   /** Summary for screen readers, e.g. "Completed trips per day, Oct 1 to Oct 30". */
   ariaLabel: string;
+  /** Chart height in px (the Dashboard uses a shorter chart). */
+  height?: number;
 };
 
-const HEIGHT = 220;
+const DEFAULT_HEIGHT = 220;
 const MARGIN = { top: 12, right: 8, bottom: 28, left: 44 };
 const MAX_COLUMN = 24;
 const MAX_X_LABELS = 8;
+/** Room one x label needs ("Oct 21" at 11px plus a gap), so labels never overlap. */
+const MIN_LABEL_SLOT = 34;
 
 function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number] {
   const ref = useRef<T>(null);
@@ -52,7 +56,7 @@ function columnPath(x: number, y: number, width: number, height: number): string
   ].join(' ');
 }
 
-export function ColumnChart({ data, formatValue, integer, ariaLabel }: ColumnChartProps) {
+export function ColumnChart({ data, formatValue, integer, ariaLabel, height = DEFAULT_HEIGHT }: ColumnChartProps) {
   const [containerRef, width] = useWidth<HTMLDivElement>();
   const [hovered, setHovered] = useState<number | null>(null);
 
@@ -60,12 +64,18 @@ export function ColumnChart({ data, formatValue, integer, ariaLabel }: ColumnCha
   const ticks = niceTicks(max, integer);
   const top = ticks[ticks.length - 1];
   const plotWidth = Math.max(0, width - MARGIN.left - MARGIN.right);
-  const plotHeight = HEIGHT - MARGIN.top - MARGIN.bottom;
+  const plotHeight = height - MARGIN.top - MARGIN.bottom;
   const slot = data.length > 0 ? plotWidth / data.length : 0;
   // Leave at least a 2px surface gap between neighbouring columns.
   const columnWidth = Math.max(1, Math.min(MAX_COLUMN, slot * 0.7, slot - 2));
   const y = (value: number) => MARGIN.top + plotHeight - (top > 0 ? (value / top) * plotHeight : 0);
-  const labelEvery = Math.max(1, Math.ceil(data.length / MAX_X_LABELS));
+  const labelEvery = Math.max(
+    1,
+    Math.ceil(data.length / MAX_X_LABELS),
+    slot > 0 ? Math.ceil(MIN_LABEL_SLOT / slot) : 1,
+  );
+  // x labels sit under the baseline, centred on their column.
+  const labelY = MARGIN.top + plotHeight + 18;
 
   const hoveredDatum = hovered !== null ? data[hovered] : null;
   const tooltipLeft = hovered !== null ? MARGIN.left + slot * hovered + slot / 2 : 0;
@@ -73,7 +83,7 @@ export function ColumnChart({ data, formatValue, integer, ariaLabel }: ColumnCha
   return (
     <div className="chart" ref={containerRef}>
       {width > 0 && (
-        <svg width={width} height={HEIGHT} role="img" aria-label={ariaLabel} onMouseLeave={() => setHovered(null)}>
+        <svg width={width} height={height} role="img" aria-label={ariaLabel} onMouseLeave={() => setHovered(null)}>
           {ticks.map((tick) => (
             <g key={tick}>
               <line className="chart-gridline" x1={MARGIN.left} x2={width - MARGIN.right} y1={y(tick)} y2={y(tick)} />
@@ -85,17 +95,17 @@ export function ColumnChart({ data, formatValue, integer, ariaLabel }: ColumnCha
 
           {data.map((datum, index) => {
             const x = MARGIN.left + slot * index + (slot - columnWidth) / 2;
-            const height = MARGIN.top + plotHeight - y(datum.value);
+            const columnHeight = MARGIN.top + plotHeight - y(datum.value);
             return (
               <g key={datum.key}>
-                {height > 0 && (
+                {columnHeight > 0 && (
                   <path
                     className={`chart-column${hovered === index ? ' chart-column-active' : ''}`}
-                    d={columnPath(x, y(datum.value), columnWidth, height)}
+                    d={columnPath(x, y(datum.value), columnWidth, columnHeight)}
                   />
                 )}
                 {index % labelEvery === 0 && (
-                  <text className="chart-axis-label" x={MARGIN.left + slot * index + slot / 2} y={HEIGHT - 8} textAnchor="middle">
+                  <text className="chart-axis-label" x={MARGIN.left + slot * index + slot / 2} y={labelY} textAnchor="middle">
                     {datum.label}
                   </text>
                 )}

@@ -5,6 +5,8 @@
   --color-primary-light: #e8f3ec;
   --color-accent: #c9a66b;
   --color-gold-light: #f5ede0;
+  /* Gold dark enough for large text on white (≈ 4:1), for counts that need attention. */
+  --color-gold-dark: #94702e;
   --color-error: #d32f2f;
   --color-error-background: #ffebee;
   --color-overlay: rgba(15, 61, 38, 0.45);
@@ -1508,4 +1510,256 @@ button.btn-link:disabled {
   padding: var(--space-lg) var(--space-md);
   text-align: center;
   color: var(--color-text-secondary);
+}
+
+/* ─── Dashboard ───────────────────────────────────────────────────────────
+   Sized so the header, the attention cards and the Today/Live tiles (≈ 370px) fit the
+   first screen of a 1366×768 laptop, with the 7-day charts starting just below. */
+
+.dashboard {
+  gap: var(--space-md);
+}
+
+.dashboard-heading {
+  margin: 0 0 var(--space-sm);
+  font-size: 15px;
+  color: var(--color-primary-dark);
+}
+
+.attention-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+/* 2 × 2 rather than 3 + 1 on narrower windows. */
+@media (max-width: 1100px) {
+  .attention-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.attention-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px var(--space-md);
+}
+
+.attention-waiting {
+  border-left: 4px solid var(--color-accent);
+}
+
+.attention-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.attention-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.attention-count {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-gold-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.attention-detail {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.attention-link {
+  font-size: 14px;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.attention-link:hover {
+  text-decoration: underline;
+}
+
+.attention-clear {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 32px;
+  color: var(--color-primary);
+}
+
+.attention-clear::before {
+  content: '✓ ';
+}
+
+.dashboard-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: var(--space-md);
+}
+
+.tile-panel {
+  padding: var(--space-md);
+}
+
+/* Always 4 equal tiles in one row; labels stay on one line (full wording in the tooltip). */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.tile {
+  min-width: 0;
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) 0;
+}
+
+.tile + .tile {
+  padding-left: var(--space-sm);
+  border-left: 1px solid var(--color-border);
+}
+
+.tile-value {
+  margin-top: 2px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Phones: 2 × 2 tiles so labels stay readable. */
+@media (max-width: 767px) {
+  .tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tile:nth-child(odd) {
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+.tile-label,
+.tile-detail {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-detail {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.dashboard-charts {
+  gap: var(--space-md);
+}
+
+.dashboard-charts > .card {
+  padding: var(--space-md);
+}
+
+.chart-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.chart-title h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.dashboard-charts .chart {
+  margin-top: var(--space-sm);
+}
+
+.dashboard-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--space-md);
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .dashboard-bottom {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.dashboard-bottom h3 {
+  margin: 0 0 var(--space-sm);
+  font-size: 15px;
+}
+
+.recent-table {
+  min-width: 680px;
+  font-size: 14px;
+}
+
+.recent-time {
+  white-space: nowrap;
+}
+
+.recent-time a {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.recent-route {
+  max-width: 280px;
+  color: var(--color-text-secondary);
+}
+
+.money-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.money-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.money-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.money-list dt {
+  color: var(--color-text-secondary);
+}
+
+.money-list dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.money-available {
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.money-available dd {
+  font-size: 20px;
+  color: var(--color-primary);
+}
+
+.money-card .btn-link {
+  align-self: flex-start;
 }
