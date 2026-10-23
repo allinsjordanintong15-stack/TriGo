@@ -227,10 +227,13 @@ h2 {
 /* ─── Admin shell: left sidebar + main content ─────────────────────────── */
 
 .shell {
-  --sidebar-width: 240px;
+  --sidebar-width: 256px;
   min-height: 100vh;
 }
 
+/* Compact sidebar: every group fits a 1366×768 laptop window without scrolling (brand 56px,
+   11 links × 36px, 4 group labels, one account row ≈ 600px). On shorter windows the whole
+   sidebar scrolls as one; there is no inner scroll box. */
 .sidebar {
   position: fixed;
   top: 0;
@@ -239,53 +242,56 @@ h2 {
   width: var(--sidebar-width);
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--color-primary-dark);
   color: var(--color-white);
   z-index: 20;
 }
 
 .sidebar-brand {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-lg) var(--space-md);
+  padding: 10px var(--space-md);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .sidebar-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
   flex-shrink: 0;
 }
 
 .sidebar-title {
   font-weight: 700;
-  font-size: 18px;
+  font-size: 17px;
   color: var(--color-white);
 }
 
 .sidebar-nav {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  padding: var(--space-md) var(--space-sm);
-  overflow-y: auto;
+  padding: 4px var(--space-sm) 6px;
 }
 
 .nav-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .nav-group + .nav-group {
-  margin-top: var(--space-sm);
+  margin-top: 2px;
 }
 
 .nav-group-label {
-  padding: var(--space-sm) var(--space-md) var(--space-xs);
-  font-size: 11px;
+  padding: 6px 12px 2px;
+  font-size: 10.5px;
+  line-height: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -295,16 +301,21 @@ h2 {
 .sidebar-nav a {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px var(--space-md);
-  border-left: 4px solid transparent;
+  gap: 9px;
+  min-height: 36px;
+  padding: 7px 10px 7px 10px;
+  border-left: 3px solid transparent;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   color: var(--color-primary-light);
   text-decoration: none;
+  font-size: 15px;
+  line-height: 20px;
   font-weight: 500;
 }
 
 .nav-icon {
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   opacity: 0.85;
 }
@@ -316,16 +327,19 @@ h2 {
 .nav-label {
   flex: 1;
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav-badge {
   flex-shrink: 0;
-  min-width: 22px;
-  padding: 1px 7px;
+  min-width: 20px;
+  padding: 0 6px;
   border-radius: 999px;
   background: var(--color-accent);
   color: var(--color-primary-dark);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   line-height: 18px;
   text-align: center;
@@ -343,20 +357,44 @@ h2 {
   font-weight: 700;
 }
 
-.sidebar-footer {
+.sidebar-account {
+  flex-shrink: 0;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-md);
+  padding: 6px 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.sidebar-email {
+.account-avatar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-primary-dark);
   font-size: 13px;
+  font-weight: 700;
+}
+
+.account-email {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
   color: var(--color-primary-light);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.btn-secondary.btn-compact {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .content {
@@ -1362,4 +1400,84 @@ button.btn-link:disabled {
 .complaint-message {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Shared page parts: PageHeader, Notice, LoadingBlock, EmptyState */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.page-header-text {
+  min-width: 0;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  color: var(--color-primary-dark);
+}
+
+.page-subtitle {
+  margin: var(--space-xs) 0 0;
+  color: var(--color-text-secondary);
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.notice {
+  font-weight: 500;
+}
+
+.loading-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #eef1ee 0%, #f7f8f6 50%, #eef1ee 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-line:nth-child(3n + 2) {
+  width: 85%;
+}
+
+.skeleton-line:nth-child(3n + 3) {
+  width: 60%;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line {
+    animation: none;
+  }
+}
+
+.empty-state {
+  margin: 0;
+  padding: var(--space-lg) var(--space-md);
+  text-align: center;
+  color: var(--color-text-secondary);
 }

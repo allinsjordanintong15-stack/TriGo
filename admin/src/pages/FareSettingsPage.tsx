@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 
 import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
 import {
   calculateFare,
   faresEqual,
-  formatPeso,
   loadFares,
   parseAmount,
   saveFares,
@@ -16,6 +17,7 @@ import {
   type LoadedFares,
   type VehicleType,
 } from '../fares/fareSettings';
+import { formatPeso, lastUpdated } from '../lib/format';
 
 type FareField = 'baseFare' | 'perKm';
 type FormValues = Record<VehicleType, Record<FareField, string>>;
@@ -93,8 +95,8 @@ export function FareSettingsPage() {
 
   if (loadError) {
     return (
-      <div className="card">
-        <h2>Fare settings</h2>
+      <div className="stack">
+        <PageHeader title="Fare settings" />
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -103,7 +105,11 @@ export function FareSettingsPage() {
   }
 
   if (!loaded || !values) {
-    return <div className="card muted">Loading fare settings…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading fare settings…" lines={4} />
+      </div>
+    );
   }
 
   const current = loaded.fares;
@@ -147,18 +153,16 @@ export function FareSettingsPage() {
 
   return (
     <div className="stack">
+      <PageHeader title="Fare settings" subtitle="Per-km fare per vehicle type. Out-of-area trips use the same rates." />
+
       <div className="card">
-        <h2>Fare settings</h2>
-        <p className="muted">
-          Per-km fare for each vehicle type. Out-of-area trips use the same per-km fare.
-        </p>
         <div className="formula">
           Fare = base fare + (per-km rate × distance in km), rounded to the nearest centavo
         </div>
         <p className="muted small">
           {usingDefaults
             ? 'No fare settings are saved yet, so the app uses its built-in defaults shown below.'
-            : `Last updated ${loaded.updatedAt ? loaded.updatedAt.toLocaleString() : 'at an unknown time'}.`}{' '}
+            : lastUpdated(loaded.updatedAt)}{' '}
           New fares apply to bookings made after saving; bookings already confirmed keep their fare.
         </p>
       </div>
@@ -255,7 +259,7 @@ export function FareSettingsPage() {
             Reset
           </button>
           <button type="submit" className="btn-primary" disabled={saving || !hasChanges}>
-            Save changes
+            Save changes…
           </button>
         </div>
       </form>
@@ -297,10 +301,7 @@ export function FareSettingsPage() {
               )}
             </tbody>
           </table>
-          {usingDefaults && <p className="muted small">"Old" values are the app's built-in defaults.</p>}
-          <p className="muted small">
-            Applies to all new bookings, including out-of-area trips (same per-km fare).
-          </p>
+          {usingDefaults && <p className="muted small">Old = built-in default.</p>}
           {saveError && (
             <div className="alert-error" role="alert">
               {saveError}

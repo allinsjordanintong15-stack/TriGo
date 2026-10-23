@@ -172,7 +172,3 @@ export async function rejectApplication(viewed: DriverApplication, remarks: stri
     });
   });
 }
-
-export function formatDateTime(date: Date | null): string {
-  return date ? date.toLocaleString() : '—';
-}

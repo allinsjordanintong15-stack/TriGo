@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
-import { formatDateTime } from '../bookings/bookings';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { Notice } from '../components/Notice';
+import { PageHeader } from '../components/PageHeader';
 import {
   CASH_OUT_METHOD_LABELS,
   CASH_OUT_METHODS,
@@ -29,7 +32,6 @@ import {
 import { loadDriverBalances, loadEarningsTotals, type DriverBalance, type EarningsTotals } from '../earnings/earnings';
 import {
   confirmPayment,
-  formatCentavos,
   loadAllPayments,
   loadPendingPayments,
   MAX_REJECTION_REASON_LENGTH,
@@ -40,6 +42,7 @@ import {
 import { useAdminCounts } from '../lib/adminCounts';
 import { downloadCsv } from '../lib/csv';
 import { toDateInputValue } from '../lib/dateRange';
+import { formatCentavos, formatDateTime, formatIsoDay, plural } from '../lib/format';
 
 type Review = { kind: 'confirm' | 'reject'; payment: PendingPayment };
 
@@ -328,36 +331,32 @@ export function EarningsPage() {
 
   return (
     <div className="stack">
+      <PageHeader
+        title="Earnings"
+        subtitle="Commission from completed trips. Confirm driver GCash payments and record cash-outs."
+        actions={
+          <button type="button" className="btn-outline" onClick={() => void reload()}>
+            Refresh
+          </button>
+        }
+      />
       {message && (
         <div className="alert-success" role="status">
           {message}
         </div>
       )}
-
-      <div className="card">
-        <div className="card-header">
-          <h2>Earnings</h2>
-          <button type="button" className="btn-outline" onClick={() => void reload()}>
-            Refresh
-          </button>
+      {loadError && (
+        <div className="alert-error" role="alert">
+          {loadError}
         </div>
-        <p className="muted">
-          TriGo&apos;s commission on completed trips. TriGo moves no money: drivers pay by GCash and you confirm each
-          payment below. Cash-outs are only recorded here, after you move the money in the GCash, Maya or bank app.
-        </p>
-        {loadError && (
-          <div className="alert-error" role="alert">
-            {loadError}
-          </div>
-        )}
-      </div>
+      )}
 
       {totals && (
         <div className="stat-grid">
           <Stat
             label="Earned"
             value={formatCentavos(totals.earnedCentavos)}
-            hint={`Commission on ${totals.commissions} completed trip${totals.commissions === 1 ? '' : 's'}`}
+            hint={`Commission on ${plural(totals.commissions, 'completed trip')}`}
           />
           <Stat label="Collected" value={formatCentavos(totals.collectedCentavos)} hint="Confirmed driver payments" />
           <Stat label="Outstanding" value={formatCentavos(totals.outstandingCentavos)} hint="Earned − collected" />
@@ -378,16 +377,12 @@ export function EarningsPage() {
             {exportError}
           </div>
         )}
-        <p className="muted">
-          Drivers pay commission to TriGo&apos;s GCash account and report the amount and GCash reference number in
-          the app. Check each one in GCash before confirming. Confirming lowers the driver&apos;s balance; rejecting
-          frees the reference number so the driver can submit the right one.
-        </p>
+        <p className="muted">Check each reference in TriGo&apos;s GCash before confirming.</p>
 
         {loadError ? null : !payments ? (
-          <p className="muted">Loading payments…</p>
+          <LoadingBlock label="Loading payments…" />
         ) : payments.length === 0 ? (
-          <p className="muted">No payments are waiting for review.</p>
+          <EmptyState>No payments are waiting for review.</EmptyState>
         ) : (
           <div className="table-scroll">
             <table className="data-table">
@@ -447,14 +442,11 @@ export function EarningsPage() {
             Export balances (CSV)
           </button>
         </div>
-        <p className="muted small">
-          Drivers with recorded commission. Due dates and grace ends are the end of that day, Manila time. Overdue =
-          from periods that have ended.
-        </p>
+        <p className="muted small">Due and grace dates end at midnight, Manila time.</p>
         {loadError ? null : !balances ? (
-          <p className="muted">Loading balances…</p>
+          <LoadingBlock label="Loading balances…" />
         ) : shownRows.length === 0 ? (
-          <p className="muted">{balanceRows.length === 0 ? 'No commission recorded yet.' : 'No drivers match.'}</p>
+          <EmptyState>{balanceRows.length === 0 ? 'No commission recorded yet.' : 'No drivers match.'}</EmptyState>
         ) : (
           <div className="table-scroll">
             <table className="data-table">
@@ -512,10 +504,9 @@ export function EarningsPage() {
             Export cash-outs (CSV)
           </button>
         </div>
-        <div className="alert-warning">
-          Recording only: TriGo does not move any money. Move it first in the real GCash, Maya or bank app, then
-          record it here with that app&apos;s reference. Records cannot be edited or deleted.
-        </div>
+        <Notice>
+          Cash-outs are recorded only. Transfer the money in GCash, Maya or your bank. Records can&apos;t be edited.
+        </Notice>
 
         <form onSubmit={handleCashOutSubmit} noValidate>
           <p className="muted small">
@@ -618,9 +609,9 @@ export function EarningsPage() {
         </form>
 
         {loadError ? null : !cashOuts ? (
-          <p className="muted">Loading cash-outs…</p>
+          <LoadingBlock label="Loading cash-outs…" />
         ) : cashOuts.length === 0 ? (
-          <p className="muted">No cash-outs recorded yet.</p>
+          <EmptyState>No cash-outs recorded yet.</EmptyState>
         ) : (
           <div className="table-scroll">
             <table className="data-table">
@@ -637,7 +628,7 @@ export function EarningsPage() {
               <tbody>
                 {cashOuts.map((cashOut) => (
                   <tr key={cashOut.cashOutId}>
-                    <td>{cashOut.cashedOutOn}</td>
+                    <td>{formatIsoDay(cashOut.cashedOutOn)}</td>
                     <td>{cashOut.method ? CASH_OUT_METHOD_LABELS[cashOut.method] : '—'}</td>
                     <td className="cell-strong">{formatCentavos(cashOut.amountCentavos)}</td>
                     <td className="mono">{cashOut.reference}</td>
@@ -660,14 +651,14 @@ export function EarningsPage() {
           onCancel={() => setPendingCashOut(null)}
         >
           <p>
-            Record only if the money has already been moved in the {CASH_OUT_METHOD_LABELS[pendingCashOut.method]}{' '}
-            app. TriGo does not move it. This record cannot be edited or deleted.
+            Record only after the transfer is done in {CASH_OUT_METHOD_LABELS[pendingCashOut.method]}. This can&apos;t
+            be edited.
           </p>
           <table className="change-table">
             <tbody>
               <tr className="unchanged">
                 <td>Date moved</td>
-                <td>{pendingCashOut.cashedOutOn}</td>
+                <td>{formatIsoDay(pendingCashOut.cashedOutOn)}</td>
               </tr>
               <tr className="unchanged">
                 <td>Reference</td>

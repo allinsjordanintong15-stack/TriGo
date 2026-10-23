@@ -45,12 +45,12 @@ export function buildPeriods(range: DateRange): { granularity: Granularity; peri
       end,
       label:
         granularity === 'day'
-          ? cursor.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-          : cursor.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }),
+          ? cursor.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+          : cursor.toLocaleDateString('en-PH', { month: 'short', year: 'numeric' }),
       longLabel:
         granularity === 'day'
-          ? cursor.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-          : cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+          ? cursor.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+          : cursor.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' }),
       isoStart: toDateInputValue(cursor),
     });
     cursor = end;

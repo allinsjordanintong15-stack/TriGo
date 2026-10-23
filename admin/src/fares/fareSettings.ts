@@ -96,10 +96,6 @@ export function calculateFare(fare: VehicleFare, distanceKm: number): number {
   return Math.round((fare.baseFare + fare.perKm * distanceKm) * 100) / 100;
 }
 
-export function formatPeso(amount: number): string {
-  return `₱${amount.toFixed(2)}`;
-}
-
 const AMOUNT_PATTERN = /^\d+(\.\d{1,2})?$/;
 
 /** Parses a peso amount with at most 2 decimals, or returns an error message. */

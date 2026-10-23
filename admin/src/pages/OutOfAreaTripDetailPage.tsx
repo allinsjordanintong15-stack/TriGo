@@ -4,11 +4,12 @@ import { Link, useParams } from 'react-router-dom';
 import {
   BOOKING_STATUS_LABELS,
   displayFare,
-  formatDateTime,
-  formatPesoOrDash,
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
+import { formatDateTime, formatPeso } from '../lib/format';
 import { loadOutOfAreaTripDetail, type OutOfAreaTripDetail } from '../outOfArea/outOfAreaRequests';
 import { buildTimeline, DISPLAY_STATUS_LABELS, displayStatus } from '../outOfArea/requests';
 
@@ -51,17 +52,18 @@ export function OutOfAreaTripDetailPage() {
   }
 
   if (detail === undefined) {
-    return <div className="card muted">Loading request…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading request…" lines={5} />
+      </div>
+    );
   }
 
   if (detail === null) {
     return (
       <div className="stack">
         {backLink}
-        <div className="card">
-          <h2>Request not found</h2>
-          <p className="muted">There is no out-of-area request with this ID.</p>
-        </div>
+        <PageHeader title="Request not found" subtitle="There is no out-of-area request with this ID." />
       </div>
     );
   }
@@ -74,14 +76,17 @@ export function OutOfAreaTripDetailPage() {
     <div className="stack">
       {backLink}
 
-      <div className="card">
-        <div className="card-header">
-          <h2>Out-of-area request</h2>
+      <PageHeader
+        title="Out-of-area request"
+        subtitle={<span className="mono small">{request.requestId}</span>}
+        actions={
           <button type="button" className="btn-outline" onClick={() => void reload()}>
             Refresh
           </button>
-        </div>
-        <p className="muted small mono">{request.requestId}</p>
+        }
+      />
+
+      <div className="card">
         <p>
           <span className={`booking-status request-status-${status}`}>{DISPLAY_STATUS_LABELS[status]}</span>
           {booking?.status && (
@@ -99,7 +104,7 @@ export function OutOfAreaTripDetailPage() {
           <Detail label="Destination" value={request.destinationAddress} />
           <Detail label="Distance" value={request.distanceKm !== null ? `${request.distanceKm.toFixed(1)} km` : ''} />
           <Detail label="Vehicle" value={request.vehicleType ? VEHICLE_TYPE_LABELS[request.vehicleType] : ''} />
-          <Detail label="Fare (per-km, final)" value={formatPesoOrDash(request.fare)} />
+          <Detail label="Fare (per-km, final)" value={formatPeso(request.fare)} />
           <Detail label="Requested" value={formatDateTime(request.createdAt)} />
         </dl>
       </div>
@@ -145,7 +150,7 @@ export function OutOfAreaTripDetailPage() {
             <dl className="detail-grid">
               <Detail label="Booking ID" value={booking.bookingId} mono />
               <Detail label="Status" value={booking.status ? BOOKING_STATUS_LABELS[booking.status] : 'Unknown'} />
-              <Detail label="Fare" value={formatPesoOrDash(displayFare(booking))} />
+              <Detail label="Fare" value={formatPeso(displayFare(booking))} />
               <Detail label="Payment" value={booking.paymentMethod ? PAYMENT_METHOD_LABELS[booking.paymentMethod] : ''} />
             </dl>
             {booking.passengerId && (
@@ -157,7 +162,7 @@ export function OutOfAreaTripDetailPage() {
             )}
           </>
         ) : (
-          <p className="muted">No booking. A booking is created only when the passenger confirms a driver.</p>
+          <p className="muted">No booking yet. It is created when the passenger confirms a driver.</p>
         )}
       </div>
 
@@ -176,9 +181,7 @@ export function OutOfAreaTripDetailPage() {
             ))}
           </ol>
         )}
-        <p className="muted small">
-          Only recorded times are shown. A driver who accepted and then withdrew leaves no record on the request.
-        </p>
+        <p className="muted small">Only recorded times are shown.</p>
       </div>
     </div>
   );

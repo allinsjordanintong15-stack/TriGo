@@ -5,12 +5,13 @@ import {
   BOOKING_STATUS_LABELS,
   BOOKING_TYPE_LABELS,
   displayFare,
-  formatDate,
-  formatDateTime,
-  formatPesoOrDash,
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
+import { formatDate, formatDateTime, formatPeso } from '../lib/format';
 import { loadPassengerDetail, type PassengerDetail } from '../passengers/passengers';
 
 const APPLICATION_LABELS = { pending: 'Pending', approved: 'Approved (also a driver)', rejected: 'Rejected' } as const;
@@ -59,17 +60,18 @@ export function PassengerDetailPage() {
   }
 
   if (detail === undefined) {
-    return <div className="card muted">Loading passenger…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading passenger…" lines={5} />
+      </div>
+    );
   }
 
   if (detail === null) {
     return (
       <div className="stack">
         {backLink}
-        <div className="card">
-          <h2>Passenger not found</h2>
-          <p className="muted">There is no user profile for this account.</p>
-        </div>
+        <PageHeader title="Passenger not found" subtitle="There is no user profile for this account." />
       </div>
     );
   }
@@ -84,11 +86,13 @@ export function PassengerDetailPage() {
     <div className="stack">
       {backLink}
 
+      <PageHeader
+        title={passenger.fullName || '(no name)'}
+        subtitle="Passenger"
+        actions={detail.role !== 'passenger' && <span className="tag">Role: {detail.role || 'unknown'}</span>}
+      />
+
       <div className="card">
-        <div className="card-header">
-          <h2>{passenger.fullName || '(no name)'}</h2>
-          {detail.role !== 'passenger' && <span className="tag">Role: {detail.role || 'unknown'}</span>}
-        </div>
         <dl className="detail-grid">
           <Detail label="Email" value={passenger.email} />
           <Detail label="Mobile number" value={passenger.mobileNumber} mono />
@@ -105,13 +109,13 @@ export function PassengerDetailPage() {
         <Stat label="Completed" value={String(completed.length)} />
         <Stat label="Cancelled" value={String(cancelled)} />
         <Stat label="Active" value={String(active)} />
-        <Stat label="Fares paid (completed)" value={formatPesoOrDash(faresPaid)} />
+        <Stat label="Fares paid (completed)" value={formatPeso(faresPaid)} />
       </div>
 
       <div className="card">
         <h3>Booking history</h3>
         {bookings.length === 0 ? (
-          <p className="muted">No bookings yet.</p>
+          <EmptyState>No bookings yet.</EmptyState>
         ) : (
           <div className="table-scroll">
             <table className="data-table booking-table">
@@ -168,7 +172,7 @@ export function PassengerDetailPage() {
                         </div>
                       )}
                     </td>
-                    <td>{formatPesoOrDash(displayFare(booking))}</td>
+                    <td>{formatPeso(displayFare(booking))}</td>
                     <td>{booking.paymentMethod ? PAYMENT_METHOD_LABELS[booking.paymentMethod] : '—'}</td>
                   </tr>
                 ))}

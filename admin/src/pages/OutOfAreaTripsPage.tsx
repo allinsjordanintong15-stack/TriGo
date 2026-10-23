@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
-import {
-  BOOKING_STATUS_LABELS,
-  formatDateTime,
-  formatPesoOrDash,
-  VEHICLE_TYPE_LABELS,
-} from '../bookings/bookings';
+import { BOOKING_STATUS_LABELS, VEHICLE_TYPE_LABELS } from '../bookings/bookings';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
+import { formatDateTime, formatIsoDay, formatPeso, formatTime, plural } from '../lib/format';
 import { loadOutOfAreaTrips, type OutOfAreaTrip } from '../outOfArea/outOfAreaRequests';
 import { defaultDateRange, parseDateRange } from '../lib/dateRange';
 import {
@@ -79,17 +78,17 @@ export function OutOfAreaTripsPage() {
 
   return (
     <div className="stack">
-      <div className="card">
-        <div className="card-header">
-          <h2>Out-of-area trips</h2>
+      <PageHeader
+        title="Out-of-area trips"
+        subtitle="Trips starting or ending outside Trinidad. Fares use the per-km rate and are final."
+        actions={
           <button type="button" className="btn-outline" onClick={() => void reload()}>
             Refresh
           </button>
-        </div>
-        <p className="muted">
-          Requests for trips with a pickup or destination outside Trinidad, and the trip each confirmed request
-          became. The fare is the per-km fare and is final. Read-only.
-        </p>
+        }
+      />
+
+      <div className="card">
         <form className="date-range-form" onSubmit={applyRange} noValidate>
           <label className="field" htmlFor="out-of-area-from">
             <span>Requested from</span>
@@ -127,7 +126,9 @@ export function OutOfAreaTripsPage() {
           {loadError}
         </div>
       ) : !trips ? (
-        <div className="card muted">Loading out-of-area trips…</div>
+        <div className="card">
+          <LoadingBlock label="Loading out-of-area trips…" lines={5} />
+        </div>
       ) : (
         <>
           <div className="stat-grid">
@@ -154,21 +155,20 @@ export function OutOfAreaTripsPage() {
             </label>
             <p className="muted small" aria-live="polite">
               {filter === 'all'
-                ? `${rows.length} requests from ${applied.from} to ${applied.to}.`
-                : `${filtered.length} of ${rows.length} requests from ${applied.from} to ${applied.to}.`}{' '}
-              Statuses as of {loadedAt.toLocaleTimeString()}.
+                ? `${plural(rows.length, 'request')} from ${formatIsoDay(applied.from)} to ${formatIsoDay(applied.to)}.`
+                : `${filtered.length} of ${plural(rows.length, 'request')} from ${formatIsoDay(applied.from)} to ${formatIsoDay(applied.to)}.`}{' '}
+              Statuses as of {formatTime(loadedAt)}.
             </p>
             {truncated && (
               <p className="alert-warning" role="status">
-                Showing the latest {REQUEST_QUERY_LIMIT} requests in this date range. Older ones are not shown and are
-                not counted above; choose a shorter range to see them.
+                Latest {REQUEST_QUERY_LIMIT} requests shown. Choose a shorter range to see older ones.
               </p>
             )}
 
             {filtered.length === 0 ? (
-              <p className="muted">
+              <EmptyState>
                 {rows.length === 0 ? 'No out-of-area requests in this date range.' : 'No requests with this status.'}
-              </p>
+              </EmptyState>
             ) : (
               <div className="table-scroll">
                 <table className="data-table booking-table out-of-area-table">
@@ -224,7 +224,7 @@ export function OutOfAreaTripsPage() {
                                 .join(' · ')}
                             </div>
                           </td>
-                          <td>{formatPesoOrDash(request.fare)}</td>
+                          <td>{formatPeso(request.fare)}</td>
                           <td>{trip.driverName === null ? <span className="muted">None</span> : trip.driverName || '(no name)'}</td>
                           <td>
                             <span className={`booking-status request-status-${status}`}>

@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 
 import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
+import { lastUpdated } from '../lib/format';
 import {
   EXPIRY_RANGE,
   loadOutOfArea,
@@ -41,6 +45,7 @@ import {
 export function SystemSettingsPage() {
   return (
     <div className="stack">
+      <PageHeader title="System settings" subtitle="Out-of-area trips, TriGo's GCash account and support contacts." />
       <OutOfAreaSettingsCard />
       <PaymentAccountCard />
       <SupportContactsCard />
@@ -104,7 +109,7 @@ function PaymentAccountCard() {
   if (loadError) {
     return (
       <div className="card">
-        <h2>TriGo GCash account</h2>
+        <h3>TriGo GCash account</h3>
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -113,7 +118,11 @@ function PaymentAccountCard() {
   }
 
   if (!loaded) {
-    return <div className="card muted">Loading the GCash account…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading the GCash account…" lines={4} />
+      </div>
+    );
   }
 
   const saved = loaded.saved;
@@ -170,14 +179,11 @@ function PaymentAccountCard() {
   return (
     <>
       <form className="card" onSubmit={handleSubmit} noValidate>
-        <h2>TriGo GCash account</h2>
-        <p className="muted">
-          Drivers pay their commission to this GCash account and enter the GCash reference number in the app. TriGo
-          does not move money: an admin checks each payment in this GCash account before confirming it.
-        </p>
+        <h3>TriGo GCash account</h3>
+        <p className="muted">Drivers pay commission to this account. You check each payment in GCash.</p>
         <p className="muted small">
           {saved
-            ? `Last updated ${loaded.updatedAt ? loaded.updatedAt.toLocaleString() : 'at an unknown time'}.`
+            ? lastUpdated(loaded.updatedAt)
             : 'No GCash account is saved yet, so drivers have no payment instructions.'}{' '}
           Only admins and drivers can see it.
         </p>
@@ -243,7 +249,7 @@ function PaymentAccountCard() {
             Reset
           </button>
           <button type="submit" className="btn-primary" disabled={saving || isPristine}>
-            Save changes
+            Save changes…
           </button>
         </div>
       </form>
@@ -355,7 +361,7 @@ function OutOfAreaSettingsCard() {
   if (loadError) {
     return (
       <div className="card">
-        <h2>Out-of-area trips</h2>
+        <h3>Out-of-area trips</h3>
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -364,7 +370,11 @@ function OutOfAreaSettingsCard() {
   }
 
   if (!loaded || !values) {
-    return <div className="card muted">Loading out-of-area settings…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading out-of-area settings…" lines={4} />
+      </div>
+    );
   }
 
   const current = loaded.settings;
@@ -410,14 +420,14 @@ function OutOfAreaSettingsCard() {
   return (
     <>
       <form className="card" onSubmit={handleSubmit} noValidate>
-        <h2>Out-of-area trips</h2>
+        <h3>Out-of-area trips</h3>
         <p className="muted">
           Trips with a pickup or destination outside Trinidad. The fare is the per-km fare from Fare settings.
         </p>
         <p className="muted small">
           {usingDefaults
             ? 'No out-of-area settings are saved yet, so the app uses its built-in defaults shown below.'
-            : `Last updated ${loaded.updatedAt ? loaded.updatedAt.toLocaleString() : 'at an unknown time'}.`}{' '}
+            : lastUpdated(loaded.updatedAt)}{' '}
           The app picks up changes the next time it loads its settings. Requests already sent keep their expiry.
         </p>
 
@@ -500,7 +510,7 @@ function OutOfAreaSettingsCard() {
             Reset
           </button>
           <button type="submit" className="btn-primary" disabled={saving || !hasChanges}>
-            Save changes
+            Save changes…
           </button>
         </div>
       </form>
@@ -533,7 +543,7 @@ function OutOfAreaSettingsCard() {
               ))}
             </tbody>
           </table>
-          {usingDefaults && <p className="muted small">"Old" values are the app's built-in defaults.</p>}
+          {usingDefaults && <p className="muted small">Old = built-in default.</p>}
           {saveError && (
             <div className="alert-error" role="alert">
               {saveError}
@@ -653,15 +663,12 @@ function SupportContactsCard() {
   return (
     <div className="card">
       <div className="card-header">
-        <h2>Support contacts</h2>
+        <h3>Support contacts</h3>
         <button type="button" className="btn-primary" onClick={() => startEditing(null)} disabled={busy || !contacts}>
           Add contact
         </button>
       </div>
-      <p className="muted">
-        Shown on the app's Help &amp; Support screen, lowest order first. Passengers tap a contact to call it. Only
-        active contacts are shown.
-      </p>
+      <p className="muted">Active contacts appear on the app&apos;s Help screen, lowest order first.</p>
 
       {message && (
         <div className="alert-success" role="status">
@@ -762,9 +769,9 @@ function SupportContactsCard() {
           {loadError}
         </div>
       ) : !contacts ? (
-        <p className="muted">Loading support contacts…</p>
+        <LoadingBlock label="Loading support contacts…" />
       ) : contacts.length === 0 ? (
-        <p className="muted">No support contacts yet. The app's Help screen says support contacts are not available.</p>
+        <EmptyState>No support contacts yet.</EmptyState>
       ) : (
         <>
           <p className="muted small">
@@ -814,7 +821,7 @@ function SupportContactsCard() {
                           }}
                           disabled={busy}
                         >
-                          Delete
+                          Delete…
                         </button>
                       </div>
                     </td>
@@ -843,8 +850,7 @@ function SupportContactsCard() {
             <strong>{deleting.label}</strong> <span className="mono">{deleting.phone}</span>
           </p>
           <p className="muted small">
-            It is removed from the app's Help screen. This cannot be undone; to hide it temporarily, edit it and
-            turn off "Shown in the app" instead.
+            This can&apos;t be undone. To hide it, turn off &quot;Shown in the app&quot; instead.
           </p>
           {actionError && (
             <div className="alert-error" role="alert">

@@ -116,7 +116,7 @@ function Shell() {
 
       <aside id="admin-sidebar" className="sidebar">
         <div className="sidebar-brand">
-          <img src={logo} alt="TriGo logo" className="sidebar-logo" width={40} height={40} />
+          <img src={logo} alt="TriGo logo" className="sidebar-logo" width={32} height={32} />
           <span className="sidebar-title">TriGo Admin</span>
         </div>
 
@@ -150,11 +150,15 @@ function Shell() {
           ))}
         </nav>
 
-        <div className="sidebar-footer">
-          <span className="sidebar-email" title={admin?.email ?? undefined}>
+        {/* One row: the initial (full email on hover and for screen readers) and Sign out. */}
+        <div className="sidebar-account">
+          <span className="account-avatar" title={admin?.email ?? undefined} aria-hidden="true">
+            {(admin?.email?.[0] ?? '?').toUpperCase()}
+          </span>
+          <span className="account-email" title={admin?.email ?? undefined}>
             {admin?.email}
           </span>
-          <button type="button" className="btn-secondary" onClick={() => void signOutAdmin()}>
+          <button type="button" className="btn-secondary btn-compact" onClick={() => void signOutAdmin()}>
             Sign out
           </button>
         </div>

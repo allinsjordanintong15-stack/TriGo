@@ -15,7 +15,11 @@ import {
   type LoadedCommission,
 } from '../commission/commissionSettings';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { formatPeso, parseAmount } from '../fares/fareSettings';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { Notice } from '../components/Notice';
+import { PageHeader } from '../components/PageHeader';
+import { parseAmount } from '../fares/fareSettings';
+import { formatPeso, lastUpdated } from '../lib/format';
 
 type Field = keyof CommissionSettings;
 type FormValues = Record<Field, string>;
@@ -111,8 +115,8 @@ export function CommissionPage() {
 
   if (loadError) {
     return (
-      <div className="card">
-        <h2>Commission</h2>
+      <div className="stack">
+        <PageHeader title="Commission" />
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -121,7 +125,11 @@ export function CommissionPage() {
   }
 
   if (!loaded || !values) {
-    return <div className="card muted">Loading commission settings…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading commission settings…" lines={4} />
+      </div>
+    );
   }
 
   const current = loaded.saved;
@@ -169,22 +177,17 @@ export function CommissionPage() {
 
   return (
     <div className="stack">
-      <div className="alert-warning" role="note">
-        Commission is recorded on every completed trip. Drivers pay it by GCash and you confirm their payments on the
-        Earnings page. A driver who still owes after the grace period is suspended from accepting new requests until
-        the overdue amount is confirmed paid.
-      </div>
+      <PageHeader
+        title="Commission"
+        subtitle="A percentage of every completed trip's final fare, paid by drivers each period."
+      />
+      <Notice>Drivers who still owe after the grace period can't accept new trips until paid.</Notice>
 
       <div className="card">
-        <h2>Commission</h2>
-        <p className="muted">
-          TriGo's commission is a percentage of the final fare of every completed trip, standard and out-of-area.
-          Drivers pay the total for each payment period at its end.
-        </p>
         <div className="formula">Commission = final fare × percentage ÷ 100</div>
         <p className="muted small">
           {current
-            ? `Last updated ${loaded.updatedAt ? loaded.updatedAt.toLocaleString() : 'at an unknown time'}.`
+            ? lastUpdated(loaded.updatedAt)
             : 'No commission settings are saved yet.'}
         </p>
       </div>
@@ -263,7 +266,7 @@ export function CommissionPage() {
             Reset
           </button>
           <button type="submit" className="btn-primary" disabled={saving || !hasChanges}>
-            Save changes
+            Save changes…
           </button>
         </div>
       </form>
@@ -299,11 +302,6 @@ export function CommissionPage() {
               })}
             </tbody>
           </table>
-          <p className="muted small">
-            Commission is recorded on every completed trip. Drivers pay it by GCash and you confirm their payments on
-            the Earnings page. A driver who still owes after the grace period is suspended from accepting new requests
-            until the overdue amount is confirmed paid.
-          </p>
           {saveError && (
             <div className="alert-error" role="alert">
               {saveError}

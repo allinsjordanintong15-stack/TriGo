@@ -87,15 +87,3 @@ export function sortNewestFirst(bookings: AdminBooking[]): AdminBooking[] {
 export function displayFare(booking: AdminBooking): number | null {
   return booking.finalFare ?? booking.estimatedFare;
 }
-
-export function formatPesoOrDash(amount: number | null): string {
-  return amount === null ? '—' : `₱${amount.toFixed(2)}`;
-}
-
-export function formatDateTime(date: Date | null): string {
-  return date ? date.toLocaleString() : '—';
-}
-
-export function formatDate(date: Date | null): string {
-  return date ? date.toLocaleDateString() : '—';
-}

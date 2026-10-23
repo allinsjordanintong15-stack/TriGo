@@ -33,7 +33,7 @@ export function LoginPage() {
         <div className="login-header">
           <img src={logo} alt="TriGo logo" className="login-logo" width={96} height={96} />
           <h1 className="brand">TriGo Admin</h1>
-          <p className="muted">Sign in to continue</p>
+          <p className="muted">Sign in with your admin account</p>
         </div>
 
         {error && (

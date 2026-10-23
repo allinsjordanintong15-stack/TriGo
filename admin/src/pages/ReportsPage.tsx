@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
 import { downloadCsv } from '../lib/csv';
 import { defaultDateRange, parseDateRange } from '../lib/dateRange';
+import { formatCount, formatPeso, plural } from '../lib/format';
 import { ColumnChart, type ColumnDatum } from '../reports/ColumnChart';
 import { DEFAULT_REPORT_DAYS, MAX_REPORT_DAYS, roundPeso } from '../reports/reportMath';
 import { loadReport, type Report } from '../reports/reports';
 
 const PRESETS = [7, 30, 90] as const;
-
-function peso(amount: number): string {
-  return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function plural(count: number, word: string): string {
-  return `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`;
-}
 
 function percent(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—';
@@ -119,17 +114,17 @@ export function ReportsPage() {
 
   return (
     <div className="stack">
-      <div className="card">
-        <div className="card-header">
-          <h2>Reports</h2>
+      <PageHeader
+        title="Reports"
+        subtitle="Trips and fares for a date range, counted on the day each trip ended."
+        actions={
           <button type="button" className="btn-outline" onClick={() => void reload()} disabled={!report && !loadError}>
             Refresh
           </button>
-        </div>
-        <p className="muted">
-          Trips and fares for a date range. A trip counts on the day it was completed or cancelled. Totals are counted
-          by Firestore, so no trip records are downloaded.
-        </p>
+        }
+      />
+
+      <div className="card">
         <form className="date-range-form" onSubmit={handleSubmit} noValidate>
           <label className="field" htmlFor="report-from">
             <span>From</span>
@@ -174,28 +169,30 @@ export function ReportsPage() {
           {loadError}
         </div>
       ) : !report ? (
-        <div className="card muted">Loading report…</div>
+        <div className="card">
+          <LoadingBlock label="Loading report…" lines={5} />
+        </div>
       ) : (
         <>
           <div className="stat-grid">
-            <Stat label="Completed trips" value={report.totals.completedTrips.toLocaleString()} />
-            <Stat label="Fares collected" value={peso(report.totals.fares)} />
+            <Stat label="Completed trips" value={formatCount(report.totals.completedTrips)} />
+            <Stat label="Fares collected" value={formatPeso(report.totals.fares)} />
             <Stat
               label={
                 report.commissionPercentage !== null
                   ? `Commission at ${report.commissionPercentage}% (estimate)`
                   : 'Commission (rate not set)'
               }
-              value={commission !== null ? peso(commission) : '—'}
+              value={commission !== null ? formatPeso(commission) : '—'}
             />
-            <Stat label="Cancelled bookings" value={report.totals.cancelledBookings.toLocaleString()} />
+            <Stat label="Cancelled bookings" value={formatCount(report.totals.cancelledBookings)} />
             <Stat
               label="Completion rate"
               value={percent(report.totals.completedTrips, report.totals.completedTrips + report.totals.cancelledBookings)}
             />
-            <Stat label="Out-of-area requests" value={report.outOfAreaRequests.toLocaleString()} />
-            <Stat label="New passengers" value={report.newPassengers.toLocaleString()} />
-            <Stat label="Verified drivers (now)" value={report.verifiedDrivers.toLocaleString()} />
+            <Stat label="Out-of-area requests" value={formatCount(report.outOfAreaRequests)} />
+            <Stat label="New passengers" value={formatCount(report.newPassengers)} />
+            <Stat label="Verified drivers (now)" value={formatCount(report.verifiedDrivers)} />
           </div>
 
           <div className="chart-grid">
@@ -213,8 +210,8 @@ export function ReportsPage() {
               <ColumnChart
                 data={faresData}
                 integer={false}
-                formatValue={peso}
-                ariaLabel={`Fares collected per ${unit}, ${rangeLabel}. ${peso(report.totals.fares)} in total.`}
+                formatValue={formatPeso}
+                ariaLabel={`Fares collected per ${unit}, ${rangeLabel}. ${formatPeso(report.totals.fares)} in total.`}
               />
             </section>
           </div>
@@ -239,7 +236,7 @@ export function ReportsPage() {
             </div>
             {report.commissionPercentage !== null && (
               <p className="muted small">
-                Commission is estimated at the current rate on all completed fares. Nothing is charged to drivers yet.
+                Estimated at the current rate. Recorded commission is on the Earnings page.
               </p>
             )}
           </div>
@@ -248,13 +245,13 @@ export function ReportsPage() {
             <div className="card-header">
               <h3>Export</h3>
             </div>
-            <p className="muted small">CSV files open in Excel or Google Sheets. Amounts are in pesos.</p>
+            <p className="muted small">Opens in Excel or Google Sheets. Amounts in pesos.</p>
             <div className="button-row">
               <button type="button" className="btn-outline" onClick={exportPeriods}>
-                Download per-{unit} CSV
+                Export per-{unit} (CSV)
               </button>
               <button type="button" className="btn-outline" onClick={exportSummary}>
-                Download summary CSV
+                Export summary (CSV)
               </button>
             </div>
             <details className="report-table">
@@ -274,14 +271,14 @@ export function ReportsPage() {
                       <tr key={row.period.isoStart}>
                         <td>{row.period.longLabel}</td>
                         <td className="num">{row.completedTrips}</td>
-                        <td className="num">{peso(row.fares)}</td>
+                        <td className="num">{formatPeso(row.fares)}</td>
                         <td className="num">{row.cancelledBookings}</td>
                       </tr>
                     ))}
                     <tr className="total-row">
                       <td>Total</td>
                       <td className="num">{report.totals.completedTrips}</td>
-                      <td className="num">{peso(report.totals.fares)}</td>
+                      <td className="num">{formatPeso(report.totals.fares)}</td>
                       <td className="num">{report.totals.cancelledBookings}</td>
                     </tr>
                   </tbody>
@@ -299,9 +296,9 @@ function TypeRowView({ label, row, total }: { label: string; row: { trips: numbe
   return (
     <tr>
       <td>{label}</td>
-      <td className="num">{row.trips.toLocaleString()}</td>
+      <td className="num">{formatCount(row.trips)}</td>
       <td className="num">{percent(row.trips, total)}</td>
-      <td className="num">{peso(row.fares)}</td>
+      <td className="num">{formatPeso(row.fares)}</td>
     </tr>
   );
 }

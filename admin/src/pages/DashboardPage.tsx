@@ -1,8 +1,6 @@
+import { PageHeader } from '../components/PageHeader';
+
+// Placeholder until the dashboard (admin UI step 4) replaces it.
 export function DashboardPage() {
-  return (
-    <div className="card">
-      <h2>Dashboard</h2>
-      <p className="muted">Signed in as an admin. More management pages come in the next steps.</p>
-    </div>
-  );
+  return <PageHeader title="Dashboard" subtitle="Welcome to TriGo Admin." />;
 }

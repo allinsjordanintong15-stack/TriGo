@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 import { VEHICLE_TYPE_LABELS } from '../bookings/bookings';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
 import {
   DUTY_LABELS,
   dutyStatus,
@@ -12,6 +15,7 @@ import {
   type VerificationStatus,
 } from '../drivers/driverRecords';
 import { loadDrivers, type DriverListEntry } from '../drivers/drivers';
+import { plural } from '../lib/format';
 
 type Filter = 'all' | VerificationStatus;
 
@@ -53,6 +57,15 @@ export function DriversPage() {
 
   return (
     <div className="stack">
+      <PageHeader
+        title="Drivers"
+        subtitle="All drivers. Open one to see trips or change verification."
+        actions={
+          <button type="button" className="btn-outline" onClick={() => void reload()}>
+            Refresh
+          </button>
+        }
+      />
       {flash && (
         <div className="alert-success" role="status">
           {flash}
@@ -60,16 +73,6 @@ export function DriversPage() {
       )}
 
       <div className="card">
-        <div className="card-header">
-          <h2>Drivers</h2>
-          <button type="button" className="btn-outline" onClick={() => void reload()}>
-            Refresh
-          </button>
-        </div>
-        <p className="muted">
-          Every driver record. Open a driver to see their trips or to revoke or restore their verification. New
-          applicants are reviewed under <Link to="/drivers">Driver verification</Link>.
-        </p>
         <div className="filter-row">
           <label className="field search-field" htmlFor="driver-search">
             <span>Search by name, plate, email or mobile number</span>
@@ -100,14 +103,16 @@ export function DriversPage() {
             {loadError}
           </div>
         ) : !entries ? (
-          <p className="muted">Loading drivers…</p>
+          <LoadingBlock label="Loading drivers…" />
         ) : (
           <>
             <p className="muted small" aria-live="polite">
-              {filtered.length === rows.length ? `${rows.length} drivers.` : `${filtered.length} of ${rows.length} drivers match.`}
+              {filtered.length === rows.length
+                ? `${plural(rows.length, 'driver')}.`
+                : `${filtered.length} of ${plural(rows.length, 'driver')} match.`}
             </p>
             {filtered.length === 0 ? (
-              <p className="muted">{rows.length === 0 ? 'No drivers yet.' : 'No drivers match.'}</p>
+              <EmptyState>{rows.length === 0 ? 'No drivers yet.' : 'No drivers match.'}</EmptyState>
             ) : (
               <div className="table-scroll">
                 <table className="data-table drivers-table">

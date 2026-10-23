@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { Notice } from '../components/Notice';
+import { PageHeader } from '../components/PageHeader';
 import {
   approveApplication,
-  formatDateTime,
   loadApplication,
   MAX_REMARKS_LENGTH,
   rejectApplication,
@@ -16,6 +18,7 @@ import {
   type VehicleType,
 } from '../drivers/driverApplications';
 import { useAdminCounts } from '../lib/adminCounts';
+import { formatDateTime } from '../lib/format';
 
 type Decision = 'approve' | 'reject';
 
@@ -68,17 +71,18 @@ export function DriverApplicationPage() {
   }
 
   if (application === undefined) {
-    return <div className="card muted">Loading application…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading application…" lines={5} />
+      </div>
+    );
   }
 
   if (application === null) {
     return (
       <div className="stack">
         {backLink}
-        <div className="card">
-          <h2>Application not found</h2>
-          <p className="muted">There is no driver application for this account.</p>
-        </div>
+        <PageHeader title="Application not found" subtitle="There is no driver application for this account." />
       </div>
     );
   }
@@ -127,11 +131,13 @@ export function DriverApplicationPage() {
     <div className="stack">
       {backLink}
 
+      <PageHeader
+        title={application.fullName || '(no name)'}
+        subtitle="Driver application"
+        actions={<span className={`status-badge status-${application.status}`}>{STATUS_LABELS[application.status]}</span>}
+      />
+
       <div className="card">
-        <div className="card-header">
-          <h2>{application.fullName || '(no name)'}</h2>
-          <span className={`status-badge status-${application.status}`}>{STATUS_LABELS[application.status]}</span>
-        </div>
         <dl className="detail-grid">
           <Detail label="First name" value={application.firstName} />
           <Detail label="Middle name" value={application.middleName ?? '—'} />
@@ -149,7 +155,7 @@ export function DriverApplicationPage() {
         {application.adminRemarks && (
           <div className="remarks-box">
             <div className="remarks-label">
-              {isPending ? 'Remarks from the earlier rejection (resubmitted since)' : 'Admin remarks'}
+              {isPending ? 'Earlier rejection remarks (resubmitted)' : 'Admin remarks'}
             </div>
             <p>{application.adminRemarks}</p>
           </div>
@@ -158,9 +164,7 @@ export function DriverApplicationPage() {
 
       <div className="card">
         <h3>Documents</h3>
-        <div className="alert-warning" role="note">
-          Document images are unavailable until Firebase Storage is enabled.
-        </div>
+        <Notice>Document images need Firebase Storage.</Notice>
         <ul className="document-list">
           <DocumentRow label="OR/CR" entry={application.documents.orCr} />
           <DocumentRow label="LTO driver's license" entry={application.documents.ltoLicense} />
@@ -171,9 +175,7 @@ export function DriverApplicationPage() {
         <div className="review-grid">
           <section className="card review-panel" aria-labelledby="approve-heading">
             <h3 id="approve-heading">Approve</h3>
-            <p className="muted small">
-              Creates the driver record: verified, offline, rating 0, with the name and plate above.
-            </p>
+            <p className="muted small">Creates a verified driver with the name and plate above.</p>
             <label className="field" htmlFor="approve-vehicle">
               <span>Vehicle type</span>
               <select
@@ -274,7 +276,7 @@ export function DriverApplicationPage() {
           onConfirm={() => void handleConfirm()}
           onCancel={() => setDecision(null)}
         >
-          <p>This creates their driver record. They can go online and accept bookings right away.</p>
+          <p>They can go online and accept bookings right away.</p>
           <table className="change-table">
             <tbody>
               <tr>
@@ -315,6 +317,7 @@ export function DriverApplicationPage() {
         <ConfirmDialog
           title={`Reject ${application.fullName}?`}
           confirmLabel="Reject application"
+          danger
           busy={saving}
           onConfirm={() => void handleConfirm()}
           onCancel={() => setDecision(null)}

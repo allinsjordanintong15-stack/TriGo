@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import { formatDateTime } from '../bookings/bookings';
 import {
   COMPLAINT_CATEGORY_LABELS,
   COMPLAINT_QUERY_LIMIT,
@@ -13,6 +12,10 @@ import {
   type ComplaintListEntry,
   type ComplaintStatus,
 } from '../complaints/complaints';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
+import { formatCount, formatDateTime, plural } from '../lib/format';
 
 function parseStatus(value: string | null): ComplaintStatus | null {
   return COMPLAINT_STATUSES.find((status) => status === value) ?? null;
@@ -54,18 +57,15 @@ export function ComplaintsPage() {
 
   return (
     <>
-      <div className="card">
-        <div className="card-header">
-          <h2>Complaints</h2>
+      <PageHeader
+        title="Complaints"
+        subtitle="Problems reported from bookings in the app. Reporters see the status, never your notes."
+        actions={
           <button type="button" className="btn-outline" onClick={() => void reload()} disabled={!entries && !loadError}>
             Refresh
           </button>
-        </div>
-        <p className="muted">
-          Problems reported by passengers and drivers from a booking in the app ("Report a problem"). Each person can
-          report a booking once. Set the status and keep notes here; reporters see the status but never the notes.
-        </p>
-      </div>
+        }
+      />
 
       {loadError ? (
         <div className="alert-error" role="alert">
@@ -77,7 +77,7 @@ export function ComplaintsPage() {
             {COMPLAINT_STATUSES.map((s) => (
               <div key={s} className="card stat-card">
                 <div className="stat-label">{COMPLAINT_STATUS_LABELS[s]}</div>
-                <div className="stat-value">{counts ? counts[s].toLocaleString() : '…'}</div>
+                <div className="stat-value">{counts ? formatCount(counts[s]) : '…'}</div>
               </div>
             ))}
           </div>
@@ -97,11 +97,11 @@ export function ComplaintsPage() {
             </label>
 
             {!entries ? (
-              <p className="muted">Loading complaints…</p>
+              <LoadingBlock label="Loading complaints…" />
             ) : (
               <>
                 <p className="muted small" aria-live="polite">
-                  {entries.length === 1 ? '1 complaint' : `${entries.length} complaints`}, newest first.
+                  {plural(entries.length, 'complaint')}, newest first.
                 </p>
                 {truncated && (
                   <p className="alert-warning" role="status">
@@ -109,7 +109,7 @@ export function ComplaintsPage() {
                   </p>
                 )}
                 {entries.length === 0 ? (
-                  <p className="muted">{status ? 'No complaints with this status.' : 'No complaints yet.'}</p>
+                  <EmptyState>{status ? 'No complaints with this status.' : 'No complaints yet.'}</EmptyState>
                 ) : (
                   <div className="table-scroll">
                     <table className="data-table complaints-table">

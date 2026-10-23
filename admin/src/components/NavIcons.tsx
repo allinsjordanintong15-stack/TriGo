@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-// Sidebar icons: 20px line icons drawn in currentColor, so they follow the link colour
+// Sidebar icons: 18px line icons drawn in currentColor, so they follow the link colour
 // (gold when active). Hand-drawn inline SVG, no icon library.
 
 export type NavIconName =
@@ -96,8 +96,8 @@ export function NavIcon({ name }: { name: NavIconName }) {
   return (
     <svg
       className="nav-icon"
-      width="20"
-      height="20"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

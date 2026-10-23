@@ -6,11 +6,11 @@ import {
   BOOKING_STATUS_LABELS,
   BOOKING_TYPE_LABELS,
   displayFare,
-  formatDateTime,
-  formatPesoOrDash,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
 import {
   COMPLAINT_CATEGORY_LABELS,
   COMPLAINT_STATUS_LABELS,
@@ -24,6 +24,7 @@ import {
   type ComplaintStatus,
 } from '../complaints/complaints';
 import { useAdminCounts } from '../lib/adminCounts';
+import { formatDateTime, formatPeso } from '../lib/format';
 
 export function ComplaintDetailPage() {
   const { complaintId = '' } = useParams();
@@ -77,17 +78,18 @@ export function ComplaintDetailPage() {
   }
 
   if (detail === undefined) {
-    return <div className="card muted">Loading complaint…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading complaint…" lines={5} />
+      </div>
+    );
   }
 
   if (detail === null) {
     return (
       <>
         {backLink}
-        <div className="card">
-          <h2>Complaint not found</h2>
-          <p className="muted">There is no complaint with this ID.</p>
-        </div>
+        <PageHeader title="Complaint not found" subtitle="There is no complaint with this ID." />
       </>
     );
   }
@@ -131,14 +133,17 @@ export function ComplaintDetailPage() {
     <>
       {backLink}
 
-      <div className="card">
-        <div className="card-header">
-          <h2>Complaint</h2>
+      <PageHeader
+        title="Complaint"
+        subtitle={<span className="mono small">{complaint.complaintId}</span>}
+        actions={
           <button type="button" className="btn-outline" onClick={() => void reload()} disabled={saving}>
             Refresh
           </button>
-        </div>
-        <p className="muted small mono">{complaint.complaintId}</p>
+        }
+      />
+
+      <div className="card">
         <p>
           <span className={`booking-status complaint-status-${complaint.status}`}>
             {COMPLAINT_STATUS_LABELS[complaint.status]}
@@ -175,7 +180,7 @@ export function ComplaintDetailPage() {
               <Detail label="Booked" value={formatDateTime(booking.createdAt)} />
               <Detail label="Pickup" value={booking.pickupAddress} />
               <Detail label="Destination" value={booking.destinationAddress} />
-              <Detail label="Fare" value={formatPesoOrDash(displayFare(booking))} />
+              <Detail label="Fare" value={formatPeso(displayFare(booking))} />
               <div className="detail-item">
                 <dt>Passenger</dt>
                 <dd>
@@ -315,7 +320,7 @@ export function ComplaintDetailPage() {
           {notesChanged && notesTrimmed && <blockquote className="remarks-quote">{notesTrimmed}</blockquote>}
           {statusChanged && (
             <p className="small">
-              The {complaint.reporterRole ?? 'reporter'} sees the new status in the app. They do not see the notes.
+              The reporter sees the status, not your notes.
             </p>
           )}
           {saveError && (

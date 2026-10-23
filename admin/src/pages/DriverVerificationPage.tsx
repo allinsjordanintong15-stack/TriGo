@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-import {
-  formatDateTime,
-  loadPendingApplications,
-  VEHICLE_LABELS,
-  type DriverApplication,
-} from '../drivers/driverApplications';
+import { loadPendingApplications, VEHICLE_LABELS, type DriverApplication } from '../drivers/driverApplications';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
+import { formatDateTime } from '../lib/format';
 
 export function DriverVerificationPage() {
   const location = useLocation();
@@ -36,23 +35,20 @@ export function DriverVerificationPage() {
 
   return (
     <div className="stack">
-      <div className="card">
-        <div className="card-header">
-          <h2>Driver verification</h2>
+      <PageHeader
+        title="Driver verification"
+        subtitle="Pending applications, oldest first. Approving lets the applicant work as a driver."
+        actions={
           <button type="button" className="btn-outline" onClick={() => void reload()}>
             Refresh
           </button>
+        }
+      />
+      {message && (
+        <div className="alert-success" role="status">
+          {message}
         </div>
-        <p className="muted">
-          Pending driver applications, oldest first. Approving creates the driver's record so they can go online;
-          their account stays a passenger account.
-        </p>
-        {message && (
-          <div className="alert-success" role="status">
-            {message}
-          </div>
-        )}
-      </div>
+      )}
 
       <div className="card">
         {loadError ? (
@@ -60,9 +56,9 @@ export function DriverVerificationPage() {
             {loadError}
           </div>
         ) : !applications ? (
-          <p className="muted">Loading applications…</p>
+          <LoadingBlock label="Loading applications…" />
         ) : applications.length === 0 ? (
-          <p className="muted">No pending applications.</p>
+          <EmptyState>No applications waiting for review.</EmptyState>
         ) : (
           <div className="table-scroll">
             <table className="data-table">

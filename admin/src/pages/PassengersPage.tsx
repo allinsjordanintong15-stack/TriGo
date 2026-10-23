@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { formatDate } from '../bookings/bookings';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { PageHeader } from '../components/PageHeader';
+import { formatDate, plural } from '../lib/format';
 import { loadPassengers, matchesSearch, type Passenger } from '../passengers/passengers';
 
 export function PassengersPage() {
@@ -29,14 +32,17 @@ export function PassengersPage() {
 
   return (
     <div className="stack">
-      <div className="card">
-        <div className="card-header">
-          <h2>Passengers</h2>
+      <PageHeader
+        title="Passengers"
+        subtitle="Passenger accounts and booking history."
+        actions={
           <button type="button" className="btn-outline" onClick={() => void reload()}>
             Refresh
           </button>
-        </div>
-        <p className="muted">Passenger accounts and their booking history. Read-only.</p>
+        }
+      />
+
+      <div className="card">
         <label className="field search-field" htmlFor="passenger-search">
           <span>Search by name, email or mobile number</span>
           <input
@@ -56,16 +62,16 @@ export function PassengersPage() {
             {loadError}
           </div>
         ) : !passengers ? (
-          <p className="muted">Loading passengers…</p>
+          <LoadingBlock label="Loading passengers…" />
         ) : (
           <>
             <p className="muted small" aria-live="polite">
               {search.trim()
-                ? `${filtered.length} of ${passengers.length} passengers match.`
-                : `${passengers.length} passengers.`}
+                ? `${filtered.length} of ${plural(passengers.length, 'passenger')} match.`
+                : `${plural(passengers.length, 'passenger')}.`}
             </p>
             {filtered.length === 0 ? (
-              <p className="muted">{passengers.length === 0 ? 'No passengers yet.' : 'No passengers match your search.'}</p>
+              <EmptyState>{passengers.length === 0 ? 'No passengers yet.' : 'No passengers match your search.'}</EmptyState>
             ) : (
               <div className="table-scroll">
                 <table className="data-table">

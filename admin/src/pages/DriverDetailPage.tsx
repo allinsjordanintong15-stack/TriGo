@@ -6,12 +6,14 @@ import {
   BOOKING_STATUS_LABELS,
   BOOKING_TYPE_LABELS,
   displayFare,
-  formatDateTime,
-  formatPesoOrDash,
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { Notice } from '../components/Notice';
+import { PageHeader } from '../components/PageHeader';
 import {
   DRIVER_VEHICLE_TYPES,
   DUTY_LABELS,
@@ -34,6 +36,7 @@ import {
   VerificationConflictError,
   type DriverDetail,
 } from '../drivers/drivers';
+import { formatDateTime, formatPeso } from '../lib/format';
 
 type Action = 'revoke' | 'restore' | 'vehicle';
 
@@ -84,17 +87,18 @@ export function DriverDetailPage() {
   }
 
   if (detail === undefined) {
-    return <div className="card muted">Loading driver…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading driver…" lines={5} />
+      </div>
+    );
   }
 
   if (detail === null) {
     return (
       <div className="stack">
         {backLink}
-        <div className="card">
-          <h2>Driver not found</h2>
-          <p className="muted">There is no driver record for this account.</p>
-        </div>
+        <PageHeader title="Driver not found" subtitle="There is no driver record for this account." />
       </div>
     );
   }
@@ -176,11 +180,15 @@ export function DriverDetailPage() {
         </div>
       )}
 
-      <div className="card">
-        <div className="card-header">
-          <h2>{driver.fullName || '(no name)'}</h2>
+      <PageHeader
+        title={driver.fullName || '(no name)'}
+        subtitle="Driver"
+        actions={
           <span className={`status-badge ${VERIFICATION_BADGE_CLASS[verification]}`}>{VERIFICATION_LABELS[verification]}</span>
-        </div>
+        }
+      />
+
+      <div className="card">
         <dl className="detail-grid">
           <Detail label="Email" value={contact?.email ?? ''} />
           <Detail label="Mobile number" value={contact?.mobileNumber ?? ''} mono />
@@ -205,7 +213,7 @@ export function DriverDetailPage() {
         {detail.role === 'passenger' && (
           <p className="small">
             <Link className="btn-link" to={`/passengers/${driver.uid}`}>
-              View their passenger profile and bookings
+              View passenger profile
             </Link>
           </p>
         )}
@@ -228,20 +236,10 @@ export function DriverDetailPage() {
 
         {driver.isVerified ? (
           <>
-            <p className="muted small">
-              Revoking takes the driver offline at once. They can still sign in, but cannot go online or accept
-              bookings until verification is restored.
-            </p>
-            {duty === 'on_trip' && (
-              <div className="alert-warning" role="note">
-                This driver is on a trip. They can still finish it after you revoke.
-              </div>
-            )}
+            <p className="muted small">Revoking takes the driver offline until you restore them. They can still sign in.</p>
+            {duty === 'on_trip' && <Notice>This driver is on a trip. They can still finish it after you revoke.</Notice>}
             {duty === 'holding_request' && (
-              <div className="alert-warning" role="note">
-                This driver has accepted an out-of-area request. If the passenger confirms them anyway, the driver
-                cannot take the booking and the passenger will have to cancel it.
-              </div>
+              <Notice>This driver holds an out-of-area request. If you revoke, the passenger is sent back to searching.</Notice>
             )}
             <label className="field" htmlFor="revoke-reason">
               <span>Reason (required)</span>
@@ -389,18 +387,18 @@ export function DriverDetailPage() {
         <Stat label={detail.tripsTruncated ? `Trips (latest ${TRIP_HISTORY_LIMIT})` : 'Trips'} value={String(trips.length)} />
         <Stat label="Completed" value={String(completed.length)} />
         <Stat label="Cancelled" value={String(cancelled)} />
-        <Stat label="Fares (completed)" value={formatPesoOrDash(fares)} />
+        <Stat label="Fares (completed)" value={formatPeso(fares)} />
       </div>
 
       <div className="card">
         <h3>Trip history</h3>
         {detail.tripsTruncated && (
           <p className="alert-warning" role="status">
-            Showing the latest {TRIP_HISTORY_LIMIT} trips. Older trips are not shown or counted above.
+            Latest {TRIP_HISTORY_LIMIT} trips shown; totals above count only these.
           </p>
         )}
         {trips.length === 0 ? (
-          <p className="muted">No trips yet.</p>
+          <EmptyState>No trips yet.</EmptyState>
         ) : (
           <div className="table-scroll">
             <table className="data-table booking-table">
@@ -452,7 +450,7 @@ export function DriverDetailPage() {
                         </div>
                       )}
                     </td>
-                    <td>{formatPesoOrDash(displayFare(trip))}</td>
+                    <td>{formatPeso(displayFare(trip))}</td>
                     <td>{trip.paymentMethod ? PAYMENT_METHOD_LABELS[trip.paymentMethod] : '—'}</td>
                     <td className="cell-action">
                       {trip.passengerId && (
@@ -473,6 +471,7 @@ export function DriverDetailPage() {
         <ConfirmDialog
           title={`Revoke ${driver.fullName}'s verification?`}
           confirmLabel="Revoke verification"
+          danger
           busy={saving}
           onConfirm={() => void handleConfirm()}
           onCancel={() => setAction(null)}

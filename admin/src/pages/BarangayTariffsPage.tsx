@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 
 import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { formatPeso, parseAmount } from '../fares/fareSettings';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { Notice } from '../components/Notice';
+import { PageHeader } from '../components/PageHeader';
+import { parseAmount } from '../fares/fareSettings';
+import { formatPeso } from '../lib/format';
 import { BARANGAYS, type BarangayId } from '../tariffs/barangays';
 import {
   loadTariffs,
@@ -113,8 +117,8 @@ export function BarangayTariffsPage() {
 
   if (loadError) {
     return (
-      <div className="card">
-        <h2>Barangay tariffs</h2>
+      <div className="stack">
+        <PageHeader title="Barangay tariffs" />
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -123,7 +127,11 @@ export function BarangayTariffsPage() {
   }
 
   if (!saved || !values || !parsed) {
-    return <div className="card muted">Loading barangay tariffs…</div>;
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading barangay tariffs…" lines={4} />
+      </div>
+    );
   }
 
   const savedCount = BARANGAYS.filter(({ id }) => saved[id]).length;
@@ -164,17 +172,13 @@ export function BarangayTariffsPage() {
 
   return (
     <div className="stack">
-      <div className="alert-warning" role="note">
-        The mobile app does not apply tariffs yet. It needs barangay boundaries first.
-      </div>
+      <PageHeader
+        title="Barangay tariffs"
+        subtitle="Fixed fare between Poblacion and each barangay, per vehicle. Blank or inactive barangays use the per-km fare."
+      />
+      <Notice>Tariffs are saved but not yet applied in the app.</Notice>
 
       <div className="card">
-        <h2>Barangay tariffs</h2>
-        <p className="muted">
-          Fixed fare per trip between Poblacion and a barangay, in either direction, per vehicle type. Every
-          other trip, and any barangay that is inactive or not set, uses the per-km fare. Out-of-area trips
-          always use the per-km fare.
-        </p>
         <p className="muted small">
           {savedCount} of {BARANGAYS.length} barangays saved. A barangay left blank is not saved; to set one,
           enter both tariffs.
@@ -264,7 +268,7 @@ export function BarangayTariffsPage() {
             Reset
           </button>
           <button type="submit" className="btn-primary" disabled={saving || hasErrors || changes.length === 0}>
-            Save changes
+            Save changes…
           </button>
         </div>
       </form>

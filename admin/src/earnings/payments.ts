@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../firebase/config';
+import { formatCentavos } from '../lib/format';
 
 // Commission payments drivers report from the app (GCash, outside TriGo). An admin checks
 // each one against TriGo's GCash account, then confirms it (credits the driver's
@@ -34,11 +35,6 @@ export type PendingPayment = {
 };
 
 export const MAX_REJECTION_REASON_LENGTH = 300;
-
-/** ₱ with centavos, e.g. 70050 → "₱700.50". */
-export function formatCentavos(centavos: number | null): string {
-  return centavos === null ? '—' : `₱${(centavos / 100).toFixed(2)}`;
-}
 
 /** Pending payments, oldest first, with each driver's name and balance. */
 export async function loadPendingPayments(): Promise<PendingPayment[]> {

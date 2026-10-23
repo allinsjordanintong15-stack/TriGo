@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../firebase/config';
+import { formatCentavos } from '../lib/format';
 
 // Cash-outs: commission an admin moved out of TriGo's GCash in the real GCash, Maya or bank
 // app. TriGo only records them. Each record is created with the earningsLedger/totals update
@@ -100,7 +101,7 @@ export async function recordCashOut(input: CashOutInput, adminUid: string): Prom
     const available = collectedCentavos - cashedOutCentavos;
     if (input.amountCentavos > available) {
       throw new CashOutConflictError(
-        `This is more than the available balance (₱${(available / 100).toFixed(2)}). Reload the page to see the latest.`,
+        `This is more than the available balance (${formatCentavos(available)}). Reload the page to see the latest.`,
       );
     }
 
