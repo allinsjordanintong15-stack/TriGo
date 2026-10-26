@@ -219,7 +219,7 @@ export function ComplaintDetailPage() {
         )}
       </div>
 
-      <section className="card" aria-labelledby="complaint-review-title">
+      <section className="card review-panel" aria-labelledby="complaint-review-title">
         <h3 id="complaint-review-title">Review</h3>
         {complaint.updatedBy && (
           <p className="muted small">

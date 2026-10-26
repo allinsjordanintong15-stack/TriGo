@@ -177,7 +177,7 @@ export function OutOfAreaTripsPage() {
                       <th scope="col">Requested</th>
                       <th scope="col">Passenger</th>
                       <th scope="col">Route</th>
-                      <th scope="col">Fare</th>
+                      <th scope="col" className="num">Fare</th>
                       <th scope="col">Driver</th>
                       <th scope="col">Request</th>
                       <th scope="col">Trip</th>
@@ -224,7 +224,7 @@ export function OutOfAreaTripsPage() {
                                 .join(' · ')}
                             </div>
                           </td>
-                          <td>{formatPeso(request.fare)}</td>
+                          <td className="num">{formatPeso(request.fare)}</td>
                           <td>{trip.driverName === null ? <span className="muted">None</span> : trip.driverName || '(no name)'}</td>
                           <td>
                             <span className={`booking-status request-status-${status}`}>

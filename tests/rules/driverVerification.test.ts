@@ -3,7 +3,8 @@
 // Firestore rules tests for admin driver verification: admins read driverApplications;
 // approve = pending → approved (remarks optional) AND create drivers/{uid} in the same
 // commit with the exact field set; reject = pending → rejected with required remarks
-// (≤ 500 characters). users/{uid}.role never changes.
+// (≤ 500 characters). users/{uid}.role never changes. Vehicle brand, model and color are
+// required on new applications and resubmissions; the admin may correct them on approval.
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
@@ -18,6 +19,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -75,6 +77,9 @@ function application(overrides: DocumentData = {}): DocumentData {
     mobileNumber: '+639171234567',
     vehicleType: 'tricycle',
     vehiclePlate: 'ABC 1234',
+    vehicleBrand: 'Honda',
+    vehicleModel: 'TMX 155',
+    vehicleColor: 'Red',
     documents: { orCr: storageDoc('orCr'), ltoLicense: storageDoc('ltoLicense') },
     status: 'pending',
     adminRemarks: null,
@@ -91,6 +96,9 @@ function driverRecord(overrides: DocumentData = {}): DocumentData {
     fullName: 'Juan Dela Cruz',
     vehiclePlate: 'ABC 1234',
     vehicleType: 'tricycle',
+    vehicleBrand: 'Honda',
+    vehicleModel: 'TMX 155',
+    vehicleColor: 'Red',
     isVerified: true,
     isOnline: false,
     isAvailable: false,
@@ -134,6 +142,63 @@ function reject(firestore: Firestore, remarks: unknown, overrides: DocumentData 
     ...review('rejected', null),
     adminRemarks: remarks,
     ...overrides,
+  });
+}
+
+const VEHICLE_DETAIL_FIELDS = ['vehicleBrand', 'vehicleModel', 'vehicleColor'] as const;
+
+// Valid at the boundaries of each format (shortest, longest, every allowed character).
+const VALID_VEHICLE_DETAILS: Record<(typeof VEHICLE_DETAIL_FIELDS)[number], string[]> = {
+  vehicleBrand: ['H', '1', 'B'.repeat(30), 'Honda', 'Mio i 125.', 'A/B+C-D.E'],
+  vehicleModel: ['T', '9', 'M'.repeat(40), 'XRM 125', 'Click 125i', 'Barako II', 'XR-150/L+2'],
+  vehicleColor: ['R', 'C'.repeat(20), 'Blue/White', 'Dark Green', 'Red-Black'],
+};
+
+const INVALID_VEHICLE_DETAILS: Record<(typeof VEHICLE_DETAIL_FIELDS)[number], unknown[]> = {
+  vehicleBrand: ['', ' Honda', 'Honda ', '-Honda', 'Hon<da', "Ho'nda", 'Hon_da', 'B'.repeat(31), 42, null],
+  vehicleModel: ['', ' TMX', 'TMX 155 ', 'TMX+', 'TMX\n155', 'TMX_155', 'M'.repeat(41), 155, null],
+  vehicleColor: ['', 'Red1', 'Red ', ' Red', '-Red', 'Red/', 'Rot!', 'C'.repeat(21), true, null],
+};
+
+/** A copy of data without the given keys (Firestore rejects undefined values). */
+function without(data: DocumentData, ...keys: string[]): DocumentData {
+  const copy = { ...data };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
+/** An application submitted before the vehicle details existed. */
+function legacyApplication(overrides: DocumentData = {}): DocumentData {
+  return without(application(overrides), ...VEHICLE_DETAIL_FIELDS);
+}
+
+/** The applicant as the mobile app signs in (the rules compare the token email). */
+function applicantDb(): Firestore {
+  return db(APPLICANT, { email: `${APPLICANT}@example.com` });
+}
+
+/** First submission exactly like the mobile app (server timestamps). */
+function submit(data: DocumentData) {
+  return setDoc(doc(applicantDb(), 'driverApplications', APPLICANT), {
+    ...data,
+    submittedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Resubmission after a rejection: status back to pending with the given changes. */
+function resubmit(changes: DocumentData = {}) {
+  return updateDoc(doc(applicantDb(), 'driverApplications', APPLICANT), {
+    ...changes,
+    status: 'pending',
+    submittedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+async function removeApplication(): Promise<void> {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await deleteDoc(doc(context.firestore() as unknown as Firestore, 'driverApplications', APPLICANT));
   });
 }
 
@@ -252,6 +317,43 @@ describe('driver verification: approve', () => {
     await assertFails(approve(adminDb(), { driver: { createdAt: Timestamp.now() } }));
   });
 
+  it('lets the admin correct the brand, model and color (they need not match the application)', async () => {
+    await assertSucceeds(
+      approve(adminDb(), { driver: { vehicleBrand: 'Yamaha', vehicleModel: 'Sniper 155', vehicleColor: 'Blue/White' } }),
+    );
+    const driver = await read(`drivers/${APPLICANT}`);
+    if (driver?.vehicleColor !== 'Blue/White') throw new Error('corrected color not stored');
+    const app = await read(`driverApplications/${APPLICANT}`);
+    if (app?.vehicleColor !== 'Red') throw new Error('application details changed');
+  });
+
+  it('approves an older application without vehicle details when the admin enters them', async () => {
+    await seed({ [`driverApplications/${APPLICANT}`]: legacyApplication() });
+    await assertSucceeds(approve(adminDb()));
+  });
+
+  it('denies a driver record without brand, model or color', async () => {
+    for (const field of VEHICLE_DETAIL_FIELDS) {
+      const firestore = adminDb();
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, 'driverApplications', APPLICANT), review('approved', null));
+      batch.set(doc(firestore, 'drivers', APPLICANT), without(driverRecord(), field));
+      await assertFails(batch.commit());
+    }
+  });
+
+  it('denies an invalid brand, model or color in the driver record', async () => {
+    for (const field of VEHICLE_DETAIL_FIELDS) {
+      for (const value of INVALID_VEHICLE_DETAILS[field]) {
+        await assertFails(approve(adminDb(), { driver: { [field]: value } }));
+      }
+    }
+  });
+
+  it("denies an admin editing the applicant's vehicle details while approving", async () => {
+    await assertFails(approve(adminDb(), { review: { vehicleColor: 'Blue' } }));
+  });
+
   it('denies a missing driver field', async () => {
     const firestore = adminDb();
     const record = driverRecord();
@@ -342,5 +444,58 @@ describe('driver verification: reject', () => {
     await assertFails(
       updateDoc(doc(adminDb(), 'driverApplications', APPLICANT), review('on_hold', 'Wait')),
     );
+  });
+});
+
+describe('driver application: vehicle details', () => {
+  it('lets a passenger submit an application with brand, model and color', async () => {
+    await removeApplication();
+    await assertSucceeds(submit(application()));
+  });
+
+  it('accepts every format at its boundaries', async () => {
+    for (const field of VEHICLE_DETAIL_FIELDS) {
+      for (const value of VALID_VEHICLE_DETAILS[field]) {
+        await removeApplication();
+        await assertSucceeds(submit(application({ [field]: value })));
+      }
+    }
+  });
+
+  it('requires all three on a new application', async () => {
+    for (const field of VEHICLE_DETAIL_FIELDS) {
+      await removeApplication();
+      await assertFails(submit(without(application(), field)));
+    }
+  });
+
+  it('denies empty, too long, badly formatted or non-string details', async () => {
+    for (const field of VEHICLE_DETAIL_FIELDS) {
+      for (const value of INVALID_VEHICLE_DETAILS[field]) {
+        await removeApplication();
+        await assertFails(submit(application({ [field]: value })));
+      }
+    }
+  });
+
+  it('lets an older rejected application gain the details on resubmission', async () => {
+    await seed({ [`driverApplications/${APPLICANT}`]: legacyApplication({ status: 'rejected', adminRemarks: 'Blurry' }) });
+    await assertSucceeds(resubmit({ vehicleBrand: 'Rusi', vehicleModel: 'Classic 250', vehicleColor: 'Black' }));
+  });
+
+  it('denies resubmitting an older application without the details', async () => {
+    await seed({ [`driverApplications/${APPLICANT}`]: legacyApplication({ status: 'rejected', adminRemarks: 'Blurry' }) });
+    await assertFails(resubmit());
+    await assertFails(resubmit({ vehicleBrand: 'Rusi', vehicleModel: 'Classic 250' }));
+  });
+
+  it('lets a rejected applicant correct the details, but only to valid values', async () => {
+    await seed({ [`driverApplications/${APPLICANT}`]: application({ status: 'rejected', adminRemarks: 'Wrong color' }) });
+    await assertFails(resubmit({ vehicleColor: 'Red1' }));
+    await assertSucceeds(resubmit({ vehicleColor: 'Maroon' }));
+  });
+
+  it('denies changing the details while pending (no resubmission without a rejection)', async () => {
+    await assertFails(resubmit({ vehicleColor: 'Maroon' }));
   });
 });

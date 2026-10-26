@@ -4,7 +4,8 @@
 // request, in the limit's own units. Not a test (not *.test.ts); run it under the emulator:
 //   npx firebase emulators:exec --only firestore --project demo-trigo-rules "node tests/rules/measureHeadroom.ts"
 // (TRIGO_HEADROOM=payments in the environment: commission payment and cash-out scenarios only;
-// TRIGO_HEADROOM=enforcement: T1 accept, propose, claim and the out-of-area confirm only.)
+// TRIGO_HEADROOM=enforcement: T1 accept, propose, claim and the out-of-area confirm only;
+// TRIGO_HEADROOM=vehicle: driver application submit/resubmit, approval and vehicle edit only.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
 // binary search finds the largest N at which the valid commit still succeeds. The same
@@ -21,6 +22,7 @@ import {
   setDoc,
   setLogLevel,
   Timestamp,
+  updateDoc,
   writeBatch,
   type DocumentData,
   type Firestore,
@@ -99,6 +101,11 @@ type Target =
   | 'reference free'
   | 'cash-out create'
   | 'ledger cash-out'
+  | 'application create'
+  | 'application resubmit'
+  | 'approve: application review'
+  | 'approve: driver create'
+  | 'vehicle edit'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -159,6 +166,26 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'ledger cash-out': [
     "      allow update: if isAdmin()\n        && onlyChanged(['cashedOutCentavos'",
     "      allow update: if isAdmin()\n        && pad()\n        && onlyChanged(['cashedOutCentavos'",
+  ],
+  'application create': [
+    '      allow create: if isOwner(uid)\n        && isPassenger()\n',
+    '      allow create: if isOwner(uid)\n        && isPassenger()\n        && pad()\n',
+  ],
+  'application resubmit': [
+    '      allow update: if isOwner(uid)\n        && isPassenger()\n',
+    '      allow update: if isOwner(uid)\n        && isPassenger()\n        && pad()\n',
+  ],
+  'approve: application review': [
+    "      allow update: if isAdminReview()\n        && request.resource.data.status == 'approved'",
+    "      allow update: if isAdminReview()\n        && pad()\n        && request.resource.data.status == 'approved'",
+  ],
+  'approve: driver create': [
+    '        && isValidVehicleDetails(request.resource.data)\n        && request.resource.data.isVerified == true',
+    '        && isValidVehicleDetails(request.resource.data)\n        && pad()\n        && request.resource.data.isVerified == true',
+  ],
+  'vehicle edit': [
+    '        && isValidVehicleDetails(request.resource.data)\n        && request.resource.data.updatedAt == request.time',
+    '        && isValidVehicleDetails(request.resource.data)\n        && pad()\n        && request.resource.data.updatedAt == request.time',
   ],
   'reference free': [
     '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
@@ -441,6 +468,132 @@ const cashOut: Scenario = {
   },
 };
 
+// Vehicle identification (driverVerification.test.ts, adminDrivers.test.ts): the applicant's
+// submit and resubmit, the approval commit (application review + drivers create) and the
+// admin vehicle edit, each with every detail field present.
+const APPLICANT = 'vehicleApplicant';
+const APPLICANT_EMAIL = `${APPLICANT}@example.com`;
+const APPLICANT_MOBILE = '+639171234567';
+
+function applicationDoc(overrides: DocumentData = {}): DocumentData {
+  const image = (type: string) => ({
+    storagePath: `driverApplications/${APPLICANT}/${type}`,
+    downloadUrl: `https://firebasestorage.googleapis.com/v0/b/demo/o/${type}`,
+    fileName: `${type}.jpg`,
+    contentType: 'image/jpeg',
+    uploadedAt: Timestamp.now(),
+  });
+  return {
+    uid: APPLICANT,
+    firstName: 'Juan',
+    middleName: 'Santos',
+    lastName: 'Dela Cruz',
+    fullName: 'Juan Santos Dela Cruz',
+    email: APPLICANT_EMAIL,
+    mobileNumber: APPLICANT_MOBILE,
+    vehicleType: 'tricycle',
+    vehiclePlate: 'ABC 1234',
+    vehicleBrand: 'Honda',
+    vehicleModel: 'TMX 155',
+    vehicleColor: 'Red',
+    documents: { orCr: image('orCr'), ltoLicense: image('ltoLicense') },
+    status: 'pending',
+    adminRemarks: null,
+    submittedAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+    reviewedAt: null,
+    ...overrides,
+  };
+}
+
+const applicantUser = {
+  [`users/${APPLICANT}`]: { uid: APPLICANT, role: 'passenger', mobileNumber: APPLICANT_MOBILE, email: APPLICANT_EMAIL },
+};
+
+const applicationCreate: Scenario = {
+  label: 'driver application: submit',
+  targets: ['application create'],
+  run: async () => {
+    await seed(applicantUser);
+    const firestore = db(APPLICANT, { email: APPLICANT_EMAIL });
+    await setDoc(
+      doc(firestore, 'driverApplications', APPLICANT),
+      applicationDoc({ submittedAt: serverTimestamp(), updatedAt: serverTimestamp() }),
+    );
+  },
+};
+
+const applicationResubmit: Scenario = {
+  label: 'driver application: resubmit after rejection (new details)',
+  targets: ['application resubmit'],
+  run: async () => {
+    await seed({
+      ...applicantUser,
+      [`driverApplications/${APPLICANT}`]: applicationDoc({ status: 'rejected', adminRemarks: 'Blurry' }),
+    });
+    const firestore = db(APPLICANT, { email: APPLICANT_EMAIL });
+    await updateDoc(doc(firestore, 'driverApplications', APPLICANT), {
+      vehicleBrand: 'Yamaha',
+      vehicleModel: 'Sniper 155',
+      vehicleColor: 'Blue/White',
+      status: 'pending',
+      submittedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  },
+};
+
+const approval: Scenario = {
+  label: 'driver verification: approve (application review + drivers create, corrected details)',
+  targets: ['approve: application review', 'approve: driver create'],
+  run: async () => {
+    await seed({ ...applicantUser, [`driverApplications/${APPLICANT}`]: applicationDoc() });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'driverApplications', APPLICANT), {
+      status: 'approved',
+      adminRemarks: 'Documents verified.',
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(firestore, 'drivers', APPLICANT), {
+      fullName: 'Juan Santos Dela Cruz',
+      vehiclePlate: 'ABC 1234',
+      vehicleType: 'motorcycle',
+      vehicleBrand: 'Yamaha',
+      vehicleModel: 'Sniper 155',
+      vehicleColor: 'Blue/White',
+      isVerified: true,
+      isOnline: false,
+      isAvailable: false,
+      currentLocation: null,
+      currentBookingId: null,
+      currentRequestId: null,
+      rating: 0,
+      profileImage: null,
+    });
+    await batch.commit();
+  },
+};
+
+const vehicleEdit: Scenario = {
+  label: 'admin drivers: edit vehicle details (all five fields)',
+  targets: ['vehicle edit'],
+  run: async () => {
+    await seed({
+      [`drivers/${DRIVER}`]: { ...availableDriverRecord(), isOnline: false, isAvailable: false, vehiclePlate: 'GHI 9012' },
+    });
+    await updateDoc(doc(db(ADMIN, { admin: true }), 'drivers', DRIVER), {
+      vehicleType: 'motorcycle',
+      vehiclePlate: 'XYZ-987',
+      vehicleBrand: 'Yamaha',
+      vehicleModel: 'Sniper 155',
+      vehicleColor: 'Blue/White',
+      updatedAt: serverTimestamp(),
+    });
+  },
+};
+
 const SCENARIOS: Scenario[] = [
   completion('completion: no commission settings', () => tripDocs({ settings: null }), () => appWrites({ settings: null })),
   completion('completion: standard, first trip (account create)', () => tripDocs(), () => appWrites()),
@@ -496,12 +649,18 @@ const SCENARIOS: Scenario[] = [
   paymentConfirm('payment confirm: all closed periods paid (pointer cleared), ledger update', 900, null, true),
   paymentReject,
   cashOut,
+  applicationCreate,
+  applicationResubmit,
+  approval,
+  vehicleEdit,
 ];
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
 const ONLY_PAYMENTS = process.env.TRIGO_HEADROOM === 'payments';
 const ONLY_ENFORCEMENT = process.env.TRIGO_HEADROOM === 'enforcement';
 const ENFORCEMENT_LABELS = /^(T1 accept|propose|out-of-area claim|out-of-area confirm)/;
+const ONLY_VEHICLE = process.env.TRIGO_HEADROOM === 'vehicle';
+const VEHICLE_LABELS = /^(driver application|driver verification|admin drivers)/;
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -551,7 +710,8 @@ try {
   const selected = SCENARIOS.filter(
     (s) =>
       (!ONLY_PAYMENTS || s.label.startsWith('payment')) &&
-      (!ONLY_ENFORCEMENT || ENFORCEMENT_LABELS.test(s.label)),
+      (!ONLY_ENFORCEMENT || ENFORCEMENT_LABELS.test(s.label)) &&
+      (!ONLY_VEHICLE || VEHICLE_LABELS.test(s.label)),
   );
   for (const scenario of selected) {
     console.log(scenario.label);

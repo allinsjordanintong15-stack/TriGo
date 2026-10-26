@@ -44,7 +44,7 @@ import {
 
 export function SystemSettingsPage() {
   return (
-    <div className="stack">
+    <div className="stack page-narrow">
       <PageHeader title="System settings" subtitle="Out-of-area trips, TriGo's GCash account and support contacts." />
       <OutOfAreaSettingsCard />
       <PaymentAccountCard />
@@ -781,7 +781,7 @@ function SupportContactsCard() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th scope="col">Order</th>
+                  <th scope="col" className="num">Order</th>
                   <th scope="col">Label</th>
                   <th scope="col">Phone</th>
                   <th scope="col">Status</th>
@@ -793,7 +793,7 @@ function SupportContactsCard() {
               <tbody>
                 {contacts.map((contact) => (
                   <tr key={contact.id}>
-                    <td>{contact.sortOrder}</td>
+                    <td className="num">{contact.sortOrder}</td>
                     <td className="cell-strong">{contact.label}</td>
                     <td className="mono">{contact.phone}</td>
                     <td>

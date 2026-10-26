@@ -68,6 +68,18 @@ service cloud.firestore {
       return plate is string && plate.matches('^[A-Z0-9][A-Z0-9 -]{0,10}[A-Z0-9]$');
     }
 
+    // Brand (1–30) and model (1–40): letters, digits, spaces and . / + -, starting with a
+    // letter or digit. Color (1–20): letters, spaces, / and -, starting and ending with a
+    // letter. Passengers use them to spot their driver.
+    function isValidVehicleDetails(data) {
+      return data.vehicleBrand is string
+        && data.vehicleBrand.matches('^[A-Za-z0-9]([A-Za-z0-9 ./+-]{0,28}[A-Za-z0-9.])?$')
+        && data.vehicleModel is string
+        && data.vehicleModel.matches('^[A-Za-z0-9]([A-Za-z0-9 ./+-]{0,38}[A-Za-z0-9.])?$')
+        && data.vehicleColor is string
+        && data.vehicleColor.matches('^[A-Za-z]([A-Za-z /-]{0,18}[A-Za-z])?$');
+    }
+
     // Driver access needs both the `driver` role in users/{uid} and an admin-verified
     // record in drivers/{uid}. Only verified drivers may accept new bookings.
     function isVerifiedDriver() {
@@ -781,12 +793,17 @@ service cloud.firestore {
         );
 
       // Admin corrects the vehicle (Drivers page): only the type, the plate (same format
-      // as the driver application) and updatedAt. Refused while the driver is on a trip or
-      // holding an out-of-area request, so a live booking never sees its vehicle change.
+      // as the driver application), brand, model, color and updatedAt. The result must hold
+      // all three details, so a record from before they existed gets them on its first edit.
+      // Refused while the driver is on a trip or holding an out-of-area request, so a live
+      // booking never sees its vehicle change.
       allow update: if isAdmin()
-        && onlyChanged(['vehicleType', 'vehiclePlate', 'updatedAt'])
+        && onlyChanged([
+          'vehicleType', 'vehiclePlate', 'vehicleBrand', 'vehicleModel', 'vehicleColor', 'updatedAt'
+        ])
         && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
         && isValidVehiclePlate(request.resource.data.vehiclePlate)
+        && isValidVehicleDetails(request.resource.data)
         && request.resource.data.updatedAt == request.time
         && resource.data.get('currentBookingId', null) == null
         && resource.data.get('currentRequestId', null) == null;
@@ -829,23 +846,27 @@ service cloud.firestore {
 
       // An admin creates the record only in the commit that approves this driver's
       // pending application (driver verification on the Admin Website), with exactly
-      // these fields: name and plate from the application, a vehicle type the admin chose,
+      // these fields: name and plate from the application, a vehicle type, brand, model and
+      // color the admin checked (corrections allowed; older applications have no details),
       // verified, offline, no trip, no rating yet. users/{uid}.role stays 'passenger'.
       allow create: if isAdmin()
         && exists(applicationPath(driverId))
         && get(applicationPath(driverId)).data.status == 'pending'
         && getAfter(applicationPath(driverId)).data.status == 'approved'
         && request.resource.data.keys().hasAll([
-          'fullName', 'vehiclePlate', 'vehicleType', 'isVerified', 'isOnline', 'isAvailable',
+          'fullName', 'vehiclePlate', 'vehicleType', 'vehicleBrand', 'vehicleModel', 'vehicleColor',
+          'isVerified', 'isOnline', 'isAvailable',
           'currentLocation', 'currentBookingId', 'currentRequestId', 'rating', 'profileImage'
         ])
         && request.resource.data.keys().hasOnly([
-          'fullName', 'vehiclePlate', 'vehicleType', 'isVerified', 'isOnline', 'isAvailable',
+          'fullName', 'vehiclePlate', 'vehicleType', 'vehicleBrand', 'vehicleModel', 'vehicleColor',
+          'isVerified', 'isOnline', 'isAvailable',
           'currentLocation', 'currentBookingId', 'currentRequestId', 'rating', 'profileImage'
         ])
         && request.resource.data.fullName == get(applicationPath(driverId)).data.fullName
         && request.resource.data.vehiclePlate == get(applicationPath(driverId)).data.vehiclePlate
         && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
+        && isValidVehicleDetails(request.resource.data)
         && request.resource.data.isVerified == true
         && request.resource.data.isOnline == false
         && request.resource.data.isAvailable == false
@@ -904,6 +925,7 @@ service cloud.firestore {
           && data.mobileNumber == userDoc().data.mobileNumber
           && data.vehicleType in ['tricycle', 'motorcycle']
           && isValidVehiclePlate(data.vehiclePlate)
+          && isValidVehicleDetails(data)
           && hasValidDocuments(data);
       }
 
@@ -913,7 +935,7 @@ service cloud.firestore {
         && isPassenger()
         && request.resource.data.keys().hasOnly([
           'uid', 'firstName', 'middleName', 'lastName', 'fullName', 'email', 'mobileNumber',
-          'vehicleType', 'vehiclePlate', 'documents',
+          'vehicleType', 'vehiclePlate', 'vehicleBrand', 'vehicleModel', 'vehicleColor', 'documents',
           'status', 'adminRemarks', 'submittedAt', 'updatedAt', 'reviewedAt'
         ])
         && request.resource.data.uid == uid
@@ -925,14 +947,16 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
 
       // Controlled resubmission: only after an administrator rejected the application.
-      // uid, adminRemarks and reviewedAt cannot change.
+      // uid, adminRemarks and reviewedAt cannot change. An application from before the
+      // vehicle details existed gains them here (hasValidApplicantDetails requires them).
       allow update: if isOwner(uid)
         && isPassenger()
         && resource.data.status == 'rejected'
         && request.resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'firstName', 'middleName', 'lastName', 'fullName', 'email', 'mobileNumber',
-          'vehicleType', 'vehiclePlate', 'documents', 'status', 'submittedAt', 'updatedAt'
+          'vehicleType', 'vehiclePlate', 'vehicleBrand', 'vehicleModel', 'vehicleColor',
+          'documents', 'status', 'submittedAt', 'updatedAt'
         ])
         && hasValidApplicantDetails(request.resource.data)
         && request.resource.data.submittedAt == request.time

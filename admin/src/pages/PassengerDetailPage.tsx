@@ -125,7 +125,7 @@ export function PassengerDetailPage() {
                   <th scope="col">Type</th>
                   <th scope="col">Route</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Fare</th>
+                  <th scope="col" className="num">Fare</th>
                   <th scope="col">Payment</th>
                 </tr>
               </thead>
@@ -172,7 +172,7 @@ export function PassengerDetailPage() {
                         </div>
                       )}
                     </td>
-                    <td>{formatPeso(displayFare(booking))}</td>
+                    <td className="num">{formatPeso(displayFare(booking))}</td>
                     <td>{booking.paymentMethod ? PAYMENT_METHOD_LABELS[booking.paymentMethod] : '—'}</td>
                   </tr>
                 ))}

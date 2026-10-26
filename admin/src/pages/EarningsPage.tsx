@@ -405,9 +405,9 @@ export function EarningsPage() {
                 <tr>
                   <th scope="col">Submitted</th>
                   <th scope="col">Driver</th>
-                  <th scope="col">Amount</th>
+                  <th scope="col" className="num">Amount</th>
                   <th scope="col">GCash reference</th>
-                  <th scope="col">Driver balance</th>
+                  <th scope="col" className="num">Driver balance</th>
                   <th scope="col">
                     <span className="visually-hidden">Actions</span>
                   </th>
@@ -422,9 +422,9 @@ export function EarningsPage() {
                         {payment.driverName || '(no name)'}
                       </Link>
                     </td>
-                    <td className="cell-strong">{formatCentavos(payment.amountCentavos)}</td>
+                    <td className="num cell-strong">{formatCentavos(payment.amountCentavos)}</td>
                     <td className="mono">{payment.reference}</td>
-                    <td>{formatCentavos(balance(payment))}</td>
+                    <td className="num">{formatCentavos(balance(payment))}</td>
                     <td className="cell-action">
                       <button type="button" className="btn-primary" onClick={() => open('confirm', payment)}>
                         Confirm…
@@ -470,11 +470,11 @@ export function EarningsPage() {
                 <tr>
                   <th scope="col">Driver</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Balance</th>
-                  <th scope="col">Overdue</th>
+                  <th scope="col" className="num">Balance</th>
+                  <th scope="col" className="num">Overdue</th>
                   <th scope="col">Due by end of</th>
                   <th scope="col">Grace ends</th>
-                  <th scope="col">Paid / recorded</th>
+                  <th scope="col" className="num">Paid / recorded</th>
                 </tr>
               </thead>
               <tbody>
@@ -492,11 +492,11 @@ export function EarningsPage() {
                             {COMMISSION_STATUS_LABELS[summary.status]}
                           </span>
                         </td>
-                        <td className="cell-strong">{formatCentavos(summary.balanceCentavos)}</td>
-                        <td>{summary.overdueCentavos > 0 ? formatCentavos(summary.overdueCentavos) : '—'}</td>
+                        <td className="num cell-strong">{formatCentavos(summary.balanceCentavos)}</td>
+                        <td className="num">{summary.overdueCentavos > 0 ? formatCentavos(summary.overdueCentavos) : '—'}</td>
                         <td>{formatPeriodEndDay(summary.dueAtMillis)}</td>
                         <td>{formatPeriodEndDay(summary.graceEndsAtMillis)}</td>
-                        <td className="muted small">
+                        <td className="num muted small">
                           {formatCentavos(account.paidCentavos)} / {formatCentavos(account.accruedCentavos)}
                         </td>
                       </>
@@ -635,7 +635,7 @@ export function EarningsPage() {
                 <tr>
                   <th scope="col">Date moved</th>
                   <th scope="col">Method</th>
-                  <th scope="col">Amount</th>
+                  <th scope="col" className="num">Amount</th>
                   <th scope="col">Reference</th>
                   <th scope="col">Note</th>
                   <th scope="col">Recorded</th>
@@ -646,7 +646,7 @@ export function EarningsPage() {
                   <tr key={cashOut.cashOutId}>
                     <td>{formatIsoDay(cashOut.cashedOutOn)}</td>
                     <td>{cashOut.method ? CASH_OUT_METHOD_LABELS[cashOut.method] : '—'}</td>
-                    <td className="cell-strong">{formatCentavos(cashOut.amountCentavos)}</td>
+                    <td className="num cell-strong">{formatCentavos(cashOut.amountCentavos)}</td>
                     <td className="mono">{cashOut.reference}</td>
                     <td className="small">{cashOut.note || '—'}</td>
                     <td className="muted small">{formatDateTime(cashOut.createdAt)}</td>

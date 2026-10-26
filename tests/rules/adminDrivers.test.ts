@@ -19,6 +19,7 @@ import {
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -63,6 +64,9 @@ function driverRecord(overrides: DocumentData = {}): DocumentData {
     fullName: 'Carlo Bautista',
     vehiclePlate: 'GHI 9012',
     vehicleType: 'tricycle',
+    vehicleBrand: 'Honda',
+    vehicleModel: 'TMX 155',
+    vehicleColor: 'Red',
     isVerified: true,
     isOnline: true,
     isAvailable: true,
@@ -339,16 +343,86 @@ describe('admin drivers: the revoked driver in the app', () => {
 
 /** What admin/src/drivers/drivers.ts updateDriverVehicle writes. */
 function vehicleEdit(overrides: DocumentData = {}): DocumentData {
-  return { vehicleType: 'motorcycle', vehiclePlate: 'XYZ-987', updatedAt: serverTimestamp(), ...overrides };
+  return {
+    vehicleType: 'motorcycle',
+    vehiclePlate: 'XYZ-987',
+    vehicleBrand: 'Yamaha',
+    vehicleModel: 'Sniper 155',
+    vehicleColor: 'Blue/White',
+    updatedAt: serverTimestamp(),
+    ...overrides,
+  };
+}
+
+const VEHICLE_DETAIL_FIELDS = ['vehicleBrand', 'vehicleModel', 'vehicleColor'] as const;
+
+/** A driver record approved before the vehicle details existed. */
+function legacyDriverRecord(overrides: DocumentData = {}): DocumentData {
+  const record = driverRecord(overrides);
+  for (const field of VEHICLE_DETAIL_FIELDS) delete record[field];
+  return record;
 }
 
 describe('admin drivers: edit vehicle details', () => {
-  it('lets an admin change the vehicle type and plate', async () => {
+  it('lets an admin change the vehicle type, plate, brand, model and color', async () => {
     await assertSucceeds(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit()));
     const after = await read(`drivers/${DRIVER}`);
-    if (after?.vehicleType !== 'motorcycle' || after.vehiclePlate !== 'XYZ-987') {
+    if (
+      after?.vehicleType !== 'motorcycle' ||
+      after.vehiclePlate !== 'XYZ-987' ||
+      after.vehicleBrand !== 'Yamaha' ||
+      after.vehicleModel !== 'Sniper 155' ||
+      after.vehicleColor !== 'Blue/White'
+    ) {
       throw new Error('vehicle should be updated');
     }
+  });
+
+  it('lets an admin change only the brand, model or color', async () => {
+    const unchanged = { vehicleType: 'tricycle', vehiclePlate: 'GHI 9012' };
+    await assertSucceeds(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ ...unchanged, vehicleBrand: 'Honda', vehicleModel: 'TMX 155' })));
+    await assertSucceeds(
+      updateDoc(doc(adminDb(), 'drivers', DRIVER), { vehicleColor: 'Maroon', updatedAt: serverTimestamp() }),
+    );
+  });
+
+  it('requires a valid brand (1–30), model (1–40) and color (1–20)', async () => {
+    const invalid: Record<(typeof VEHICLE_DETAIL_FIELDS)[number], unknown[]> = {
+      vehicleBrand: ['', ' Honda', 'Honda ', 'Hon<da', 'B'.repeat(31), 42, null],
+      vehicleModel: ['', 'TMX_155', 'TMX 155 ', 'M'.repeat(41), 155, null],
+      vehicleColor: ['', 'Red1', 'Red ', '-Red', 'C'.repeat(21), true, null],
+    };
+    for (const field of VEHICLE_DETAIL_FIELDS) {
+      for (const value of invalid[field]) {
+        await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ [field]: value })));
+      }
+    }
+    await assertSucceeds(
+      updateDoc(
+        doc(adminDb(), 'drivers', DRIVER),
+        vehicleEdit({ vehicleBrand: 'B'.repeat(30), vehicleModel: 'M'.repeat(40), vehicleColor: 'C'.repeat(20) }),
+      ),
+    );
+  });
+
+  it('makes an admin fill in the details when editing a driver approved before they existed', async () => {
+    await seed({ [`drivers/${DRIVER}`]: legacyDriverRecord() });
+    await assertFails(
+      updateDoc(doc(adminDb(), 'drivers', DRIVER), { vehicleType: 'tricycle', vehiclePlate: 'GHI 9013', updatedAt: serverTimestamp() }),
+    );
+    await assertFails(
+      updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ vehicleColor: deleteField() })),
+    );
+    await assertSucceeds(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit()));
+  });
+
+  it('denies removing a detail from a driver that has them', async () => {
+    await assertFails(updateDoc(doc(adminDb(), 'drivers', DRIVER), vehicleEdit({ vehicleModel: deleteField() })));
+  });
+
+  it('lets signed-in users read the details on a verified driver', async () => {
+    const snapshot = await assertSucceeds(getDoc(doc(db(PASSENGER), 'drivers', DRIVER)));
+    if (snapshot.data()?.vehicleColor !== 'Red') throw new Error('details should be readable');
   });
 
   it('lets an admin change only the plate, or fix an invalid stored type, on a revoked driver too', async () => {
@@ -403,5 +477,7 @@ describe('admin drivers: edit vehicle details', () => {
     await assertFails(updateDoc(doc(db(PASSENGER), 'drivers', DRIVER), vehicleEdit()));
     await assertFails(updateDoc(doc(db(DRIVER), 'drivers', DRIVER), vehicleEdit()));
     await assertFails(updateDoc(doc(db(DRIVER), 'drivers', DRIVER), { vehiclePlate: 'NEW 1', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(db(DRIVER), 'drivers', DRIVER), { vehicleColor: 'Blue', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(db(DRIVER), 'drivers', DRIVER), { vehicleBrand: 'Yamaha' }));
   });
 });

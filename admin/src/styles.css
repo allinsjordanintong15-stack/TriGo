@@ -24,6 +24,19 @@
   --space-lg: 24px;
   --space-xl: 32px;
 
+  /* One spacing scale for the whole site: card padding (compact for stat tiles and small
+     cards), the gap between stacked sections, and table cell padding. */
+  --card-padding: 24px;
+  --card-padding-compact: 16px;
+  --section-gap: 24px;
+  --cell-padding-y: 10px;
+  --cell-padding-x: 12px;
+  /* Page width: wide enough for tables on large screens; forms and settings stay narrower. */
+  --content-max-width: 1440px;
+  --form-max-width: 960px;
+  /* Readable line length for paragraphs inside wide cards. */
+  --text-max-width: 80ch;
+
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -67,7 +80,38 @@ h2 {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
-  padding: var(--space-lg);
+  padding: var(--card-padding);
+}
+
+/* The card's padding is the only space at its top and bottom edges. */
+.card > :first-child {
+  margin-top: 0;
+}
+
+.card > :last-child {
+  margin-bottom: 0;
+}
+
+/* One heading style for every card (section titles, chart titles). */
+.card h3,
+.chart-title h4 {
+  margin: 0 0 var(--space-sm);
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--color-primary-dark);
+}
+
+.card > p {
+  max-width: var(--text-max-width);
+}
+
+/* Form fields stacked in a card or form get the same gap as everywhere else. */
+:is(.card, form) > .field + .field,
+:is(.card, form) > .field + .fare-grid,
+:is(.card, form) > .fare-grid + .field,
+:is(.card, form) > .fare-grid + .fare-grid {
+  margin-top: var(--space-md);
 }
 
 .login-card {
@@ -425,7 +469,39 @@ h2 {
 .content {
   margin-left: var(--sidebar-width);
   padding: var(--space-lg);
-  max-width: 1200px;
+  max-width: var(--content-max-width);
+}
+
+.page-narrow {
+  max-width: var(--form-max-width);
+}
+
+/* Tablets and small laptops (768–1024px): narrower sidebar, 2–3 stat tiles per row and
+   chart pairs stacked. */
+@media (min-width: 768px) and (max-width: 1024px) {
+  /* 232px with 14px links keeps every label whole ("Reports & Complaints" + badge). */
+  .shell {
+    --sidebar-width: 232px;
+  }
+
+  .sidebar-nav a {
+    font-size: 14px;
+    gap: 8px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .account-email {
+    font-size: 12px;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .mobile-bar,
@@ -492,6 +568,11 @@ h2 {
     margin-left: 0;
     padding: var(--space-md);
   }
+
+  :root {
+    --card-padding: 16px;
+    --section-gap: 16px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -503,7 +584,7 @@ h2 {
 .stack {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
+  gap: var(--section-gap);
 }
 
 .small {
@@ -675,7 +756,11 @@ h2 {
   font-weight: 600;
 }
 
+/* position: relative makes this the containing block of absolutely positioned content
+   (e.g. a visually hidden column header), so it is clipped here instead of widening the
+   whole page. */
 .table-scroll {
+  position: relative;
   width: 100%;
   overflow-x: auto;
 }
@@ -689,16 +774,12 @@ h2 {
 .tariff-table th,
 .tariff-table td {
   text-align: left;
-  padding: var(--space-sm);
+  padding: var(--cell-padding-y) var(--cell-padding-x);
   border-bottom: 1px solid var(--color-border);
   vertical-align: top;
 }
 
-.tariff-table thead th {
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  font-weight: 600;
-}
+
 
 .tariff-table tbody th {
   font-weight: 600;
@@ -885,7 +966,8 @@ h3 {
   margin-bottom: var(--space-sm);
 }
 
-.card-header h2 {
+.card-header h2,
+.card-header h3 {
   margin: 0;
 }
 
@@ -907,15 +989,24 @@ h3 {
 .data-table th,
 .data-table td {
   text-align: left;
-  padding: var(--space-sm);
+  padding: var(--cell-padding-y) var(--cell-padding-x);
   border-bottom: 1px solid var(--color-border);
   vertical-align: top;
 }
 
-.data-table thead th {
-  font-size: 13px;
+/* One header style for every table. */
+.data-table thead th,
+.tariff-table thead th {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--color-text-secondary);
-  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.data-table tbody tr:hover > * {
+  background: #f4f8f5;
 }
 
 .data-table .tag {
@@ -1078,6 +1169,12 @@ h3 {
   gap: var(--space-md);
 }
 
+/* The panel's gap is the only space between its parts. */
+.review-panel > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
 .review-panel button {
   align-self: flex-start;
 }
@@ -1115,7 +1212,7 @@ h3 {
 }
 
 .stat-card {
-  padding: var(--space-md);
+  padding: var(--card-padding-compact);
 }
 
 .stat-label {
@@ -1423,7 +1520,7 @@ button.btn-link:disabled {
   color: var(--color-error);
 }
 
-.complaint-message-title {
+.card .complaint-message-title {
   margin-top: var(--space-lg);
 }
 
@@ -1453,6 +1550,7 @@ button.btn-link:disabled {
 
 .page-subtitle {
   margin: var(--space-xs) 0 0;
+  max-width: var(--text-max-width);
   color: var(--color-text-secondary);
 }
 
@@ -1543,7 +1641,7 @@ button.btn-link:disabled {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 12px var(--space-md);
+  padding: 12px var(--card-padding-compact);
 }
 
 .attention-waiting {
@@ -1606,7 +1704,7 @@ button.btn-link:disabled {
 }
 
 .tile-panel {
-  padding: var(--space-md);
+  padding: var(--card-padding-compact);
 }
 
 /* Always 4 equal tiles in one row; labels stay on one line (full wording in the tooltip). */
@@ -1665,7 +1763,7 @@ button.btn-link:disabled {
 }
 
 .dashboard-charts > .card {
-  padding: var(--space-md);
+  padding: var(--card-padding-compact);
 }
 
 .chart-title {
@@ -1677,7 +1775,6 @@ button.btn-link:disabled {
 
 .chart-title h4 {
   margin: 0;
-  font-size: 15px;
 }
 
 .dashboard-charts .chart {
@@ -1695,11 +1792,6 @@ button.btn-link:disabled {
   .dashboard-bottom {
     grid-template-columns: minmax(0, 1fr);
   }
-}
-
-.dashboard-bottom h3 {
-  margin: 0 0 var(--space-sm);
-  font-size: 15px;
 }
 
 .recent-table {

@@ -408,7 +408,7 @@ export function DriverDetailPage() {
                   <th scope="col">Type</th>
                   <th scope="col">Route</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Fare</th>
+                  <th scope="col" className="num">Fare</th>
                   <th scope="col">Payment</th>
                   <th scope="col">
                     <span className="visually-hidden">Passenger</span>
@@ -450,7 +450,7 @@ export function DriverDetailPage() {
                         </div>
                       )}
                     </td>
-                    <td>{formatPeso(displayFare(trip))}</td>
+                    <td className="num">{formatPeso(displayFare(trip))}</td>
                     <td>{trip.paymentMethod ? PAYMENT_METHOD_LABELS[trip.paymentMethod] : '—'}</td>
                     <td className="cell-action">
                       {trip.passengerId && (

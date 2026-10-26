@@ -115,7 +115,7 @@ export function CommissionPage() {
 
   if (loadError) {
     return (
-      <div className="stack">
+      <div className="stack page-narrow">
         <PageHeader title="Commission" />
         <div className="alert-error" role="alert">
           {loadError}
@@ -176,7 +176,7 @@ export function CommissionPage() {
   const examplePercentage = parsed?.percentage ?? null;
 
   return (
-    <div className="stack">
+    <div className="stack page-narrow">
       <PageHeader
         title="Commission"
         subtitle="A percentage of every completed trip's final fare, paid by drivers each period."

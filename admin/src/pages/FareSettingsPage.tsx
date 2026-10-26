@@ -95,7 +95,7 @@ export function FareSettingsPage() {
 
   if (loadError) {
     return (
-      <div className="stack">
+      <div className="stack page-narrow">
         <PageHeader title="Fare settings" />
         <div className="alert-error" role="alert">
           {loadError}
@@ -152,7 +152,7 @@ export function FareSettingsPage() {
   }
 
   return (
-    <div className="stack">
+    <div className="stack page-narrow">
       <PageHeader title="Fare settings" subtitle="Per-km fare per vehicle type. Out-of-area trips use the same rates." />
 
       <div className="card">

@@ -61,7 +61,7 @@ export function DriverApplicationPage() {
 
   if (loadError) {
     return (
-      <div className="stack">
+      <div className="stack page-narrow">
         {backLink}
         <div className="alert-error" role="alert">
           {loadError}
@@ -80,7 +80,7 @@ export function DriverApplicationPage() {
 
   if (application === null) {
     return (
-      <div className="stack">
+      <div className="stack page-narrow">
         {backLink}
         <PageHeader title="Application not found" subtitle="There is no driver application for this account." />
       </div>
@@ -128,7 +128,7 @@ export function DriverApplicationPage() {
   }
 
   return (
-    <div className="stack">
+    <div className="stack page-narrow">
       {backLink}
 
       <PageHeader

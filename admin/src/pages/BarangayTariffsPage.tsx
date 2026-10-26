@@ -121,7 +121,7 @@ export function BarangayTariffsPage() {
 
   if (loadError) {
     return (
-      <div className="stack">
+      <div className="stack page-narrow">
         <PageHeader title="Barangay tariffs" />
         <div className="alert-error" role="alert">
           {loadError}
@@ -175,7 +175,7 @@ export function BarangayTariffsPage() {
   }
 
   return (
-    <div className="stack">
+    <div className="stack page-narrow">
       <PageHeader
         title="Barangay tariffs"
         subtitle="Fixed fare between Poblacion and each barangay, per vehicle. Blank or inactive barangays use the per-km fare."
