@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { VehicleSelector } from '@/components/home/VehicleSelector';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { DocumentImageField } from '@/components/profile/DocumentImageField';
+import { VehicleColorField } from '@/components/profile/VehicleColorField';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
@@ -26,8 +27,14 @@ import { validateMobileNumber } from '@/validations/auth';
 import {
   normalizePersonName,
   normalizeVehiclePlate,
+  normalizeVehicleText,
   validatePersonName,
+  validateVehicleBrand,
+  validateVehicleColor,
+  validateVehicleModel,
   validateVehiclePlate,
+  VEHICLE_BRAND_MAX_LENGTH,
+  VEHICLE_MODEL_MAX_LENGTH,
 } from '@/validations/driverApplication';
 import { router } from 'expo-router';
 import { ReactNode, useState } from 'react';
@@ -50,6 +57,18 @@ const DOCUMENT_DESCRIPTIONS: Record<DriverApplicationDocumentType, string> = {
 };
 
 const DOCUMENT_TYPES: DriverApplicationDocumentType[] = ['orCr', 'ltoLicense'];
+
+type VehicleDetails = { vehicleBrand: string; vehicleModel: string; vehicleColor: string };
+
+const EMPTY_VEHICLE_DETAILS: VehicleDetails = { vehicleBrand: '', vehicleModel: '', vehicleColor: '' };
+
+function validateVehicleDetails(details: VehicleDetails): Record<keyof VehicleDetails, string | null> {
+  return {
+    vehicleBrand: validateVehicleBrand(details.vehicleBrand),
+    vehicleModel: validateVehicleModel(details.vehicleModel),
+    vehicleColor: validateVehicleColor(details.vehicleColor),
+  };
+}
 
 function formatVehicleType(vehicleType: VehicleType | null): string {
   return vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) : '—';
@@ -150,6 +169,8 @@ export default function DriverApplicationScreen() {
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [plateError, setPlateError] = useState('');
   const [vehicleTypeError, setVehicleTypeError] = useState('');
+  const [vehicleDetails, setVehicleDetails] = useState<VehicleDetails>(EMPTY_VEHICLE_DETAILS);
+  const [vehicleDetailErrors, setVehicleDetailErrors] = useState<Record<string, string>>({});
   const [documents, setDocuments] = useState<DocumentState>({ orCr: null, ltoLicense: null });
   const [documentErrors, setDocumentErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -191,6 +212,13 @@ export default function DriverApplicationScreen() {
           });
           setVehicleType(application.vehicleType);
           setVehiclePlate(application.vehiclePlate);
+          // Empty for applications submitted before these were required.
+          setVehicleDetails({
+            vehicleBrand: application.vehicleBrand ?? '',
+            vehicleModel: application.vehicleModel ?? '',
+            vehicleColor: application.vehicleColor ?? '',
+          });
+          setVehicleDetailErrors({});
           // Previously uploaded images can be kept or replaced.
           setDocuments({
             orCr: application.documents.orCr
@@ -220,7 +248,11 @@ export default function DriverApplicationScreen() {
     !nameValidation.lastName &&
     email.length > 0 &&
     mobileValid;
-  const vehicleComplete = vehicleType !== null && validateVehiclePlate(vehiclePlate) === null;
+  const vehicleDetailValidation = validateVehicleDetails(vehicleDetails);
+  const vehicleComplete =
+    vehicleType !== null &&
+    validateVehiclePlate(vehiclePlate) === null &&
+    Object.values(vehicleDetailValidation).every((message) => message === null);
   const documentsComplete = documents.orCr !== null && documents.ltoLicense !== null;
   const canSubmit = personalComplete && vehicleComplete && documentsComplete && !submitting;
 
@@ -257,13 +289,28 @@ export default function DriverApplicationScreen() {
     setStep(1);
   }
 
+  function updateVehicleDetail(field: keyof VehicleDetails, value: string) {
+    setVehicleDetails((current) => ({ ...current, [field]: value }));
+    setVehicleDetailErrors((current) => ({ ...current, [field]: '' }));
+  }
+
   function handleVehicleNext() {
     const typeError = vehicleType ? '' : 'Please choose your vehicle type.';
     const plateValidation = validateVehiclePlate(vehiclePlate) ?? '';
+    const detailErrors: Record<string, string> = {};
+    for (const [field, message] of Object.entries(vehicleDetailValidation)) {
+      if (message) detailErrors[field] = message;
+    }
     setVehicleTypeError(typeError);
     setPlateError(plateValidation);
-    if (typeError || plateValidation) return;
+    setVehicleDetailErrors(detailErrors);
+    if (typeError || plateValidation || Object.keys(detailErrors).length > 0) return;
     setVehiclePlate(normalizeVehiclePlate(vehiclePlate));
+    setVehicleDetails({
+      vehicleBrand: normalizeVehicleText(vehicleDetails.vehicleBrand),
+      vehicleModel: normalizeVehicleText(vehicleDetails.vehicleModel),
+      vehicleColor: normalizeVehicleText(vehicleDetails.vehicleColor),
+    });
     setStep(2);
   }
 
@@ -288,6 +335,7 @@ export default function DriverApplicationScreen() {
         ...names,
         vehicleType,
         vehiclePlate,
+        ...vehicleDetails,
         documents,
       });
       // The live application listener switches this screen to the Pending status view.
@@ -433,6 +481,32 @@ export default function DriverApplicationScreen() {
               placeholder="e.g. 123 ABC"
               maxLength={12}
             />
+            <TextInputField
+              label="Brand"
+              value={vehicleDetails.vehicleBrand}
+              onChangeText={(text) => updateVehicleDetail('vehicleBrand', text)}
+              error={vehicleDetailErrors.vehicleBrand}
+              autoCapitalize="words"
+              placeholder="e.g. Honda"
+              maxLength={VEHICLE_BRAND_MAX_LENGTH}
+            />
+            <TextInputField
+              label="Model"
+              value={vehicleDetails.vehicleModel}
+              onChangeText={(text) => updateVehicleDetail('vehicleModel', text)}
+              error={vehicleDetailErrors.vehicleModel}
+              autoCapitalize="words"
+              placeholder="e.g. TMX 155"
+              maxLength={VEHICLE_MODEL_MAX_LENGTH}
+            />
+            <VehicleColorField
+              value={vehicleDetails.vehicleColor}
+              onChange={(color) => updateVehicleDetail('vehicleColor', color)}
+              error={vehicleDetailErrors.vehicleColor}
+            />
+            <Text style={styles.vehicleNote}>
+              Passengers see your vehicle&apos;s color, brand, model and plate so they can find you.
+            </Text>
             <Button title="Next: Documents" onPress={handleVehicleNext} />
           </>
         ) : null}
@@ -487,6 +561,18 @@ export default function DriverApplicationScreen() {
               <CheckItem
                 label={`Plate number: ${vehiclePlate || '—'}`}
                 done={validateVehiclePlate(vehiclePlate) === null}
+              />
+              <CheckItem
+                label={`Brand: ${vehicleDetails.vehicleBrand || '—'}`}
+                done={vehicleDetailValidation.vehicleBrand === null}
+              />
+              <CheckItem
+                label={`Model: ${vehicleDetails.vehicleModel || '—'}`}
+                done={vehicleDetailValidation.vehicleModel === null}
+              />
+              <CheckItem
+                label={`Color: ${vehicleDetails.vehicleColor || '—'}`}
+                done={vehicleDetailValidation.vehicleColor === null}
               />
             </ReviewSection>
 
@@ -614,6 +700,9 @@ function ApplicationStatusView({
           <Row label="Mobile number" value={application.mobileNumber} />
           <Row label="Vehicle type" value={formatVehicleType(application.vehicleType)} />
           <Row label="Plate number" value={application.vehiclePlate} />
+          {application.vehicleBrand ? <Row label="Brand" value={application.vehicleBrand} /> : null}
+          {application.vehicleModel ? <Row label="Model" value={application.vehicleModel} /> : null}
+          {application.vehicleColor ? <Row label="Color" value={application.vehicleColor} /> : null}
           <Row label="Submitted" value={formatDate(application.submittedAt)} />
           <Row label="Reviewed" value={formatDate(application.reviewedAt)} last />
         </View>
@@ -799,6 +888,12 @@ const styles = StyleSheet.create({
     color: colors.error,
     marginTop: spacing.xs,
     marginBottom: spacing.sm,
+  },
+  vehicleNote: {
+    ...typography.caption,
+    color: colors.textMuted,
+    lineHeight: 18,
+    marginBottom: spacing.md,
   },
   disclaimer: {
     ...typography.caption,

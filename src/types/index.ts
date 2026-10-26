@@ -137,6 +137,10 @@ export interface DriverApplication {
   mobileNumber: string;
   vehicleType: VehicleType;
   vehiclePlate: string;
+  /** Null on applications submitted before brand, model and color were required. */
+  vehicleBrand: string | null;
+  vehicleModel: string | null;
+  vehicleColor: string | null;
   documents: DriverApplicationDocuments;
   status: DriverApplicationStatus;
   adminRemarks: string | null;

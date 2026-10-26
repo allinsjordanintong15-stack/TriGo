@@ -11,8 +11,12 @@ import { validateMobileNumber } from '@/validations/auth';
 import {
   normalizePersonName,
   normalizeVehiclePlate,
+  normalizeVehicleText,
   validateDocumentImage,
   validatePersonName,
+  validateVehicleBrand,
+  validateVehicleColor,
+  validateVehicleModel,
   validateVehiclePlate,
 } from '@/validations/driverApplication';
 import {
@@ -56,6 +60,9 @@ export interface DriverApplicationInput {
   lastName: string;
   vehicleType: VehicleType;
   vehiclePlate: string;
+  vehicleBrand: string;
+  vehicleModel: string;
+  vehicleColor: string;
   documents: Record<DriverApplicationDocumentType, ApplicationDocumentImage | null>;
 }
 
@@ -127,6 +134,10 @@ export function docToDriverApplication(uid: string, data: DocumentData): DriverA
     mobileNumber: data.mobileNumber ?? '',
     vehicleType: data.vehicleType as VehicleType,
     vehiclePlate: data.vehiclePlate ?? '',
+    // Missing on applications submitted before these were required.
+    vehicleBrand: typeof data.vehicleBrand === 'string' ? data.vehicleBrand : null,
+    vehicleModel: typeof data.vehicleModel === 'string' ? data.vehicleModel : null,
+    vehicleColor: typeof data.vehicleColor === 'string' ? data.vehicleColor : null,
     documents: {
       orCr: toApplicationDocument(documents.orCr),
       ltoLicense: toApplicationDocument(documents.ltoLicense),
@@ -196,6 +207,9 @@ function validateInput(user: User, email: string, input: DriverApplicationInput)
       ? 'Please add a valid mobile number in Edit Profile before applying.'
       : null) ??
     validateVehiclePlate(input.vehiclePlate) ??
+    validateVehicleBrand(input.vehicleBrand) ??
+    validateVehicleModel(input.vehicleModel) ??
+    validateVehicleColor(input.vehicleColor) ??
     (input.documents.orCr ? null : 'Please add a photo of your OR/CR.') ??
     (input.documents.ltoLicense ? null : "Please add a photo of your LTO-verified driver's license.")
   );
@@ -272,6 +286,9 @@ export async function submitDriverApplication(
     mobileNumber: user.mobileNumber,
     vehicleType: input.vehicleType,
     vehiclePlate: normalizeVehiclePlate(input.vehiclePlate),
+    vehicleBrand: normalizeVehicleText(input.vehicleBrand),
+    vehicleModel: normalizeVehicleText(input.vehicleModel),
+    vehicleColor: normalizeVehicleText(input.vehicleColor),
     documents,
     status: 'pending' as const,
     submittedAt: serverTimestamp(),
