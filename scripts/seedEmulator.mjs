@@ -63,7 +63,9 @@ function documentEntry(uid, type) {
   };
 }
 
-async function seedApplicant({ email, firstName, middleName, lastName, mobileNumber, vehicleType, vehiclePlate, status, adminRemarks, submittedMinutesAgo }) {
+// vehicle: { vehicleBrand, vehicleModel, vehicleColor }, or null for an application
+// submitted before those were required (the admin enters them when approving).
+async function seedApplicant({ email, firstName, middleName, lastName, mobileNumber, vehicleType, vehiclePlate, vehicle, status, adminRemarks, submittedMinutesAgo }) {
   const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
   const user = await createUser(email, fullName);
   const uid = user.uid;
@@ -87,6 +89,7 @@ async function seedApplicant({ email, firstName, middleName, lastName, mobileNum
     mobileNumber,
     vehicleType,
     vehiclePlate,
+    ...(vehicle ?? {}),
     documents: { orCr: documentEntry(uid, 'orCr'), ltoLicense: documentEntry(uid, 'ltoLicense') },
     status,
     adminRemarks,
@@ -94,7 +97,7 @@ async function seedApplicant({ email, firstName, middleName, lastName, mobileNum
     updatedAt: minutesAgo(submittedMinutesAgo),
     reviewedAt: status === 'pending' && !adminRemarks ? null : minutesAgo(submittedMinutesAgo + 60),
   });
-  return { uid, fullName, status };
+  return { uid, fullName, status, legacy: !vehicle };
 }
 
 const admin = await createUser('admin@trigo.test', 'TriGo Admin');
@@ -109,6 +112,7 @@ const seeded = [
     mobileNumber: '+639171234567',
     vehicleType: 'tricycle',
     vehiclePlate: 'ABC 1234',
+    vehicle: { vehicleBrand: 'Honda', vehicleModel: 'TMX 155', vehicleColor: 'Red' },
     status: 'pending',
     adminRemarks: null,
     submittedMinutesAgo: 45,
@@ -121,6 +125,8 @@ const seeded = [
     mobileNumber: '+639181234567',
     vehicleType: 'motorcycle',
     vehiclePlate: '123 XYZ',
+    // Submitted before brand, model and color were required.
+    vehicle: null,
     status: 'pending',
     // Resubmitted after a rejection: the old remarks stay until the next review.
     adminRemarks: 'The OR/CR photo was blurry. Please upload a clearer photo.',
@@ -134,6 +140,8 @@ const seeded = [
     mobileNumber: '+639191234567',
     vehicleType: 'tricycle',
     vehiclePlate: 'DEF 5678',
+    // A color outside the app's chips, to check "Other" on resubmission.
+    vehicle: { vehicleBrand: 'Kawasaki', vehicleModel: 'Barako II', vehicleColor: 'Blue/White' },
     status: 'rejected',
     adminRemarks: 'License is expired.',
     submittedMinutesAgo: 300,
@@ -176,6 +184,9 @@ await db.doc(`drivers/${carloUid}`).set({
   fullName: 'Carlo Bautista',
   vehiclePlate: 'GHI 9012',
   vehicleType: 'tricycle',
+  vehicleBrand: 'Honda',
+  vehicleModel: 'TMX 155',
+  vehicleColor: 'Red',
   isVerified: true,
   isOnline: false,
   isAvailable: false,
@@ -198,6 +209,9 @@ await db.doc(`drivers/${bellaUid}`).set({
   fullName: 'Bella Cruz',
   vehiclePlate: 'JKL 3456',
   vehicleType: 'motorcycle',
+  vehicleBrand: 'Yamaha',
+  vehicleModel: 'Mio i 125',
+  vehicleColor: 'Black',
   isVerified: true,
   isOnline: true,
   isAvailable: true,
@@ -219,6 +233,9 @@ await db.doc(`drivers/${danteUid}`).set({
   fullName: 'Dante Reyes',
   vehiclePlate: 'MNO 7890',
   vehicleType: 'tricycle',
+  vehicleBrand: 'Rusi',
+  vehicleModel: 'Classic 250',
+  vehicleColor: 'Green',
   isVerified: false,
   isOnline: false,
   isAvailable: false,
@@ -364,12 +381,15 @@ await db.doc('paymentSettings/active').set({
   updatedBy: admin.uid,
 });
 
-async function seedVerifiedDriver({ email, fullName, mobileNumber, vehiclePlate }) {
+// vehicle: { vehicleBrand, vehicleModel, vehicleColor }, or null for a driver approved
+// before those existed (passengers then see only the vehicle type and plate).
+async function seedVerifiedDriver({ email, fullName, mobileNumber, vehiclePlate, vehicle }) {
   const uid = await seedUser({ email, fullName, mobileNumber, role: 'driver', createdMinutesAgo: 60 * DAY });
   await db.doc(`drivers/${uid}`).set({
     fullName,
     vehiclePlate,
     vehicleType: 'tricycle',
+    ...(vehicle ?? {}),
     isVerified: true,
     isOnline: true,
     isAvailable: true,
@@ -387,12 +407,14 @@ const eduardoUid = await seedVerifiedDriver({
   fullName: 'Eduardo Ramos',
   mobileNumber: '+639241234567',
   vehiclePlate: 'PQR 2468',
+  vehicle: null,
 });
 const felixUid = await seedVerifiedDriver({
   email: 'felix@trigo.test',
   fullName: 'Felix Navarro',
   mobileNumber: '+639251234567',
   vehiclePlate: 'STU 1357',
+  vehicle: { vehicleBrand: 'Suzuki', vehicleModel: 'Smash 115', vehicleColor: 'Silver' },
 });
 
 // A completed trip for commission only (Carlo's trips are the bookings seeded above).
@@ -554,8 +576,8 @@ await db.doc('earningsLedger/totals').set({
 
 console.log(`Seeded the emulators (project ${PROJECT_ID}):`);
 console.log(`  admin     admin@trigo.test / ${PASSWORD}  (admin claim)`);
-for (const { fullName, status } of seeded) {
-  console.log(`  ${status.padEnd(10)}${fullName}  (applicant, password ${PASSWORD})`);
+for (const { fullName, status, legacy } of seeded) {
+  console.log(`  ${status.padEnd(10)}${fullName}  (applicant${legacy ? ', no brand/model/color' : ''}, password ${PASSWORD})`);
 }
 console.log(`  passenger Ana Santos  (12 bookings, password ${PASSWORD})`);
 console.log(`  driver    Carlo Bautista  (verified, password ${PASSWORD})`);
@@ -564,7 +586,7 @@ console.log(`  driver    Dante Reyes  (revoked, password ${PASSWORD})`);
 console.log('  5 out-of-area requests (confirmed, open, expired, cancelled, cancelled 10 days ago)');
 console.log('  3 support contacts (2 active, 1 hidden)');
 console.log('  3 complaints (open, in review, resolved)');
-console.log(`  driver    Eduardo Ramos  (verified, online, password ${PASSWORD})`);
+console.log(`  driver    Eduardo Ramos  (verified, online, no brand/model/color, password ${PASSWORD})`);
 console.log(`  driver    Felix Navarro  (verified, online, password ${PASSWORD})`);
 console.log('  commission 10%, 7-day periods, 3 grace days; TriGo GCash 09171234567');
 console.log('    Carlo due, Bella paid up, Eduardo overdue (in grace), Felix suspended');

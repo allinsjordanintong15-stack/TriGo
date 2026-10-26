@@ -12,10 +12,12 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../firebase/config';
+import { normalizeVehicleDetails, readVehicleText, type VehicleDetails } from './driverRecords';
 
 // driverApplications/{uid} is written by the applicant in the mobile app; admins only
 // change status, adminRemarks, reviewedAt and updatedAt (firestore.rules). Approving also
-// creates drivers/{uid} in the same commit; users/{uid}.role is not changed.
+// creates drivers/{uid} in the same commit with the vehicle the admin checked (type,
+// brand, model and color may differ from the application); users/{uid}.role is not changed.
 
 export const VEHICLE_TYPES = ['tricycle', 'motorcycle'] as const;
 export type VehicleType = (typeof VEHICLE_TYPES)[number];
@@ -41,6 +43,10 @@ export type DriverApplication = {
   mobileNumber: string;
   vehicleType: VehicleType | null;
   vehiclePlate: string;
+  /** null on applications submitted before brand, model and color were required. */
+  vehicleBrand: string | null;
+  vehicleModel: string | null;
+  vehicleColor: string | null;
   documents: { orCr: ApplicationDocument; ltoLicense: ApplicationDocument };
   status: ApplicationStatus;
   /** On a pending application, remarks from an earlier rejection (resubmitted). */
@@ -77,6 +83,9 @@ function readApplication(uid: string, data: DocumentData): DriverApplication {
     mobileNumber: data.mobileNumber ?? '',
     vehicleType,
     vehiclePlate: data.vehiclePlate ?? '',
+    vehicleBrand: readVehicleText(data.vehicleBrand),
+    vehicleModel: readVehicleText(data.vehicleModel),
+    vehicleColor: readVehicleText(data.vehicleColor),
     documents: {
       orCr: readDocument(data.documents?.orCr),
       ltoLicense: readDocument(data.documents?.ltoLicense),
@@ -127,9 +136,10 @@ function normalizeRemarks(remarks: string): string | null {
 /** Approves the application and creates drivers/{uid} in one commit. */
 export async function approveApplication(
   viewed: DriverApplication,
-  vehicleType: VehicleType,
+  vehicle: { vehicleType: VehicleType } & VehicleDetails,
   remarks: string,
 ): Promise<void> {
+  const details = normalizeVehicleDetails(vehicle);
   const applicationRef = doc(db, 'driverApplications', viewed.uid);
   const driverRef = doc(db, 'drivers', viewed.uid);
   // drivers/{uid} is not read here: firestore.rules refuses the approval if one already
@@ -146,7 +156,10 @@ export async function approveApplication(
     transaction.set(driverRef, {
       fullName: current.fullName,
       vehiclePlate: current.vehiclePlate,
-      vehicleType,
+      vehicleType: vehicle.vehicleType,
+      vehicleBrand: details.vehicleBrand,
+      vehicleModel: details.vehicleModel,
+      vehicleColor: details.vehicleColor,
       isVerified: true,
       isOnline: false,
       isAvailable: false,

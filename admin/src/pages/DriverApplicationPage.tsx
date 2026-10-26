@@ -5,6 +5,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
+import { VehicleDetailsFields } from '../components/VehicleDetailsFields';
 import {
   approveApplication,
   loadApplication,
@@ -17,12 +18,26 @@ import {
   type DriverApplication,
   type VehicleType,
 } from '../drivers/driverApplications';
+import {
+  hasVehicleDetailErrors,
+  normalizeVehicleDetails,
+  validateVehicleDetails,
+  type VehicleDetails,
+} from '../drivers/driverRecords';
 import { useAdminCounts } from '../lib/adminCounts';
 import { formatDateTime } from '../lib/format';
 
 type Decision = 'approve' | 'reject';
 
 const STATUS_LABELS = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' } as const;
+
+const EMPTY_DETAILS: VehicleDetails = { vehicleBrand: '', vehicleModel: '', vehicleColor: '' };
+
+const DETAIL_LABELS: Record<keyof VehicleDetails, string> = {
+  vehicleBrand: 'Brand',
+  vehicleModel: 'Model',
+  vehicleColor: 'Color',
+};
 
 export function DriverApplicationPage() {
   const { uid = '' } = useParams();
@@ -31,6 +46,8 @@ export function DriverApplicationPage() {
   const [application, setApplication] = useState<DriverApplication | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [vehicleType, setVehicleType] = useState<VehicleType>('tricycle');
+  const [vehicleDetails, setVehicleDetails] = useState<VehicleDetails>(EMPTY_DETAILS);
+  const [detailsTouched, setDetailsTouched] = useState(false);
   const [approveRemarks, setApproveRemarks] = useState('');
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [rejectTouched, setRejectTouched] = useState(false);
@@ -44,6 +61,13 @@ export function DriverApplicationPage() {
       const result = await loadApplication(uid);
       setApplication(result);
       if (result?.vehicleType) setVehicleType(result.vehicleType);
+      // Applications from before these were required start empty; the admin fills them in.
+      setVehicleDetails({
+        vehicleBrand: result?.vehicleBrand ?? '',
+        vehicleModel: result?.vehicleModel ?? '',
+        vehicleColor: result?.vehicleColor ?? '',
+      });
+      setDetailsTouched(false);
     } catch {
       setLoadError('Could not load this application. Check your connection and reload the page.');
     }
@@ -97,6 +121,9 @@ export function DriverApplicationPage() {
     : rejectRemarksTrimmed.length > MAX_REMARKS_LENGTH
       ? `At most ${MAX_REMARKS_LENGTH} characters.`
       : null;
+  const detailErrors = validateVehicleDetails(vehicleDetails);
+  const newDetails = normalizeVehicleDetails(vehicleDetails);
+  const missingDetails = !application.vehicleBrand || !application.vehicleModel || !application.vehicleColor;
 
   async function handleConfirm() {
     if (!application || !decision) return;
@@ -104,7 +131,7 @@ export function DriverApplicationPage() {
     setSaveError(null);
     try {
       if (decision === 'approve') {
-        await approveApplication(application, vehicleType, approveRemarks);
+        await approveApplication(application, { vehicleType, ...vehicleDetails }, approveRemarks);
         refreshCounts();
         navigate('/drivers', { state: { message: `${application.fullName} was approved as a driver.` } });
       } else {
@@ -149,6 +176,9 @@ export function DriverApplicationPage() {
             value={application.vehicleType ? VEHICLE_LABELS[application.vehicleType] : 'Not set'}
           />
           <Detail label="Plate number" value={application.vehiclePlate} mono />
+          <Detail label="Brand" value={application.vehicleBrand ?? 'Not provided'} />
+          <Detail label="Model" value={application.vehicleModel ?? 'Not provided'} />
+          <Detail label="Color" value={application.vehicleColor ?? 'Not provided'} />
           <Detail label="Submitted" value={formatDateTime(application.submittedAt)} />
           {application.reviewedAt && <Detail label="Last reviewed" value={formatDateTime(application.reviewedAt)} />}
         </dl>
@@ -175,7 +205,13 @@ export function DriverApplicationPage() {
         <div className="review-grid">
           <section className="card review-panel" aria-labelledby="approve-heading">
             <h3 id="approve-heading">Approve</h3>
-            <p className="muted small">Creates a verified driver with the name and plate above.</p>
+            <p className="muted small">
+              Creates a verified driver with the name and plate above. Check the vehicle against the OR/CR;
+              passengers see its color, brand and model.
+            </p>
+            {missingDetails && (
+              <Notice>This application was submitted before brand, model and color were required. Enter them below.</Notice>
+            )}
             <label className="field" htmlFor="approve-vehicle">
               <span>Vehicle type</span>
               <select
@@ -192,6 +228,17 @@ export function DriverApplicationPage() {
                 ))}
               </select>
             </label>
+            <VehicleDetailsFields
+              idPrefix="approve"
+              value={vehicleDetails}
+              onChange={(value) => {
+                setVehicleDetails(value);
+                setDetailsTouched(true);
+              }}
+              errors={detailErrors}
+              showErrors={detailsTouched}
+              disabled={saving}
+            />
             <label className="field" htmlFor="approve-remarks">
               <span>Remarks (optional)</span>
               <textarea
@@ -214,6 +261,8 @@ export function DriverApplicationPage() {
               type="button"
               className="btn-primary"
               onClick={() => {
+                setDetailsTouched(true);
+                if (hasVehicleDetailErrors(detailErrors)) return;
                 setSaveError(null);
                 setDecision('approve');
               }}
@@ -299,6 +348,17 @@ export function DriverApplicationPage() {
                     : VEHICLE_LABELS[vehicleType]}
                 </td>
               </tr>
+              {(Object.keys(DETAIL_LABELS) as (keyof VehicleDetails)[]).map((key) => {
+                const before = application[key];
+                const after = newDetails[key];
+                const changed = before !== after;
+                return (
+                  <tr key={key} className={changed ? 'changed' : undefined}>
+                    <td>{DETAIL_LABELS[key]}</td>
+                    <td>{changed ? `${before ?? '—'} → ${after}` : after}</td>
+                  </tr>
+                );
+              })}
               <tr>
                 <td>Remarks</td>
                 <td>{approveRemarksTrimmed || '—'}</td>

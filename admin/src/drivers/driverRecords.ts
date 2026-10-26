@@ -31,10 +31,88 @@ export function validateVehiclePlate(plate: string): string | null {
   return null;
 }
 
+// Same as the driver application (src/validations/driverApplication.ts) and
+// isValidVehicleDetails in firestore.rules.
+export const MAX_VEHICLE_BRAND_LENGTH = 30;
+export const MAX_VEHICLE_MODEL_LENGTH = 40;
+export const MAX_VEHICLE_COLOR_LENGTH = 20;
+const VEHICLE_BRAND_PATTERN = /^[A-Za-z0-9]([A-Za-z0-9 ./+-]{0,28}[A-Za-z0-9.])?$/;
+const VEHICLE_MODEL_PATTERN = /^[A-Za-z0-9]([A-Za-z0-9 ./+-]{0,38}[A-Za-z0-9.])?$/;
+const VEHICLE_COLOR_PATTERN = /^[A-Za-z]([A-Za-z /-]{0,18}[A-Za-z])?$/;
+
+/** The app's color chips (src/constants/vehicles.ts); any other valid color can be typed. */
+export const VEHICLE_COLORS = [
+  'White',
+  'Black',
+  'Silver',
+  'Gray',
+  'Red',
+  'Blue',
+  'Green',
+  'Yellow',
+  'Orange',
+  'Maroon',
+  'Brown',
+] as const;
+
+/** Brand, model and color, as passengers see them ("Red Honda TMX 155"). */
+export type VehicleDetails = { vehicleBrand: string; vehicleModel: string; vehicleColor: string };
+
+/** Trim and collapse inner spaces; case is kept as typed. */
+export function normalizeVehicleText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+export function normalizeVehicleDetails(details: VehicleDetails): VehicleDetails {
+  return {
+    vehicleBrand: normalizeVehicleText(details.vehicleBrand),
+    vehicleModel: normalizeVehicleText(details.vehicleModel),
+    vehicleColor: normalizeVehicleText(details.vehicleColor),
+  };
+}
+
+function validateVehicleText(value: string, label: string, maxLength: number, pattern: RegExp, allowed: string) {
+  const normalized = normalizeVehicleText(value);
+  if (!normalized) return `${label} is required.`;
+  if (normalized.length > maxLength) return `At most ${maxLength} characters.`;
+  if (!pattern.test(normalized)) return `Use ${allowed}.`;
+  return null;
+}
+
+export type VehicleDetailErrors = Record<keyof VehicleDetails, string | null>;
+
+export function validateVehicleDetails(details: VehicleDetails): VehicleDetailErrors {
+  const brandOrModel = 'letters and numbers, with spaces or . / + - between them';
+  return {
+    vehicleBrand: validateVehicleText(details.vehicleBrand, 'Brand', MAX_VEHICLE_BRAND_LENGTH, VEHICLE_BRAND_PATTERN, brandOrModel),
+    vehicleModel: validateVehicleText(details.vehicleModel, 'Model', MAX_VEHICLE_MODEL_LENGTH, VEHICLE_MODEL_PATTERN, brandOrModel),
+    vehicleColor: validateVehicleText(
+      details.vehicleColor,
+      'Color',
+      MAX_VEHICLE_COLOR_LENGTH,
+      VEHICLE_COLOR_PATTERN,
+      'letters, with spaces, / or - between them',
+    ),
+  };
+}
+
+export function hasVehicleDetailErrors(errors: VehicleDetailErrors): boolean {
+  return Object.values(errors).some((message) => message !== null);
+}
+
+/** A stored detail, or null when missing (records and applications from before they existed). */
+export function readVehicleText(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null;
+}
+
 export type AdminDriver = {
   uid: string;
   fullName: string;
   vehiclePlate: string;
+  /** null on records approved before brand, model and color existed. */
+  vehicleBrand: string | null;
+  vehicleModel: string | null;
+  vehicleColor: string | null;
   /** null when the stored value is missing or not exactly 'tricycle' or 'motorcycle'. */
   vehicleType: DriverVehicleType | null;
   isVerified: boolean;
@@ -58,6 +136,9 @@ export function readDriver(uid: string, data: DocumentData): AdminDriver {
     uid,
     fullName: typeof data.fullName === 'string' ? data.fullName : '',
     vehiclePlate: typeof data.vehiclePlate === 'string' ? data.vehiclePlate : '',
+    vehicleBrand: readVehicleText(data.vehicleBrand),
+    vehicleModel: readVehicleText(data.vehicleModel),
+    vehicleColor: readVehicleText(data.vehicleColor),
     vehicleType,
     isVerified: data.isVerified === true,
     isOnline: data.isOnline === true,
