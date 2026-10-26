@@ -4,8 +4,8 @@ import { matchesMobile } from '../passengers/search';
 
 // drivers/{uid} as the admin Drivers page sees it. The driver writes their duty status and
 // trip links from the app; admins write only isVerified, isOnline/isAvailable (forced off
-// when revoking), the verification* audit fields, and vehicleType/vehiclePlate while the
-// driver has no trip or request (firestore.rules). Kept free of Firebase runtime imports.
+// when revoking), the verification* audit fields, and the vehicle (type, plate, brand, model,
+// color) while the driver has no trip or request (firestore.rules). Kept free of Firebase runtime imports.
 
 export const MAX_VERIFICATION_NOTE_LENGTH = 500;
 

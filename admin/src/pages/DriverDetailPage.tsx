@@ -14,17 +14,22 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
+import { VehicleDetailsFields } from '../components/VehicleDetailsFields';
 import {
   DRIVER_VEHICLE_TYPES,
   DUTY_LABELS,
   dutyStatus,
+  hasVehicleDetailErrors,
   MAX_VERIFICATION_NOTE_LENGTH,
+  normalizeVehicleDetails,
   normalizeVehiclePlate,
+  validateVehicleDetails,
   validateVehiclePlate,
   VERIFICATION_BADGE_CLASS,
   VERIFICATION_LABELS,
   verificationStatus,
   type DriverVehicleType,
+  type VehicleDetails,
 } from '../drivers/driverRecords';
 import {
   loadDriverDetail,
@@ -39,6 +44,12 @@ import {
 import { formatDateTime, formatPeso } from '../lib/format';
 
 type Action = 'revoke' | 'restore' | 'vehicle';
+
+const DETAIL_LABELS: Record<keyof VehicleDetails, string> = {
+  vehicleBrand: 'Brand',
+  vehicleModel: 'Model',
+  vehicleColor: 'Color',
+};
 
 export function DriverDetailPage() {
   const { uid = '' } = useParams();
@@ -55,6 +66,12 @@ export function DriverDetailPage() {
   const [vehicleType, setVehicleType] = useState<DriverVehicleType>('tricycle');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [plateTouched, setPlateTouched] = useState(false);
+  const [vehicleDetails, setVehicleDetails] = useState<VehicleDetails>({
+    vehicleBrand: '',
+    vehicleModel: '',
+    vehicleColor: '',
+  });
+  const [detailsTouched, setDetailsTouched] = useState(false);
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -121,6 +138,11 @@ export function DriverDetailPage() {
   const newPlate = normalizeVehiclePlate(vehiclePlate);
   const typeChanged = vehicleType !== driver.vehicleType;
   const plateChanged = newPlate !== driver.vehiclePlate;
+  const detailErrors = validateVehicleDetails(vehicleDetails);
+  const newDetails = normalizeVehicleDetails(vehicleDetails);
+  const detailKeys = Object.keys(DETAIL_LABELS) as (keyof VehicleDetails)[];
+  const detailsChanged = detailKeys.some((key) => newDetails[key] !== driver[key]);
+  const missingDetails = detailKeys.some((key) => driver[key] === null);
   // The rules refuse vehicle changes while the driver has a trip or request.
   const vehicleLocked = duty === 'on_trip' || duty === 'holding_request';
 
@@ -129,6 +151,13 @@ export function DriverDetailPage() {
     setVehicleType(detail.driver.vehicleType ?? 'tricycle');
     setVehiclePlate(detail.driver.vehiclePlate);
     setPlateTouched(false);
+    // Empty for records approved before these existed; saving requires all three.
+    setVehicleDetails({
+      vehicleBrand: detail.driver.vehicleBrand ?? '',
+      vehicleModel: detail.driver.vehicleModel ?? '',
+      vehicleColor: detail.driver.vehicleColor ?? '',
+    });
+    setDetailsTouched(false);
     setSaveError(null);
     setMessage(null);
     setEditingVehicle(true);
@@ -148,7 +177,7 @@ export function DriverDetailPage() {
         await restoreDriver(detail.driver.uid, admin.uid);
         setMessage(`${detail.driver.fullName}'s verification was restored. They can go online in the app.`);
       } else {
-        await updateDriverVehicle(detail.driver.uid, vehicleType, vehiclePlate);
+        await updateDriverVehicle(detail.driver.uid, { vehicleType, vehiclePlate, ...vehicleDetails });
         setMessage(`${detail.driver.fullName}'s vehicle details were updated.`);
         setEditingVehicle(false);
       }
@@ -203,6 +232,9 @@ export function DriverDetailPage() {
               )}
             </dd>
           </div>
+          <Detail label="Brand" value={driver.vehicleBrand ?? 'Not set'} />
+          <Detail label="Model" value={driver.vehicleModel ?? 'Not set'} />
+          <Detail label="Color" value={driver.vehicleColor ?? 'Not set'} />
           <Detail label="Rating" value={driver.rating ? driver.rating.toFixed(1) : 'No ratings yet'} />
           <Detail label="Now" value={DUTY_LABELS[duty]} />
           <Detail
@@ -311,7 +343,15 @@ export function DriverDetailPage() {
           </p>
         ) : !editingVehicle ? (
           <>
-            <p className="muted small">Correct the vehicle type or plate number shown to passengers.</p>
+            <p className="muted small">
+              Correct the vehicle type, plate number, brand, model or color shown to passengers.
+            </p>
+            {missingDetails && (
+              <Notice>
+                This driver was approved before brand, model and color were recorded. Passengers see only the
+                vehicle type and plate until you add them.
+              </Notice>
+            )}
             <button type="button" className="btn-outline" onClick={startVehicleEdit} disabled={saving}>
               Edit vehicle details
             </button>
@@ -355,6 +395,17 @@ export function DriverDetailPage() {
                 )}
               </span>
             </label>
+            <VehicleDetailsFields
+              idPrefix="vehicle"
+              value={vehicleDetails}
+              onChange={(value) => {
+                setVehicleDetails(value);
+                setDetailsTouched(true);
+              }}
+              errors={detailErrors}
+              showErrors={detailsTouched}
+              disabled={saving}
+            />
             <div className="dialog-actions">
               <button
                 type="button"
@@ -369,12 +420,13 @@ export function DriverDetailPage() {
                 className="btn-primary"
                 onClick={() => {
                   setPlateTouched(true);
-                  if (plateError) return;
+                  setDetailsTouched(true);
+                  if (plateError || hasVehicleDetailErrors(detailErrors)) return;
                   setSaveError(null);
                   setMessage(null);
                   setAction('vehicle');
                 }}
-                disabled={saving || (!typeChanged && !plateChanged)}
+                disabled={saving || (!typeChanged && !plateChanged && !detailsChanged)}
               >
                 Save vehicle details…
               </button>
@@ -541,6 +593,15 @@ export function DriverDetailPage() {
                 <td>Plate number</td>
                 <td className="mono">{plateChanged ? `${driver.vehiclePlate || '—'} → ${newPlate}` : newPlate}</td>
               </tr>
+              {detailKeys.map((key) => {
+                const changed = newDetails[key] !== driver[key];
+                return (
+                  <tr key={key} className={changed ? 'changed' : 'unchanged'}>
+                    <td>{DETAIL_LABELS[key]}</td>
+                    <td>{changed ? `${driver[key] ?? '—'} → ${newDetails[key]}` : newDetails[key]}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {saveError && (

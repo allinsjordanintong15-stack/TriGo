@@ -14,11 +14,13 @@ import {
 import { readBooking, type AdminBooking } from '../bookings/bookings';
 import { db } from '../firebase/config';
 import {
+  normalizeVehicleDetails,
   normalizeVehiclePlate,
   readDriver,
   type AdminDriver,
   type DriverContact,
   type DriverVehicleType,
+  type VehicleDetails,
 } from './driverRecords';
 
 // Drivers page: every drivers/{uid} record with contact details from users/{uid}, a
@@ -140,10 +142,16 @@ export async function restoreDriver(uid: string, adminUid: string): Promise<void
 export class VehicleConflictError extends Error {}
 
 /**
- * Corrects the vehicle type and plate. The transaction re-reads the record because the
- * rules refuse the change while the driver is on a trip or holding an out-of-area request.
+ * Corrects the vehicle type, plate, brand, model and color (all five are always written, so
+ * a record from before brand/model/color existed gets them). The transaction re-reads the
+ * record because the rules refuse the change while the driver is on a trip or holding an
+ * out-of-area request.
  */
-export async function updateDriverVehicle(uid: string, vehicleType: DriverVehicleType, vehiclePlate: string): Promise<void> {
+export async function updateDriverVehicle(
+  uid: string,
+  vehicle: { vehicleType: DriverVehicleType; vehiclePlate: string } & VehicleDetails,
+): Promise<void> {
+  const details = normalizeVehicleDetails(vehicle);
   const driverRef = doc(db, 'drivers', uid);
   await runTransaction(db, async (transaction) => {
     const snap = await transaction.get(driverRef);
@@ -156,8 +164,11 @@ export async function updateDriverVehicle(uid: string, vehicleType: DriverVehicl
     }
     // Exact field set allowed by firestore.rules (drivers, admin vehicle update).
     transaction.update(driverRef, {
-      vehicleType,
-      vehiclePlate: normalizeVehiclePlate(vehiclePlate),
+      vehicleType: vehicle.vehicleType,
+      vehiclePlate: normalizeVehiclePlate(vehicle.vehiclePlate),
+      vehicleBrand: details.vehicleBrand,
+      vehicleModel: details.vehicleModel,
+      vehicleColor: details.vehicleColor,
       updatedAt: serverTimestamp(),
     });
   });
