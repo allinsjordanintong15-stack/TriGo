@@ -24,6 +24,11 @@ export class DriverServiceError extends Error {
   }
 }
 
+/** A stored brand, model or color; null when missing (records from before they existed). */
+function readVehicleText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
 export function docToDriverRecord(driverId: string, data: DocumentData): DriverRecord {
   const location = data.currentLocation as { latitude?: unknown; longitude?: unknown } | undefined;
 
@@ -33,6 +38,9 @@ export function docToDriverRecord(driverId: string, data: DocumentData): DriverR
     profileImage: data.profileImage ?? null,
     vehicleType: data.vehicleType as VehicleType,
     vehiclePlate: data.vehiclePlate ?? '',
+    vehicleBrand: readVehicleText(data.vehicleBrand),
+    vehicleModel: readVehicleText(data.vehicleModel),
+    vehicleColor: readVehicleText(data.vehicleColor),
     rating: typeof data.rating === 'number' ? data.rating : 0,
     isOnline: data.isOnline === true,
     isVerified: data.isVerified === true,

@@ -166,6 +166,10 @@ export interface DriverRecord {
   profileImage: string | null;
   vehicleType: VehicleType;
   vehiclePlate: string;
+  /** Null on records approved before brand, model and color were recorded. */
+  vehicleBrand: string | null;
+  vehicleModel: string | null;
+  vehicleColor: string | null;
   rating: number;
   isOnline: boolean;
   isVerified: boolean;

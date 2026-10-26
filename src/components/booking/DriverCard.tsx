@@ -1,6 +1,6 @@
 import { ContactCallButton } from '@/components/booking/ContactCallButton';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
-import { getVehicleOption } from '@/constants/vehicles';
+import { formatVehicleDescription, getVehicleOption } from '@/constants/vehicles';
 import { DriverRecord } from '@/types';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
@@ -13,7 +13,10 @@ interface DriverCardProps {
 
 const AVATAR_SIZE = 48;
 
-/** The assigned driver: photo or initials, name, vehicle, plate and rating when known. */
+/**
+ * The assigned driver: photo or initials, name, vehicle ("Red Honda TMX 155", or the vehicle
+ * type for drivers approved before those were recorded), plate and rating when known.
+ */
 export function DriverCard({ driver, mobileNumber = null }: DriverCardProps) {
   const callButton = mobileNumber ? (
     <ContactCallButton
@@ -35,6 +38,7 @@ export function DriverCard({ driver, mobileNumber = null }: DriverCardProps) {
 
   const vehicle = getVehicleOption(driver.vehicleType);
   const plate = driver.vehiclePlate.trim();
+  const description = formatVehicleDescription(driver) ?? vehicle.label;
 
   return (
     <View style={styles.card}>
@@ -57,9 +61,10 @@ export function DriverCard({ driver, mobileNumber = null }: DriverCardProps) {
               <Text style={styles.rating}>★ {driver.rating.toFixed(1)}</Text>
             ) : null}
           </View>
-          <Text style={styles.meta} numberOfLines={1}>
-            {vehicle.icon} {vehicle.label}
-            {plate ? ` · ${plate}` : ''}
+          <Text style={styles.meta} numberOfLines={2}>
+            {vehicle.icon} {description}
+            {plate ? ' · ' : ''}
+            {plate ? <Text style={styles.plate}>{plate}</Text> : null}
           </Text>
         </View>
       </View>
@@ -132,5 +137,10 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  // The plate is what passengers check against the vehicle, so it stands out.
+  plate: {
+    fontWeight: '700',
+    color: colors.text,
   },
 });

@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
 import { logout } from '@/services/authService';
 import { goOffline } from '@/services/driverService';
+import { DriverRecord } from '@/types';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -21,6 +22,27 @@ function getInitials(fullName: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('');
+}
+
+/**
+ * Read-only vehicle rows. Brand & model and color are left out for records approved before
+ * they were recorded, so nothing looks missing.
+ */
+function getVehicleRows(record: DriverRecord): [string, string][] {
+  const rows: [string, string][] = [
+    [
+      'Vehicle',
+      record.vehicleType
+        ? record.vehicleType.charAt(0).toUpperCase() + record.vehicleType.slice(1)
+        : '—',
+    ],
+  ];
+  if (record.vehicleBrand && record.vehicleModel) {
+    rows.push(['Brand & model', `${record.vehicleBrand} ${record.vehicleModel}`]);
+  }
+  if (record.vehicleColor) rows.push(['Color', record.vehicleColor]);
+  rows.push(['Plate number', record.vehiclePlate || '—']);
+  return rows;
 }
 
 const VERIFICATION_LABELS = {
@@ -129,18 +151,17 @@ export default function DriverProfileScreen() {
             <Text style={styles.fieldLabel}>Mobile number</Text>
             <Text style={styles.fieldValue}>{driver.mobileNumber || '—'}</Text>
           </View>
-          {driverRecord ? (
-            <View style={[styles.field, styles.fieldLast]}>
-              <Text style={styles.fieldLabel}>Vehicle</Text>
-              <Text style={styles.fieldValue}>
-                {driverRecord.vehicleType
-                  ? driverRecord.vehicleType.charAt(0).toUpperCase() +
-                    driverRecord.vehicleType.slice(1)
-                  : '—'}
-                {driverRecord.vehiclePlate ? ` · ${driverRecord.vehiclePlate}` : ''}
-              </Text>
-            </View>
-          ) : null}
+          {driverRecord
+            ? getVehicleRows(driverRecord).map(([label, value], index, rows) => (
+                <View
+                  key={label}
+                  style={[styles.field, index === rows.length - 1 ? styles.fieldLast : null]}
+                >
+                  <Text style={styles.fieldLabel}>{label}</Text>
+                  <Text style={styles.fieldValue}>{value}</Text>
+                </View>
+              ))
+            : null}
         </View>
 
         <Text style={styles.note}>

@@ -1,3 +1,4 @@
+import { DriverCard } from '@/components/booking/DriverCard';
 import { FareCard } from '@/components/booking/FareCard';
 import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { StickyActionBar } from '@/components/booking/StickyActionBar';
@@ -8,8 +9,9 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
 import { BookingServiceError, subscribeToOutOfAreaRequest } from '@/services/bookingService';
+import { getDriverRecord } from '@/services/driverService';
 import { declineProposal } from '@/services/fareAgreementService';
-import { OutOfAreaRequest } from '@/types';
+import { DriverRecord, OutOfAreaRequest } from '@/types';
 import { getPassengerOfferState, PASSENGER_OFFER_TEXT } from '@/utils/outOfAreaProposal';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -32,6 +34,7 @@ export default function FareAgreementScreen() {
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [timedOut, setTimedOut] = useState(false);
+  const [driverRecord, setDriverRecord] = useState<DriverRecord | null>(null);
 
   useEffect(() => {
     if (!activeOutOfAreaRequestId) return;
@@ -56,6 +59,27 @@ export default function FareAgreementScreen() {
   }, []);
 
   const agreement = request?.fareAgreement ?? null;
+
+  // Who is offering: name, vehicle and plate from drivers/{uid}, so the passenger knows
+  // what to look for. Optional: if the record cannot be read the card is left out.
+  const offeringDriverId = request?.driverId ?? null;
+  useEffect(() => {
+    setDriverRecord(null);
+    if (!offeringDriverId) return;
+
+    let active = true;
+    getDriverRecord(offeringDriverId)
+      .then((record) => {
+        if (active) setDriverRecord(record);
+      })
+      .catch(() => {
+        // Passengers can only read verified drivers; the offer itself still shows.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [offeringDriverId]);
 
   // Missing offer: give the snapshot a moment, then stop spinning.
   useEffect(() => {
@@ -180,6 +204,8 @@ export default function FareAgreementScreen() {
         />
 
         <Text style={styles.intro}>A driver accepted your out-of-area request.</Text>
+
+        {driverRecord ? <DriverCard driver={driverRecord} /> : null}
 
         <FareCard
           estimatedFare={agreement.driverProposedFare}
