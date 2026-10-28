@@ -6,6 +6,7 @@ import {
   OutOfAreaFareSettings,
   VehicleType,
 } from '@/types';
+import { calculatePerKmFare } from '@/utils/fareQuote';
 import { doc, getDoc } from 'firebase/firestore';
 
 export function calculateEstimatedFare(
@@ -13,9 +14,7 @@ export function calculateEstimatedFare(
   distanceKm: number,
   settings: FareSettings = DEFAULT_FARE_SETTINGS,
 ): number {
-  const config = settings[vehicleType];
-  const fare = config.baseFare + config.perKm * distanceKm;
-  return Math.round(fare * 100) / 100;
+  return calculatePerKmFare(vehicleType, distanceKm, settings);
 }
 
 /**

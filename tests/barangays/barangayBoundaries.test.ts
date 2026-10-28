@@ -3,7 +3,7 @@
 // Barangay boundary checks (no emulator): the barangay ID/name list is identical in the
 // mobile app, the admin website and firestore.rules; the generated boundaries cover exactly
 // those IDs plus Poblacion; and the point lookup resolves known points.
-// Run with `npm run test:barangays`.
+// Run with `npm run test:unit`.
 // Imports only alias-free files: Node's type stripping does not resolve the "@/..." aliases.
 
 import assert from 'node:assert/strict';

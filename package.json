@@ -44,7 +44,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
     "test:rules": "firebase emulators:exec --only firestore --project demo-trigo-rules \"npm run test:rules:run\"",
-    "test:barangays": "node --test \"tests/barangays/**/*.test.ts\"",
+    "test:unit": "node --test \"tests/barangays/**/*.test.ts\" \"tests/fares/**/*.test.ts\"",
     "test:rules:run":"node --test --test-concurrency=1 \"tests/rules/**/*.test.ts\"",
     "emulators": "firebase emulators:start --only auth,firestore --project demo-trigo",
     "seed:emulator": "node scripts/seedEmulator.mjs"
