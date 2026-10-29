@@ -1,6 +1,6 @@
 # TriGo — Project Status
 
-_Last updated: 2026-10-21 (after commission step 8)._
+_Last updated: 2026-10-30 (after barangay tariff fares step 6)._
 
 TriGo is a transport booking app for tricycle and motorcycle rides in Trinidad, Bohol. It
 has two parts:
@@ -25,7 +25,13 @@ things stand.
 - **Booking a ride**
   - Pickup and destination are set on a map (MapLibre with OpenFreeMap tiles).
   - The road distance comes from OpenRouteService.
-  - The fare comes from the admin per-km fare settings, is fixed, and keeps its centavos.
+  - The fare is fixed and keeps its centavos. A trip between Poblacion and a barangay
+    with an active tariff is charged that barangay tariff; every other trip uses the
+    admin per-km fare settings. If tariffs fail to load within about 5 seconds, the app
+    uses the per-km fare.
+  - A fare basis line is shown under the fare ("Barangay tariff · Poblacion ↔ …",
+    "₱X/km", or "Per-km fare" for older bookings). If a tariff changes before Confirm,
+    the passenger sees the new fare and must confirm again.
 - **Booking status**
   - The ride goes through accepted → arrived → in progress → completed, or is cancelled.
   - While the trip is active, the passenger and the assigned driver can see each other's
@@ -69,8 +75,8 @@ things stand.
 - **Passengers:** list and detail.
 - **Out-of-Area Trips:** read-only monitor. Expired requests are shown as Expired.
 - **Fares:** per-km fare settings per vehicle type.
-- **Barangay tariffs:** stored per barangay, but the app does not apply them yet (see
-  Known limits).
+- **Barangay tariffs:** stored per barangay and applied to new standard bookings.
+  Passenger and driver booking lists show each booking's fare basis.
 - **Commission settings:** percentage, payment period in days and grace period in days.
 - **System settings:**
   - Out-of-area on/off, request expiry and driver search radius.
@@ -144,8 +150,11 @@ things stand.
   - If ORS cannot return a road route, the passenger cannot book. Straight-line fares are
     not allowed. Points far from a road are retried once with a wider snap radius.
   - Outages, rate limits or slow responses block booking.
-- **Barangay tariffs are not applied yet.** Admins can save them, but the mobile app does
-  not read `barangayTariffs`, so every fare uses the per-km settings.
+- **The rules cannot check the barangay of a pin.** For a tariff booking the rules check
+  that the fare equals the active admin tariff for the stored barangay, but not that the
+  pickup or destination is really inside that barangay (rules have no point-in-polygon
+  check), and they do not check per-km fares. A server-side check needs Cloud
+  Functions (Blaze).
 - **No push notifications.**
   - The app does not use `expo-notifications`.
   - The Notifications screen only lists `notifications` documents, and nothing in the app
