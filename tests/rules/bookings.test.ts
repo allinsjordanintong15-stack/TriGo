@@ -227,6 +227,168 @@ describe('standard booking: create', () => {
   });
 });
 
+// Barangay tariffs (2026-10-28): new bookings store fareBasis, the pickup and destination
+// barangay IDs, and perKmRate on per-km bookings. A missing fareBasis (older app versions)
+// is per-km. A barangay_tariff booking is Poblacion <-> X with X's tariff active and the fare
+// equal to it for the vehicle type.
+describe('standard booking: fare basis', () => {
+  const TARIFFS = {
+    bongbong: { name: 'Bongbong', tricycle: 40.5, motorcycle: 30.25, active: true },
+    soom: { name: 'Soom', tricycle: 50, motorcycle: 45, active: false },
+  };
+
+  beforeEach(async () => {
+    await seed(
+      Object.fromEntries(
+        Object.entries(TARIFFS).map(([id, row]) => [
+          `barangayTariffs/${id}`,
+          { ...row, updatedAt: new Date(), updatedBy: 'admin1' },
+        ]),
+      ),
+    );
+  });
+
+  function create(overrides: DocumentData) {
+    return setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking(overrides));
+  }
+
+  function tariffBooking(overrides: DocumentData = {}): DocumentData {
+    return {
+      fareBasis: 'barangay_tariff',
+      pickupBarangayId: 'poblacion',
+      destinationBarangayId: 'bongbong',
+      estimatedFare: 40.5,
+      ...overrides,
+    };
+  }
+
+  function perKmBooking(overrides: DocumentData = {}): DocumentData {
+    return {
+      fareBasis: 'per_km',
+      pickupBarangayId: 'bongbong',
+      destinationBarangayId: 'soom',
+      perKmRate: 8.5,
+      ...overrides,
+    };
+  }
+
+  it('allows the older shape without fareBasis (per-km)', async () => {
+    await assertSucceeds(create({}));
+  });
+
+  it('allows a per-km booking with barangay IDs and the per-km rate', async () => {
+    await assertSucceeds(create(perKmBooking()));
+  });
+
+  it('allows a per-km booking with no barangay (null IDs) and no rate', async () => {
+    await assertSucceeds(
+      create(perKmBooking({ pickupBarangayId: null, destinationBarangayId: null, perKmRate: null })),
+    );
+  });
+
+  it('allows a per-km booking from Poblacion to a barangay with a tariff (not checked; known limit)', async () => {
+    await assertSucceeds(create(perKmBooking({ pickupBarangayId: 'poblacion', destinationBarangayId: 'bongbong' })));
+  });
+
+  it('allows Poblacion -> Bongbong at the tricycle tariff', async () => {
+    await assertSucceeds(create(tariffBooking()));
+  });
+
+  it('allows Bongbong -> Poblacion at the motorcycle tariff', async () => {
+    await assertSucceeds(
+      create(
+        tariffBooking({
+          vehicleType: 'motorcycle',
+          pickupBarangayId: 'bongbong',
+          destinationBarangayId: 'poblacion',
+          estimatedFare: 30.25,
+        }),
+      ),
+    );
+  });
+
+  it('lets a driver accept and complete a tariff booking at the tariff', async () => {
+    await assertSucceeds(create(tariffBooking()));
+    await assertSucceeds(acceptBatch(DRIVER));
+    await assertSucceeds(
+      updateDoc(doc(db(DRIVER), 'bookings', BOOKING), {
+        status: 'arrived',
+        arrivedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(db(DRIVER), 'bookings', BOOKING), {
+        status: 'in_progress',
+        startedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertSucceeds(tripEndBatch(completeUpdate({ finalFare: 40.5 })));
+  });
+
+  it('denies a tariff booking whose fare is not the tariff', async () => {
+    await assertFails(create(tariffBooking({ estimatedFare: 40 })));
+  });
+
+  it("denies a tariff booking at the other vehicle type's tariff", async () => {
+    await assertFails(create(tariffBooking({ estimatedFare: 30.25 })));
+  });
+
+  it('denies a tariff booking for a barangay whose tariff is inactive', async () => {
+    await assertFails(create(tariffBooking({ destinationBarangayId: 'soom', estimatedFare: 50 })));
+  });
+
+  it('denies a tariff booking for a barangay with no tariff saved', async () => {
+    await assertFails(create(tariffBooking({ destinationBarangayId: 'guinobatan', estimatedFare: 40.5 })));
+  });
+
+  it('denies a tariff booking between two barangays (neither end Poblacion)', async () => {
+    await assertFails(create(tariffBooking({ pickupBarangayId: 'soom' })));
+  });
+
+  it('denies a tariff booking within Poblacion', async () => {
+    await assertFails(create(tariffBooking({ destinationBarangayId: 'poblacion' })));
+  });
+
+  it('denies a tariff booking with a missing barangay', async () => {
+    await assertFails(create(tariffBooking({ destinationBarangayId: null })));
+  });
+
+  it('denies a tariff booking that also stores a per-km rate', async () => {
+    await assertFails(create(tariffBooking({ perKmRate: 8.5 })));
+  });
+
+  it('denies an unknown fare basis', async () => {
+    await assertFails(create(perKmBooking({ fareBasis: 'flat' })));
+  });
+
+  for (const [label, perKmRate] of [
+    ['zero', 0],
+    ['negative', -8],
+    ['more than 2 decimals', 8.125],
+    ['non-numeric', '8.5'],
+  ] as const) {
+    it(`denies a per-km rate that is ${label}`, async () => {
+      await assertFails(create(perKmBooking({ perKmRate })));
+    });
+  }
+
+  it('allows a valid per-km rate without a fare basis (counts as per-km)', async () => {
+    await assertSucceeds(create({ perKmRate: 8.5 }));
+  });
+
+  it('denies an invalid per-km rate without a fare basis', async () => {
+    await assertFails(create({ perKmRate: 0 }));
+  });
+
+  it('denies a non-string or overlong barangay ID', async () => {
+    await assertFails(create(perKmBooking({ pickupBarangayId: 7 })));
+    await assertFails(create(perKmBooking({ destinationBarangayId: 'x'.repeat(41) })));
+    await assertFails(create(perKmBooking({ pickupBarangayId: '' })));
+  });
+});
+
 describe('standard booking: read', () => {
   beforeEach(async () => {
     await seed({ [`bookings/${BOOKING}`]: newBooking() });

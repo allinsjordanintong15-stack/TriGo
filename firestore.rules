@@ -353,6 +353,44 @@ service cloud.firestore {
           && data.get('cancellationReason', null) == null;
       }
 
+      function isOptionalBarangayId(value) {
+        return value == null || (value is string && value.size() > 0 && value.size() <= 40);
+      }
+
+      // A barangay tariff booking is Poblacion <-> X, X's tariff is active and estimatedFare
+      // equals it for the vehicle type. A missing tariff document fails the get (denied).
+      function isTariffFare(pickup, destination) {
+        let barangayId = pickup == 'poblacion' ? destination : pickup;
+        let tariff = get(/databases/$(database)/documents/barangayTariffs/$(barangayId)).data;
+        return (pickup == 'poblacion') != (destination == 'poblacion')
+          && barangayId is string
+          && tariff.active == true
+          && request.resource.data.estimatedFare == tariff[request.resource.data.vehicleType];
+      }
+
+      // Fare basis of a new standard booking (barangay tariffs, 2026-10-28): fareBasis
+      // 'per_km' (perKmRate optional) or 'barangay_tariff' (no perKmRate), with optional
+      // pickup/destination barangay IDs. A missing fareBasis (older app versions) is per-km.
+      // Known limit: rules cannot check that the pins are really in those barangays, nor the
+      // per-km amount (distance and rate come from the app).
+      function isValidFareBasis() {
+        let data = request.resource.data;
+        let basis = data.get('fareBasis', 'per_km');
+        let pickup = data.get('pickupBarangayId', null);
+        let destination = data.get('destinationBarangayId', null);
+        let perKmRate = data.get('perKmRate', null);
+        return isOptionalBarangayId(pickup)
+          && isOptionalBarangayId(destination)
+          && (
+            (
+              basis == 'per_km'
+              && (perKmRate == null
+                || (perKmRate is number && perKmRate > 0 && hasAtMostTwoDecimals(perKmRate)))
+            )
+            || (basis == 'barangay_tariff' && perKmRate == null && isTariffFare(pickup, destination))
+          );
+      }
+
       // Passengers create standard bookings with driverId == null. Driver assignment is a
       // separate, authorized operation (driver app) and must never be set by the passenger.
       allow create: if isSignedIn()
@@ -365,7 +403,8 @@ service cloud.firestore {
         && isValidLocation(request.resource.data.pickupLocation)
         && isValidLocation(request.resource.data.destination)
         && request.resource.data.distanceKm is number
-        && request.resource.data.estimatedFare is number;
+        && request.resource.data.estimatedFare is number
+        && isValidFareBasis();
 
       allow create: if isSignedIn()
         && isPassenger()
@@ -1073,8 +1112,8 @@ service cloud.firestore {
     // barangayTariffs/{barangayId}: the fixed per-trip tariff between Poblacion and one of
     // the 19 other barangays of Trinidad, per vehicle type. One document per barangay
     // (a single map of all 19 would exceed the rules expression limit to validate).
-    // Only admins write, always the complete row. The mobile app does not apply tariffs
-    // yet (needs barangay boundaries).
+    // Only admins write, always the complete row. Standard booking create checks a
+    // barangay_tariff fare against the active row (isTariffFare in bookings).
 
     match /barangayTariffs/{barangayId} {
       // Known IDs and their names. Keep in sync with admin/src/tariffs/barangays.ts.

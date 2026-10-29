@@ -5,7 +5,8 @@
 //   npx firebase emulators:exec --only firestore --project demo-trigo-rules "node tests/rules/measureHeadroom.ts"
 // (TRIGO_HEADROOM=payments in the environment: commission payment and cash-out scenarios only;
 // TRIGO_HEADROOM=enforcement: T1 accept, propose, claim and the out-of-area confirm only;
-// TRIGO_HEADROOM=vehicle: driver application submit/resubmit, approval and vehicle edit only.)
+// TRIGO_HEADROOM=vehicle: driver application submit/resubmit, approval and vehicle edit only;
+// TRIGO_HEADROOM=booking: standard booking create (older shape, per-km, barangay tariff) only.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
 // binary search finds the largest N at which the valid commit still succeeds. The same
@@ -106,6 +107,7 @@ type Target =
   | 'approve: application review'
   | 'approve: driver create'
   | 'vehicle edit'
+  | 'standard create'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -186,6 +188,10 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'vehicle edit': [
     '        && isValidVehicleDetails(request.resource.data)\n        && request.resource.data.updatedAt == request.time',
     '        && isValidVehicleDetails(request.resource.data)\n        && pad()\n        && request.resource.data.updatedAt == request.time',
+  ],
+  'standard create': [
+    '        && request.resource.data.estimatedFare is number\n        && isValidFareBasis();',
+    '        && request.resource.data.estimatedFare is number\n        && isValidFareBasis()\n        && pad();',
   ],
   'reference free': [
     '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
@@ -376,6 +382,53 @@ const confirm: Scenario = {
     await batch.commit();
   },
 };
+
+// Standard booking create as createStandardBooking writes it (bookings.test.ts, fare basis).
+function standardCreate(label: string, fareFields: DocumentData): Scenario {
+  return {
+    label,
+    targets: ['standard create'],
+    run: async () => {
+      await seed({
+        'barangayTariffs/bongbong': {
+          name: 'Bongbong',
+          tricycle: 40.5,
+          motorcycle: 30.25,
+          active: true,
+          updatedAt: Timestamp.now(),
+          updatedBy: 'admin1',
+        },
+      });
+      await setDoc(doc(db(PASSENGER), 'bookings', BOOKING), {
+        passengerId: PASSENGER,
+        driverId: null,
+        vehicleType: 'tricycle',
+        bookingType: 'standard',
+        pickupLocation: location('Poblacion, Trinidad'),
+        destination: location('Bongbong, Trinidad'),
+        distanceKm: 3.2,
+        estimatedFare: 42.2,
+        driverProposedFare: null,
+        agreedFare: null,
+        fareAgreement: null,
+        finalFare: null,
+        status: 'pending',
+        outOfAreaRequestId: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        acceptedAt: null,
+        arrivedAt: null,
+        startedAt: null,
+        completedAt: null,
+        cancelledAt: null,
+        paymentMethod: null,
+        cancelledBy: null,
+        cancellationReason: null,
+        ...fareFields,
+      });
+    },
+  };
+}
 
 // New work (commissionEnforcement.test.ts) with the costliest account that still passes
 // isCommissionSuspended(): an unpaid closed period inside its grace period, so both halves
@@ -643,6 +696,19 @@ const SCENARIOS: Scenario[] = [
   newWork('propose: account inside grace, approved-applicant driver', 'propose', true, APPLICANT_DRIVER),
   claim,
   confirm,
+  standardCreate('standard booking create: older shape (no fareBasis)', {}),
+  standardCreate('standard booking create: per-km', {
+    fareBasis: 'per_km',
+    pickupBarangayId: 'poblacion',
+    destinationBarangayId: 'bongbong',
+    perKmRate: 8.5,
+  }),
+  standardCreate('standard booking create: barangay tariff', {
+    fareBasis: 'barangay_tariff',
+    pickupBarangayId: 'poblacion',
+    destinationBarangayId: 'bongbong',
+    estimatedFare: 40.5,
+  }),
   paymentSubmit,
   paymentConfirm('payment confirm: pointer stays on period 1 (reads periods 1 and 2), first ledger', 299, unpaidFrom(PERIODS[0]), false),
   paymentConfirm('payment confirm: pointer 1 → 3 (reads period 3; next is current), ledger update', 700, unpaidFrom(PERIODS[2]), true),
@@ -661,6 +727,8 @@ const ONLY_ENFORCEMENT = process.env.TRIGO_HEADROOM === 'enforcement';
 const ENFORCEMENT_LABELS = /^(T1 accept|propose|out-of-area claim|out-of-area confirm)/;
 const ONLY_VEHICLE = process.env.TRIGO_HEADROOM === 'vehicle';
 const VEHICLE_LABELS = /^(driver application|driver verification|admin drivers)/;
+const ONLY_BOOKING = process.env.TRIGO_HEADROOM === 'booking';
+const BOOKING_LABELS = /^standard booking create/;
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -711,7 +779,8 @@ try {
     (s) =>
       (!ONLY_PAYMENTS || s.label.startsWith('payment')) &&
       (!ONLY_ENFORCEMENT || ENFORCEMENT_LABELS.test(s.label)) &&
-      (!ONLY_VEHICLE || VEHICLE_LABELS.test(s.label)),
+      (!ONLY_VEHICLE || VEHICLE_LABELS.test(s.label)) &&
+      (!ONLY_BOOKING || BOOKING_LABELS.test(s.label)),
   );
   for (const scenario of selected) {
     console.log(scenario.label);
