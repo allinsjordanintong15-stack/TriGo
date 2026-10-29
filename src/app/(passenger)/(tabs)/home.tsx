@@ -7,6 +7,7 @@ import { VehicleSelector } from '@/components/home/VehicleSelector';
 import { BookingMap } from '@/components/map/BookingMap';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { BARANGAY_BOUNDARIES } from '@/constants/barangayBoundaries';
 import { MapRegion, TRINIDAD_BOHOL_REGION } from '@/constants/map';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useBookingDraft } from '@/contexts/BookingDraftContext';
@@ -104,6 +105,14 @@ export default function PassengerHomeScreen() {
     null,
   );
   const [creatingRequest, setCreatingRequest] = useState(false);
+  // After a barangay suggestion is picked, its pin is only somewhere in the barangay, so ask
+  // the passenger to move it. Cleared when that field gets a new location.
+  const [pinHint, setPinHint] = useState<{
+    target: 'pickup' | 'destination';
+    barangayName: string;
+  } | null>(null);
+  // The field was opened with Move pin: no keyboard, and the hint says to tap the map.
+  const [movingPin, setMovingPin] = useState(false);
   const [routeState, setRouteState] = useState<RouteState>({ status: 'idle' });
   const [routeRetryCount, setRouteRetryCount] = useState(0);
   // Reused when the same pickup/destination come back, so ORS is not asked again.
@@ -278,8 +287,10 @@ export default function PassengerHomeScreen() {
       const current = await getCurrentLocation();
       pickupChosenByPassenger.current = true;
       setPickupLocation(current);
+      setPinHint((hint) => (hint?.target === 'pickup' ? null : hint));
       setMapRegion(toMapRegion(current));
       setSelectionMode(null);
+      setMovingPin(false);
     } catch (error) {
       setFormError(
         error instanceof LocationServiceError
@@ -319,32 +330,47 @@ export default function PassengerHomeScreen() {
     }
 
     Keyboard.dismiss();
+    setPinHint((hint) => (hint?.target === target ? null : hint));
     setMapRegion(toMapRegion(location));
     setSelectionMode(null);
+    setMovingPin(false);
   }
 
   function handleSearchSelect(
     target: 'pickup' | 'destination',
-    { latitude, longitude, address }: LocationSearchResult,
+    { latitude, longitude, address, barangayId }: LocationSearchResult,
   ) {
     setFormError('');
     applySelectedLocation(target, { latitude, longitude, address });
+
+    const barangayName = BARANGAY_BOUNDARIES.find((area) => area.id === barangayId)?.name;
+    if (barangayName) setPinHint({ target, barangayName });
   }
 
   function openLocationField(target: 'pickup' | 'destination') {
     setFormError('');
     setSelectionMode(target);
+    setMovingPin(false);
+  }
+
+  // Opens the hinted field for a map tap, without the keyboard covering the map.
+  function handleMovePin() {
+    if (!pinHint) return;
+    openLocationField(pinHint.target);
+    setMovingPin(true);
   }
 
   function closeLocationField() {
     Keyboard.dismiss();
     setSelectionMode(null);
+    setMovingPin(false);
     setFormError('');
   }
 
   // Clears the destination (pickup stays) and opens the field for a new one.
   function handleClearDestination() {
     setDestination(null);
+    setPinHint((hint) => (hint?.target === 'destination' ? null : hint));
     openLocationField('destination');
   }
 
@@ -486,6 +512,7 @@ export default function PassengerHomeScreen() {
                 label="Pickup"
                 placeholder="Search pickup location"
                 resultsMaxHeight={searchResultsMaxHeight}
+                autoFocus={!movingPin}
                 onSelect={(result) => handleSearchSelect('pickup', result)}
               />
             ) : (
@@ -504,6 +531,7 @@ export default function PassengerHomeScreen() {
                 label="Destination"
                 placeholder="Where do you want to go?"
                 resultsMaxHeight={searchResultsMaxHeight}
+                autoFocus={!movingPin}
                 onSelect={(result) => handleSearchSelect('destination', result)}
               />
             ) : (
@@ -517,6 +545,32 @@ export default function PassengerHomeScreen() {
                 onClear={handleClearDestination}
               />
             )}
+
+            {/* Inside the measured view, so fitting the route keeps it clear too. */}
+            {pinHint && !selectionMode ? (
+              <View style={styles.pinHint}>
+                <Ionicons name="hand-left-outline" size={16} color={colors.primary} />
+                <Text style={styles.pinHintText}>
+                  Move the pin to your exact spot in {pinHint.barangayName}.
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Move the ${pinHint.target} pin`}
+                  hitSlop={8}
+                  onPress={handleMovePin}
+                >
+                  <Text style={styles.pinHintAction}>Move pin</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Dismiss pin hint"
+                  hitSlop={8}
+                  onPress={() => setPinHint(null)}
+                >
+                  <Ionicons name="close" size={18} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+            ) : null}
           </View>
 
           {selectionMode ? (
@@ -525,8 +579,11 @@ export default function PassengerHomeScreen() {
               <ErrorBanner message={formError} />
               <View style={styles.cardSearchFooter}>
                 <Text style={styles.selectionHint}>
-                  Type to search, or tap the map to set your{' '}
-                  {selectionMode === 'pickup' ? 'pickup' : 'destination'}.
+                  {movingPin && pinHint
+                    ? `Tap the map at your exact spot in ${pinHint.barangayName}.`
+                    : `Type to search, or tap the map to set your ${
+                        selectionMode === 'pickup' ? 'pickup' : 'destination'
+                      }.`}
                 </Text>
                 <Pressable accessibilityRole="button" hitSlop={8} onPress={closeLocationField}>
                   <Text style={styles.cancelSelection}>Cancel</Text>
@@ -831,6 +888,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
     marginRight: spacing.sm,
+  },
+  pinHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  pinHintText: {
+    ...typography.caption,
+    color: colors.primary,
+    fontWeight: '600',
+    flex: 1,
+  },
+  pinHintAction: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: colors.primary,
+    textDecorationLine: 'underline',
   },
   cardSearch: {
     borderTopWidth: 1,

@@ -28,6 +28,8 @@ interface LocationSearchProps {
   onSelect: (result: LocationSearchResult) => void;
   /** Keeps the suggestion list within the visible map area (above the keyboard). */
   resultsMaxHeight?: number;
+  /** False when the field is opened only for a map tap (Move pin), so no keyboard opens. */
+  autoFocus?: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export function LocationSearch({
   placeholder,
   onSelect,
   resultsMaxHeight,
+  autoFocus = true,
 }: LocationSearchProps) {
   const [searchText, setSearchText] = useState('');
   const [placeResults, setPlaceResults] = useState<LocationSearchResult[]>([]);
@@ -113,7 +116,7 @@ export function LocationSearch({
             placeholderTextColor={colors.textMuted}
             returnKeyType="search"
             onSubmitEditing={handleSubmit}
-            autoFocus
+            autoFocus={autoFocus}
             autoCorrect={false}
             accessibilityLabel={`${label} search`}
           />
