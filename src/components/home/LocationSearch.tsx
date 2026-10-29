@@ -1,6 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography } from '@/constants/theme';
-import { LocationServiceError, searchLocations } from '@/services/locationService';
+import {
+  LocationServiceError,
+  MIN_PLACE_SEARCH_LENGTH,
+  searchLocations,
+} from '@/services/locationService';
 import { LocationSearchResult } from '@/types';
 import { searchBarangayLocations } from '@/utils/barangaySearch';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -15,9 +19,7 @@ import {
 } from 'react-native';
 
 /** Typing pauses this long before searching, so the geocoder is not hit on every key. */
-const SEARCH_DEBOUNCE_MS = 600;
-/** Search-as-you-type starts at this many characters; the keyboard's search key needs 2. */
-const MIN_AUTO_SEARCH_LENGTH = 3;
+const SEARCH_DEBOUNCE_MS = 400;
 
 interface LocationSearchProps {
   target: 'pickup' | 'destination';
@@ -58,7 +60,7 @@ export function LocationSearch({
     setMessage('');
 
     try {
-      const found = await searchLocations(text);
+      const found = await searchLocations(text, barangayResults);
       if (searchId !== latestSearchId.current) return;
       setPlaceResults(found);
       setNoPlaceMatches(found.length === 0);
@@ -78,7 +80,7 @@ export function LocationSearch({
   useEffect(() => {
     const trimmed = searchText.trim();
 
-    if (trimmed.length < MIN_AUTO_SEARCH_LENGTH) {
+    if (trimmed.length < MIN_PLACE_SEARCH_LENGTH) {
       // Drop any in-flight search and clear stale suggestions.
       latestSearchId.current += 1;
       setPlaceResults([]);
@@ -94,7 +96,7 @@ export function LocationSearch({
 
   function handleSubmit() {
     const trimmed = searchText.trim();
-    if (trimmed.length >= 2) runSearch(trimmed);
+    if (trimmed.length >= MIN_PLACE_SEARCH_LENGTH) runSearch(trimmed);
   }
 
   return (

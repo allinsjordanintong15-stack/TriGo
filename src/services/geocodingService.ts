@@ -1,4 +1,6 @@
+import { TRIGO_SERVICE_AREA } from '@/constants/serviceArea';
 import { formatNearbyLabel } from '@/utils/formatLocationLabel';
+import type { PlaceCandidate } from '@/utils/placeResults';
 
 /**
  * Reverse geocoding through the OpenRouteService (Pelias) API, used when the device
@@ -124,6 +126,116 @@ export async function reverseGeocodeWithOrs(
     if (__DEV__) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn('[TriGo Geocode] ORS request failed:', message.split(apiKey).join('<key>'));
+    }
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Text search through the OpenRouteService (Pelias) API, biased toward Trinidad and limited
+ * to the Philippines. https://openrouteservice.org/dev/#/api-docs/geocode/search/get
+ */
+const ORS_SEARCH_URL = 'https://api.openrouteservice.org/geocode/search';
+const ORS_SEARCH_SIZE = 10;
+
+// Places by normalized search text for this app session, so the same text costs one ORS
+// request. Failed requests are not cached.
+const searchCache = new Map<string, PlaceCandidate[]>();
+
+function searchCacheKey(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** Point features of an ORS search response as place candidates. */
+function parsePlaces(body: unknown): PlaceCandidate[] {
+  if (!isRecord(body) || !Array.isArray(body.features)) {
+    return [];
+  }
+
+  const places: PlaceCandidate[] = [];
+  for (const feature of body.features as unknown[]) {
+    if (!isRecord(feature) || !isRecord(feature.geometry) || !isRecord(feature.properties)) {
+      continue;
+    }
+    const coordinates = feature.geometry.coordinates;
+    if (!Array.isArray(coordinates)) continue;
+    const longitude = readNumber(coordinates[0]);
+    const latitude = readNumber(coordinates[1]);
+    if (latitude === null || longitude === null) continue;
+
+    places.push({
+      latitude,
+      longitude,
+      name: readString(feature.properties, 'name'),
+      label: readString(feature.properties, 'label'),
+    });
+  }
+  return places;
+}
+
+/**
+ * Places matching the text, in ORS relevance order. Null when no ORS key is configured or
+ * the request fails, so the caller can fall back to the phone geocoder.
+ */
+export async function searchPlacesWithOrs(text: string): Promise<PlaceCandidate[] | null> {
+  const key = searchCacheKey(text);
+  const cached = searchCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const apiKey = process.env.EXPO_PUBLIC_ORS_API_KEY?.trim();
+  if (!apiKey) {
+    if (__DEV__) {
+      console.warn('[TriGo Geocode] ORS key present: false');
+    }
+    return null;
+  }
+
+  const { latitude, longitude } = TRIGO_SERVICE_AREA.center;
+  const url =
+    `${ORS_SEARCH_URL}?api_key=${encodeURIComponent(apiKey)}` +
+    `&text=${encodeURIComponent(text.trim())}` +
+    `&focus.point.lat=${latitude}&focus.point.lon=${longitude}` +
+    `&boundary.country=PH&size=${ORS_SEARCH_SIZE}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GEOCODE_TIMEOUT_MS);
+
+  try {
+    // The URL carries the key: never log it.
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    const body: unknown = await response.json().catch(() => null);
+
+    if (response.status !== 200) {
+      if (__DEV__) {
+        console.warn('[TriGo Geocode] ORS search error', {
+          status: response.status,
+          error: parseErrorMessage(body),
+        });
+      }
+      return null;
+    }
+
+    const places = parsePlaces(body);
+    if (__DEV__) {
+      console.log('[TriGo Geocode] ORS search 200', { results: places.length });
+    }
+    searchCache.set(key, places);
+    return places;
+  } catch (error) {
+    if (__DEV__) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[TriGo Geocode] ORS search failed:', message.split(apiKey).join('<key>'));
     }
     return null;
   } finally {

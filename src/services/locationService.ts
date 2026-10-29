@@ -2,18 +2,20 @@ import { MAP_DELTA } from '@/constants/map';
 import { TRIGO_SERVICE_AREA } from '@/constants/serviceArea';
 import {
   distanceFromServiceAreaCenterKm,
+  findBarangayAt,
   getServiceAreaLabel,
   isWithinTrigoServiceArea,
 } from '@/services/serviceAreaService';
-import { reverseGeocodeWithOrs } from '@/services/geocodingService';
+import { reverseGeocodeWithOrs, searchPlacesWithOrs } from '@/services/geocodingService';
 import { Location as AppLocation, LocationSearchResult } from '@/types';
-import { calculateDistanceKmFromCoords } from '@/utils/distance';
+import { searchBarangays } from '@/utils/barangaySearch';
 import {
   formatLocationLabel,
   formatPinnedLocationLabel,
   getPlaceParts,
   PlaceParts,
 } from '@/utils/formatLocationLabel';
+import { PlaceCandidate, rankPlaceResults } from '@/utils/placeResults';
 import * as Location from 'expo-location';
 
 export class LocationServiceError extends Error {
@@ -106,74 +108,79 @@ export async function getCurrentLocation(): Promise<AppLocation> {
 }
 
 const MAX_SEARCH_RESULTS = 5;
+/** Place search (ORS or the phone geocoder) starts at this many characters. */
+export const MIN_PLACE_SEARCH_LENGTH = 3;
 
 /**
- * Search places by text. Results inside Trinidad, Bohol are ranked first, followed by
- * everything else ordered by distance from Trinidad — nothing outside is filtered out,
- * so passengers can still pick destinations for out-of-area trips.
+ * Phone geocoder places for the text. It returns coordinates only, so the results have no
+ * names; their labels come from reverseGeocode.
  */
-export async function searchLocations(searchText: string): Promise<LocationSearchResult[]> {
-  const trimmed = searchText.trim();
-  if (trimmed.length < 2) {
-    return [];
-  }
-
-  const hasPermission = await requestLocationPermission();
-  if (!hasPermission) {
-    throw new LocationServiceError(
-      'Location permission is required to search places. Please enable location access.',
-    );
-  }
-
-  // Query with a Trinidad, Bohol hint first so local places win, then without it so
-  // municipalities, cities and landmarks elsewhere are still found.
-  const queries = [`${trimmed}, ${getServiceAreaLabel()}, Philippines`, `${trimmed}, Philippines`];
-  const candidates: { latitude: number; longitude: number }[] = [];
+async function searchPlacesWithDevice(text: string): Promise<PlaceCandidate[]> {
+  // With a Trinidad, Bohol hint first so local places win (unless the text already names
+  // Trinidad), then without it so municipalities, cities and landmarks elsewhere are found.
+  const queries = /\btrinidad\b/i.test(text)
+    ? [`${text}, Philippines`]
+    : [`${text}, ${getServiceAreaLabel()}, Philippines`, `${text}, Philippines`];
+  const candidates: PlaceCandidate[] = [];
 
   for (const query of queries) {
     try {
       const results = await Location.geocodeAsync(query);
-      for (const result of results) {
-        const isDuplicate = candidates.some(
-          (existing) =>
-            calculateDistanceKmFromCoords(
-              existing.latitude,
-              existing.longitude,
-              result.latitude,
-              result.longitude,
-            ) < 0.05,
-        );
-        if (!isDuplicate) {
-          candidates.push({ latitude: result.latitude, longitude: result.longitude });
-        }
+      for (const { latitude, longitude } of results) {
+        candidates.push({ latitude, longitude, name: null, label: null });
       }
     } catch {
       // One failed geocode query should not discard results from the other.
     }
   }
 
-  const ranked = candidates
-    .map((candidate) => ({
-      ...candidate,
-      withinServiceArea: isWithinTrigoServiceArea(candidate.latitude, candidate.longitude),
-      distanceKm: distanceFromServiceAreaCenterKm(candidate.latitude, candidate.longitude),
-    }))
-    .sort((a, b) => {
-      if (a.withinServiceArea !== b.withinServiceArea) {
-        return a.withinServiceArea ? -1 : 1;
-      }
-      return a.distanceKm - b.distanceKm;
-    })
-    .slice(0, MAX_SEARCH_RESULTS);
+  return candidates;
+}
+
+/**
+ * Search places by text: ORS (biased toward Trinidad), or the phone geocoder when ORS is
+ * unavailable or finds nothing. Places inside Trinidad, Bohol come first, labelled with their
+ * barangay, then everything else by distance from Trinidad — nothing outside is filtered
+ * out, so passengers can still pick destinations for out-of-area trips. Places duplicating
+ * one of `barangayResults` are dropped. Text that exactly names a barangay is not sent to
+ * any geocoder (the barangay suggestion covers it), which saves ORS quota.
+ */
+export async function searchLocations(
+  searchText: string,
+  barangayResults: readonly LocationSearchResult[] = [],
+): Promise<LocationSearchResult[]> {
+  const trimmed = searchText.trim();
+  if (trimmed.length < MIN_PLACE_SEARCH_LENGTH || searchBarangays(trimmed)[0]?.match === 'exact') {
+    return [];
+  }
+
+  const orsPlaces = await searchPlacesWithOrs(trimmed);
+  let candidates = orsPlaces ?? [];
+
+  if (candidates.length === 0) {
+    // The phone geocoder needs location permission; ORS does not.
+    const hasPermission = await requestLocationPermission();
+    if (hasPermission) {
+      candidates = await searchPlacesWithDevice(trimmed);
+    } else if (orsPlaces === null) {
+      throw new LocationServiceError(
+        'Location permission is required to search places. Please enable location access.',
+      );
+    }
+  }
+
+  const ranked = rankPlaceResults(candidates, {
+    isWithinServiceArea: isWithinTrigoServiceArea,
+    findBarangayAt,
+    distanceFromCenterKm: distanceFromServiceAreaCenterKm,
+    barangayResults,
+    max: MAX_SEARCH_RESULTS,
+  });
 
   return Promise.all(
-    ranked.map(async ({ latitude, longitude, withinServiceArea }) => ({
-      latitude,
-      longitude,
-      withinServiceArea,
-      kind: 'place' as const,
-      barangayId: null,
-      address: await reverseGeocode(latitude, longitude),
+    ranked.map(async (place) => ({
+      ...place,
+      address: place.address ?? (await reverseGeocode(place.latitude, place.longitude)),
     })),
   );
 }
