@@ -1,5 +1,8 @@
 import type { DocumentData, Timestamp } from 'firebase/firestore';
 
+import { formatPeso } from '../lib/format';
+import { BARANGAYS } from '../tariffs/barangays';
+
 // Read-only view of bookings/{bookingId} for admin pages (shape written by the mobile app,
 // see src/types/index.ts Booking). Admins can read bookings but never write them.
 
@@ -18,6 +21,8 @@ export const BOOKING_TYPE_LABELS = { standard: 'Standard', out_of_area: 'Out-of-
 export const VEHICLE_TYPE_LABELS = { tricycle: 'Tricycle', motorcycle: 'Motorcycle' } as const;
 export const PAYMENT_METHOD_LABELS = { cash: 'Cash', gcash: 'GCash' } as const;
 
+export type FareBasis = 'per_km' | 'barangay_tariff';
+
 export type AdminBooking = {
   bookingId: string;
   passengerId: string;
@@ -29,6 +34,13 @@ export type AdminBooking = {
   destinationAddress: string;
   distanceKm: number | null;
   estimatedFare: number | null;
+  /** 'per_km' for out-of-area bookings and bookings made before barangay tariffs. */
+  fareBasis: FareBasis;
+  /** Barangay of each end when booked (standard bookings only). */
+  pickupBarangayId: string | null;
+  destinationBarangayId: string | null;
+  /** Admin per-km rate of a standard per-km booking; null on older bookings. */
+  perKmRate: number | null;
   finalFare: number | null;
   paymentMethod: keyof typeof PAYMENT_METHOD_LABELS | null;
   cancelledBy: 'passenger' | 'driver' | null;
@@ -67,6 +79,11 @@ export function readBooking(bookingId: string, data: DocumentData): AdminBooking
     destinationAddress: data.destination?.address ?? '',
     distanceKm: numberOrNull(data.distanceKm),
     estimatedFare: numberOrNull(data.estimatedFare),
+    // Older bookings (and all out-of-area bookings) lack the fare basis fields.
+    fareBasis: data.fareBasis === 'barangay_tariff' ? 'barangay_tariff' : 'per_km',
+    pickupBarangayId: typeof data.pickupBarangayId === 'string' ? data.pickupBarangayId : null,
+    destinationBarangayId: typeof data.destinationBarangayId === 'string' ? data.destinationBarangayId : null,
+    perKmRate: numberOrNull(data.perKmRate),
     finalFare: numberOrNull(data.finalFare),
     paymentMethod: oneOf(data.paymentMethod, PAYMENT_METHOD_LABELS),
     cancelledBy: data.cancelledBy === 'passenger' || data.cancelledBy === 'driver' ? data.cancelledBy : null,
@@ -89,4 +106,21 @@ export function sortNewestFirst(bookings: AdminBooking[]): AdminBooking[] {
 /** The fare to show: finalFare once completed, otherwise the fare shown at confirmation. */
 export function displayFare(booking: AdminBooking): number | null {
   return booking.finalFare ?? booking.estimatedFare;
+}
+
+/**
+ * Same wording as the mobile app (src/utils/fareBasisLabel.ts): "Barangay tariff · Poblacion
+ * ↔ Bongbong", "₱8.00/km", or "Per-km fare" for bookings without a stored rate. Null for
+ * out-of-area bookings (their Type already says so).
+ */
+export function fareBasisLabel(booking: AdminBooking): string | null {
+  if (booking.bookingType === 'out_of_area') return null;
+
+  if (booking.fareBasis === 'barangay_tariff') {
+    const otherId = booking.pickupBarangayId === 'poblacion' ? booking.destinationBarangayId : booking.pickupBarangayId;
+    const name = BARANGAYS.find((barangay) => barangay.id === otherId)?.name;
+    return name ? `Barangay tariff · Poblacion ↔ ${name}` : 'Barangay tariff';
+  }
+
+  return booking.perKmRate !== null ? `${formatPeso(booking.perKmRate)}/km` : 'Per-km fare';
 }

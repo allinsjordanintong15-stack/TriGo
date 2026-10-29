@@ -6,6 +6,7 @@ import {
   BOOKING_STATUS_LABELS,
   BOOKING_TYPE_LABELS,
   displayFare,
+  fareBasisLabel,
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
@@ -502,7 +503,12 @@ export function DriverDetailPage() {
                         </div>
                       )}
                     </td>
-                    <td className="num">{formatPeso(displayFare(trip))}</td>
+                    <td className="num">
+                      <div>{formatPeso(displayFare(trip))}</div>
+                      <div className="muted small" title="Fare basis">
+                        {fareBasisLabel(trip)}
+                      </div>
+                    </td>
                     <td>{trip.paymentMethod ? PAYMENT_METHOD_LABELS[trip.paymentMethod] : '—'}</td>
                     <td className="cell-action">
                       {trip.passengerId && (

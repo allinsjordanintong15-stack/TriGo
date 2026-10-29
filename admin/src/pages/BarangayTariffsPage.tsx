@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LoadingBlock } from '../components/LoadingBlock';
-import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
 import { parseAmount } from '../fares/fareSettings';
 import { amountInputValue, formatPeso } from '../lib/format';
@@ -180,7 +179,6 @@ export function BarangayTariffsPage() {
         title="Barangay tariffs"
         subtitle="Fixed fare between Poblacion and each barangay, per vehicle. Blank or inactive barangays use the per-km fare."
       />
-      <Notice>Tariffs are saved but not yet applied in the app.</Notice>
 
       <div className="card">
         <p className="muted small">
