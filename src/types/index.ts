@@ -1,9 +1,22 @@
+import type { BoundaryBarangayId } from '@/constants/barangays';
+
 export type UserRole = 'passenger' | 'driver' | 'admin';
 
 export interface Location {
   latitude: number;
   longitude: number;
   address: string;
+}
+
+/**
+ * A pickup/destination search suggestion: a barangay of Trinidad (matched offline, pinned at
+ * getBarangayPinPoint) or a place from the geocoder.
+ */
+export interface LocationSearchResult extends Location {
+  kind: 'barangay' | 'place';
+  /** Set for barangay results only. */
+  barangayId: BoundaryBarangayId | null;
+  withinServiceArea: boolean;
 }
 
 export type VehicleType = 'tricycle' | 'motorcycle';

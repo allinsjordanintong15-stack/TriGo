@@ -60,6 +60,11 @@ describe('barangay pin points', () => {
     }
   });
 
+  it('pins Poblacion at the town centre', () => {
+    // Same value as TRIGO_SERVICE_AREA.center (src/constants/serviceArea.ts).
+    assert.deepEqual(getBarangayPinPoint(POBLACION_ID), { latitude: 10.0792, longitude: 124.343 });
+  });
+
   it('only has curated points for known barangays, as [latitude, longitude]', () => {
     for (const [id, point] of Object.entries(CURATED_BARANGAY_PIN_POINTS)) {
       assert.ok(ALL_IDS.includes(id as BoundaryBarangayId), `unknown barangay ${id}`);

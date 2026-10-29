@@ -1,11 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography } from '@/constants/theme';
-import {
-  LocationSearchResult,
-  LocationServiceError,
-  searchLocations,
-} from '@/services/locationService';
-import { useEffect, useRef, useState } from 'react';
+import { LocationServiceError, searchLocations } from '@/services/locationService';
+import { LocationSearchResult } from '@/types';
+import { searchBarangayLocations } from '@/utils/barangaySearch';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -32,7 +30,8 @@ interface LocationSearchProps {
 
 /**
  * Editable pickup/destination field for the floating map card. Suggestions appear below
- * the field while the passenger types; out-of-area places are listed, never filtered out.
+ * the field while the passenger types: matching barangays of Trinidad first (offline, from
+ * 2 characters), then geocoder places; out-of-area places are listed, never filtered out.
  */
 export function LocationSearch({
   target,
@@ -42,27 +41,30 @@ export function LocationSearch({
   resultsMaxHeight,
 }: LocationSearchProps) {
   const [searchText, setSearchText] = useState('');
-  const [results, setResults] = useState<LocationSearchResult[]>([]);
+  const [placeResults, setPlaceResults] = useState<LocationSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [noPlaceMatches, setNoPlaceMatches] = useState(false);
   const [message, setMessage] = useState('');
   // Only the newest search may update the list; slower, older ones are ignored.
   const latestSearchId = useRef(0);
 
+  const barangayResults = useMemo(() => searchBarangayLocations(searchText), [searchText]);
+  const results = [...barangayResults, ...placeResults];
+
   async function runSearch(text: string) {
     const searchId = ++latestSearchId.current;
     setSearching(true);
+    setNoPlaceMatches(false);
     setMessage('');
 
     try {
       const found = await searchLocations(text);
       if (searchId !== latestSearchId.current) return;
-      setResults(found);
-      if (found.length === 0) {
-        setMessage('No matching locations found. Try another search.');
-      }
+      setPlaceResults(found);
+      setNoPlaceMatches(found.length === 0);
     } catch (error) {
       if (searchId !== latestSearchId.current) return;
-      setResults([]);
+      setPlaceResults([]);
       setMessage(
         error instanceof LocationServiceError
           ? error.message
@@ -79,7 +81,8 @@ export function LocationSearch({
     if (trimmed.length < MIN_AUTO_SEARCH_LENGTH) {
       // Drop any in-flight search and clear stale suggestions.
       latestSearchId.current += 1;
-      setResults([]);
+      setPlaceResults([]);
+      setNoPlaceMatches(false);
       setMessage('');
       setSearching(false);
       return;
@@ -135,6 +138,10 @@ export function LocationSearch({
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
 
+      {noPlaceMatches && results.length === 0 ? (
+        <Text style={styles.message}>No matching locations found. Try another search.</Text>
+      ) : null}
+
       {results.length > 0 ? (
         <ScrollView
           style={resultsMaxHeight ? { maxHeight: resultsMaxHeight } : null}
@@ -143,17 +150,23 @@ export function LocationSearch({
           showsVerticalScrollIndicator={false}
         >
           {results.map((result) => {
-            const [name, ...rest] = result.address.split(', ');
+            const isBarangay = result.kind === 'barangay';
+            // Barangay labels are one line ("Barangay Banlasan · Trinidad").
+            const [name, ...rest] = isBarangay ? [result.address] : result.address.split(', ');
             return (
               <Pressable
-                key={`${result.latitude},${result.longitude}`}
+                key={
+                  isBarangay
+                    ? `barangay:${result.barangayId}`
+                    : `${result.latitude},${result.longitude}`
+                }
                 accessibilityRole="button"
                 accessibilityLabel={`Select ${result.address}`}
                 style={({ pressed }) => [styles.result, pressed ? styles.resultPressed : null]}
                 onPress={() => onSelect(result)}
               >
                 <Ionicons
-                  name="location-sharp"
+                  name={isBarangay ? 'map' : 'location-sharp'}
                   size={18}
                   color={target === 'destination' ? colors.accent : colors.primary}
                   style={styles.resultIcon}
@@ -174,7 +187,7 @@ export function LocationSearch({
                     result.withinServiceArea ? styles.resultTagLocal : styles.resultTagOutside,
                   ]}
                 >
-                  {result.withinServiceArea ? 'Trinidad' : 'Out-of-area'}
+                  {isBarangay ? 'Barangay' : result.withinServiceArea ? 'Trinidad' : 'Out-of-area'}
                 </Text>
               </Pressable>
             );

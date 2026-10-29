@@ -6,7 +6,7 @@ import {
   isWithinTrigoServiceArea,
 } from '@/services/serviceAreaService';
 import { reverseGeocodeWithOrs } from '@/services/geocodingService';
-import { Location as AppLocation } from '@/types';
+import { Location as AppLocation, LocationSearchResult } from '@/types';
 import { calculateDistanceKmFromCoords } from '@/utils/distance';
 import {
   formatLocationLabel,
@@ -105,10 +105,6 @@ export async function getCurrentLocation(): Promise<AppLocation> {
   return resolveLocation(coordinates.latitude, coordinates.longitude);
 }
 
-export interface LocationSearchResult extends AppLocation {
-  withinServiceArea: boolean;
-}
-
 const MAX_SEARCH_RESULTS = 5;
 
 /**
@@ -175,6 +171,8 @@ export async function searchLocations(searchText: string): Promise<LocationSearc
       latitude,
       longitude,
       withinServiceArea,
+      kind: 'place' as const,
+      barangayId: null,
       address: await reverseGeocode(latitude, longitude),
     })),
   );

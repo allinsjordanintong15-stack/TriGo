@@ -2,7 +2,13 @@
 // on value imports) on purpose, so plain Node tests, which resolve neither the "@/..."
 // aliases nor extensionless paths, can load this file.
 
+import { getBarangayPinPoint } from '../constants/barangayPinPoints.ts';
 import { BARANGAYS, POBLACION_ID, type BoundaryBarangayId } from '../constants/barangays.ts';
+import { TRIGO_SERVICE_AREA } from '../constants/serviceArea.ts';
+import type { LocationSearchResult } from '../types';
+
+/** Barangay suggestions shown above the geocoder's places. */
+const MAX_BARANGAY_RESULTS = 5;
 
 /** How the typed text matched, best first. `exact` lets callers skip the ORS search. */
 export type BarangayMatchKind = 'exact' | 'prefix' | 'word' | 'contains' | 'typo' | 'mentioned';
@@ -132,4 +138,26 @@ export function searchBarangays(text: string): BarangaySearchMatch[] {
     (a, b) =>
       MATCH_ORDER.indexOf(a.match) - MATCH_ORDER.indexOf(b.match) || a.name.localeCompare(b.name),
   );
+}
+
+/** "Barangay Banlasan · Trinidad", or "Poblacion (Town proper) · Trinidad". */
+export function formatBarangayResultLabel(match: { id: BoundaryBarangayId; name: string }): string {
+  const place = match.id === POBLACION_ID ? `${match.name} (Town proper)` : `Barangay ${match.name}`;
+  return `${place} · ${TRIGO_SERVICE_AREA.name}`;
+}
+
+/**
+ * Barangay suggestions for the pickup/destination search, best first, pinned at each
+ * barangay's pin point (always inside Trinidad). Instant and offline.
+ */
+export function searchBarangayLocations(text: string): LocationSearchResult[] {
+  return searchBarangays(text)
+    .slice(0, MAX_BARANGAY_RESULTS)
+    .map((match) => ({
+      ...getBarangayPinPoint(match.id),
+      address: formatBarangayResultLabel(match),
+      kind: 'barangay',
+      barangayId: match.id,
+      withinServiceArea: true,
+    }));
 }

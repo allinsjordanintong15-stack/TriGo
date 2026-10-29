@@ -1,14 +1,20 @@
 /// <reference types="node" />
 
-// Offline barangay matching (searchBarangays) for the pickup/destination search.
-// Run with `npm run test:unit`.
+// Offline barangay matching (searchBarangays) and the barangay suggestions built from it
+// (searchBarangayLocations) for the pickup/destination search. Run with `npm run test:unit`.
 // Imports only alias-free files: Node's type stripping does not resolve the "@/..." aliases.
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { getBarangayPinPoint } from '../../src/constants/barangayPinPoints.ts';
 import { BARANGAYS, POBLACION_ID } from '../../src/constants/barangays.ts';
-import { normalizeSearchText, searchBarangays } from '../../src/utils/barangaySearch.ts';
+import {
+  formatBarangayResultLabel,
+  normalizeSearchText,
+  searchBarangayLocations,
+  searchBarangays,
+} from '../../src/utils/barangaySearch.ts';
 
 const ids = (text: string) => searchBarangays(text).map((match) => match.id);
 const first = (text: string) => searchBarangays(text)[0];
@@ -114,3 +120,47 @@ describe('searchBarangays', () => {
 function order(kind: string): number {
   return ['exact', 'prefix', 'word', 'contains', 'typo', 'mentioned'].indexOf(kind);
 }
+
+describe('formatBarangayResultLabel', () => {
+  it('labels barangays and Poblacion', () => {
+    assert.equal(formatBarangayResultLabel({ id: 'banlasan', name: 'Banlasan' }), 'Barangay Banlasan · Trinidad');
+    assert.equal(
+      formatBarangayResultLabel({ id: POBLACION_ID, name: 'Poblacion' }),
+      'Poblacion (Town proper) · Trinidad',
+    );
+  });
+});
+
+describe('searchBarangayLocations', () => {
+  it('returns barangay suggestions pinned at each barangay pin point', () => {
+    assert.deepEqual(searchBarangayLocations('brgy banlasn'), [
+      {
+        ...getBarangayPinPoint('banlasan'),
+        address: 'Barangay Banlasan · Trinidad',
+        kind: 'barangay',
+        barangayId: 'banlasan',
+        withinServiceArea: true,
+      },
+    ]);
+    assert.deepEqual(searchBarangayLocations('Poblacion, Trinidad')[0], {
+      latitude: 10.0792,
+      longitude: 124.343,
+      address: 'Poblacion (Town proper) · Trinidad',
+      kind: 'barangay',
+      barangayId: POBLACION_ID,
+      withinServiceArea: true,
+    });
+  });
+
+  it('keeps the match order', () => {
+    assert.deepEqual(
+      searchBarangayLocations('san').map(({ barangayId }) => barangayId),
+      ['san-isidro', 'san-vicente', 'santo-tomas', 'banlasan'],
+    );
+  });
+
+  it('starts at 2 characters', () => {
+    assert.deepEqual(searchBarangayLocations('s'), []);
+    assert.ok(searchBarangayLocations('so').length > 0);
+  });
+});

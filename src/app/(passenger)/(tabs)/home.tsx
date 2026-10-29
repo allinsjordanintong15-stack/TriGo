@@ -20,7 +20,6 @@ import {
 } from '@/services/bookingService';
 import {
   getCurrentLocation,
-  LocationSearchResult,
   LocationServiceError,
   resolveLocation,
   toMapRegion,
@@ -32,7 +31,7 @@ import {
   isLocationWithinServiceArea,
   isOutOfAreaTrip,
 } from '@/services/serviceAreaService';
-import { Location, TripQuote } from '@/types';
+import { Location, LocationSearchResult, TripQuote } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { router } from 'expo-router';
