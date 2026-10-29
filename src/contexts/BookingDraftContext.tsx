@@ -1,9 +1,19 @@
 import { DEFAULT_FARE_SETTINGS } from '@/constants';
 import { OUT_OF_AREA_FARE_SETTINGS } from '@/constants/outOfAreaFareSettings';
+import { fetchBarangayTariffs, TariffsStatus } from '@/services/barangayTariffService';
 import { fetchFareConfig, TriGoFareConfig } from '@/services/fareService';
 import { RoadRoute } from '@/services/routingService';
 import { Location, TripQuote, VehicleType } from '@/types';
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { BarangayTariffs } from '@/utils/fareQuote';
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 export type LocationSelectionMode = 'pickup' | 'destination' | null;
 
@@ -18,6 +28,11 @@ export interface BookingDraftContextValue {
   activeBookingId: string | null;
   selectionMode: LocationSelectionMode;
   fareConfig: TriGoFareConfig;
+  /** Saved barangay tariffs; empty while loading or unavailable, so fares are per-km. */
+  barangayTariffs: BarangayTariffs;
+  tariffsStatus: TariffsStatus;
+  /** Tariffs read again on Confirm (the fare changed); keeps later quotes in step. */
+  setBarangayTariffs: (tariffs: BarangayTariffs) => void;
   setPickupLocation: (location: Location | null) => void;
   setDestination: (location: Location | null) => void;
   setVehicleType: (vehicleType: VehicleType | null) => void;
@@ -49,6 +64,28 @@ export function BookingDraftProvider({ children }: { children: ReactNode }) {
   const [selectionMode, setSelectionMode] = useState<LocationSelectionMode>(null);
 
   const [fareConfig, setFareConfig] = useState<TriGoFareConfig>(DEFAULT_FARE_CONFIG);
+  const [tariffState, setTariffState] = useState<{
+    tariffs: BarangayTariffs;
+    status: TariffsStatus;
+  }>({ tariffs: {}, status: 'loading' });
+
+  // Times out after ~5 s; a failed or slow read leaves every fare per-km.
+  useEffect(() => {
+    let active = true;
+    fetchBarangayTariffs().then((tariffs) => {
+      if (!active) return;
+      setTariffState(
+        tariffs === null ? { tariffs: {}, status: 'unavailable' } : { tariffs, status: 'ready' },
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const setBarangayTariffs = useCallback((tariffs: BarangayTariffs) => {
+    setTariffState({ tariffs, status: 'ready' });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -75,6 +112,9 @@ export function BookingDraftProvider({ children }: { children: ReactNode }) {
       activeBookingId,
       selectionMode,
       fareConfig,
+      barangayTariffs: tariffState.tariffs,
+      tariffsStatus: tariffState.status,
+      setBarangayTariffs,
       setPickupLocation,
       setDestination,
       setVehicleType,
@@ -104,6 +144,8 @@ export function BookingDraftProvider({ children }: { children: ReactNode }) {
       activeBookingId,
       selectionMode,
       fareConfig,
+      tariffState,
+      setBarangayTariffs,
     ],
   );
 

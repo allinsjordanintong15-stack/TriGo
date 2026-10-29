@@ -73,7 +73,7 @@ export function getServiceAreaBoundaryCoordinates(): { latitude: number; longitu
 /**
  * Barangay of Trinidad containing the coordinate ('poblacion' or a barangayTariffs ID), using
  * the PSA barangay boundaries. A point within the service-area edge tolerance of a barangay
- * counts as in the nearest one. Null outside Trinidad. Not used for fares yet.
+ * counts as in the nearest one. Null outside Trinidad. Used for barangay tariff fares.
  */
 export function findBarangayAt(latitude: number, longitude: number): BoundaryBarangayId | null {
   return findAreaContaining(

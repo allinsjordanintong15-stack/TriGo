@@ -14,6 +14,7 @@ import {
   acceptProposalAndCreateBooking,
   BookingServiceError,
   createStandardBooking,
+  FareChangedError,
   ProposalUnavailableError,
   subscribeToOutOfAreaRequest,
 } from '@/services/bookingService';
@@ -39,6 +40,9 @@ export default function BookingConfirmationScreen() {
     tripQuote,
     tripRoute,
     activeOutOfAreaRequestId,
+    fareConfig,
+    setTripQuote,
+    setBarangayTariffs,
     setActiveBookingId,
     setActiveOutOfAreaRequestId,
   } = useBookingDraft();
@@ -107,7 +111,8 @@ export default function BookingConfirmationScreen() {
         bookingId = await acceptProposalAndCreateBooking(passenger.uid, outOfAreaRequest);
         setActiveOutOfAreaRequestId(null);
       } else {
-        bookingId = (await createStandardBooking(passenger.uid, tripQuote)).bookingId;
+        bookingId = (await createStandardBooking(passenger.uid, tripQuote, fareConfig.fares))
+          .bookingId;
       }
 
       setActiveBookingId(bookingId);
@@ -118,6 +123,13 @@ export default function BookingConfirmationScreen() {
     } catch (err) {
       if (err instanceof ProposalUnavailableError) {
         setUnavailable(err.state);
+        return;
+      }
+      if (err instanceof FareChangedError) {
+        // Show the new fare; the passenger must press Confirm again to book it.
+        setTripQuote(err.quote);
+        if (err.tariffs) setBarangayTariffs(err.tariffs);
+        setError(err.message);
         return;
       }
       setError(

@@ -8,6 +8,9 @@ export interface Location {
 
 export type VehicleType = 'tricycle' | 'motorcycle';
 
+/** How a standard fare was priced: admin per-km rate, or a Poblacion <-> barangay tariff. */
+export type FareBasis = 'per_km' | 'barangay_tariff';
+
 /**
  * Ride lifecycle: pending → accepted → arrived → in_progress → completed, or cancelled
  * (see docs/plans/task2-ride-lifecycle.md). Out-of-area negotiation states live on
@@ -201,6 +204,13 @@ export interface Booking {
   destination: Location;
   distanceKm: number;
   estimatedFare: number;
+  /** 'per_km' for out-of-area bookings and bookings made before barangay tariffs. */
+  fareBasis: FareBasis;
+  /** Barangay of each end when booked (standard bookings only); null when unknown. */
+  pickupBarangayId: string | null;
+  destinationBarangayId: string | null;
+  /** Admin per-km rate used for a standard per-km fare; null otherwise and on older bookings. */
+  perKmRate: number | null;
   driverProposedFare: number | null;
   agreedFare: number | null;
   fareAgreement: FareAgreement | null;
@@ -288,4 +298,11 @@ export interface TripQuote {
   standardEstimatedFare: number;
   bookingType: BookingType;
   isOutOfArea: boolean;
+  /** Always 'per_km' for out-of-area trips. */
+  fareBasis: FareBasis;
+  /** findBarangayAt() for each end; null outside every barangay. */
+  pickupBarangayId: string | null;
+  destinationBarangayId: string | null;
+  /** The admin per-km rate behind a per-km fare; null for a barangay tariff. */
+  perKmRate: number | null;
 }

@@ -2,9 +2,9 @@
 // plain Node tests (which cannot resolve the "@/..." aliases) can load this file.
 
 import type { BoundaryBarangayId } from '../constants/barangays';
-import type { FareSettings, VehicleType } from '../types';
+import type { FareBasis, FareSettings, VehicleType } from '../types';
 
-export type FareBasis = 'per_km' | 'barangay_tariff';
+export type { FareBasis };
 
 /** One barangayTariffs/{barangayId} row as the app uses it. */
 export interface BarangayTariffRow {

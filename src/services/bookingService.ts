@@ -11,13 +11,14 @@ import {
 } from '@/utils/outOfAreaProposal';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { declineProposal } from '@/services/fareAgreementService';
-import { calculateEstimatedFare } from '@/services/fareService';
-import { isOutOfAreaTrip } from '@/services/serviceAreaService';
+import { fetchBarangayTariffs } from '@/services/barangayTariffService';
+import { findBarangayAt, isOutOfAreaTrip } from '@/services/serviceAreaService';
 import {
   Booking,
   BookingType,
   CancelledBy,
   FareAgreement,
+  FareBasis,
   FareSettings,
   Location,
   OutOfAreaFareSettings,
@@ -26,6 +27,8 @@ import {
   TripQuote,
   VehicleType,
 } from '@/types';
+import { formatPhilippinePeso } from '@/utils/fare';
+import { BarangayTariffs, quoteFare } from '@/utils/fareQuote';
 import {
   addDoc,
   collection,
@@ -67,24 +70,55 @@ export function buildTripQuote(
   /** Road distance from routingService. Fares are never quoted on a straight line. */
   roadDistanceKm: number,
   fareSettings: FareSettings = DEFAULT_FARE_SETTINGS,
+  /** Saved barangay tariffs; empty (all per-km) while loading or when they could not be read. */
+  tariffs: BarangayTariffs = {},
 ): TripQuote {
   if (typeof roadDistanceKm !== 'number' || !Number.isFinite(roadDistanceKm) || roadDistanceKm < 0) {
     throw new BookingServiceError(ROAD_ROUTE_UNAVAILABLE_MESSAGE);
   }
 
   const distanceKm = roadDistanceKm;
-  const standardEstimatedFare = calculateEstimatedFare(vehicleType, distanceKm, fareSettings);
   const isOutOfArea = isOutOfAreaTrip(pickupLocation, destinationLocation);
+  const pickupBarangayId = findBarangayAt(pickupLocation.latitude, pickupLocation.longitude);
+  const destinationBarangayId = findBarangayAt(
+    destinationLocation.latitude,
+    destinationLocation.longitude,
+  );
+  const fare = quoteFare({
+    vehicleType,
+    distanceKm,
+    fareSettings,
+    isOutOfArea,
+    pickupBarangayId,
+    destinationBarangayId,
+    tariffs,
+  });
 
   return {
     pickupLocation,
     destination: destinationLocation,
     vehicleType,
     distanceKm,
-    standardEstimatedFare,
+    standardEstimatedFare: fare.fare,
     bookingType: isOutOfArea ? 'out_of_area' : 'standard',
     isOutOfArea,
+    fareBasis: fare.fareBasis,
+    pickupBarangayId,
+    destinationBarangayId,
+    perKmRate: fare.perKmRate,
   };
+}
+
+/** The same trip priced again with the given settings and tariffs. */
+function requoteTrip(quote: TripQuote, fareSettings: FareSettings, tariffs: BarangayTariffs): TripQuote {
+  return buildTripQuote(
+    quote.pickupLocation,
+    quote.destination,
+    quote.vehicleType,
+    quote.distanceKm,
+    fareSettings,
+    tariffs,
+  );
 }
 
 export async function createOutOfAreaRequest(
@@ -213,6 +247,11 @@ export function docToBooking(id: string, data: Record<string, unknown>): Booking
     destination: data.destination as Location,
     distanceKm: data.distanceKm as number,
     estimatedFare: data.estimatedFare as number,
+    // Bookings made before barangay tariffs (and all out-of-area bookings) lack these.
+    fareBasis: (data.fareBasis as FareBasis | undefined) ?? 'per_km',
+    pickupBarangayId: (data.pickupBarangayId as string | null | undefined) ?? null,
+    destinationBarangayId: (data.destinationBarangayId as string | null | undefined) ?? null,
+    perKmRate: (data.perKmRate as number | null | undefined) ?? null,
     driverProposedFare: (data.driverProposedFare as number | null) ?? null,
     agreedFare: (data.agreedFare as number | null) ?? null,
     fareAgreement: fareAgreement ? parseFareAgreement(fareAgreement) : null,
@@ -267,9 +306,51 @@ function buildBookingDocument(
   };
 }
 
+/**
+ * The tariff changed after the passenger saw the fare. Carries the trip priced again; the
+ * passenger must see the new fare and confirm again (a changed fare is never booked
+ * automatically).
+ */
+export class FareChangedError extends BookingServiceError {
+  readonly quote: TripQuote;
+  /** The tariffs the new fare was priced with; null when they could not be read (per-km). */
+  readonly tariffs: BarangayTariffs | null;
+
+  constructor(quote: TripQuote, tariffs: BarangayTariffs | null) {
+    super(
+      `The fare changed to ${formatPhilippinePeso(quote.standardEstimatedFare)}. Check it and confirm again.`,
+    );
+    this.name = 'FareChangedError';
+    this.quote = quote;
+    this.tariffs = tariffs;
+  }
+}
+
+/** The rules accept a per-km rate above 0 with at most 2 decimals; anything else is left out. */
+function storablePerKmRate(rate: number | null): number | null {
+  return rate !== null && rate > 0 && Math.round(rate * 100) / 100 === rate ? rate : null;
+}
+
+/** Standard-only fields; the out-of-area booking rule does not allow them. */
+function standardFareFields(quote: TripQuote) {
+  return {
+    fareBasis: quote.fareBasis,
+    pickupBarangayId: quote.pickupBarangayId,
+    destinationBarangayId: quote.destinationBarangayId,
+    perKmRate: quote.fareBasis === 'per_km' ? storablePerKmRate(quote.perKmRate) : null,
+  };
+}
+
+/**
+ * Books a standard trip at the fare the passenger saw. Tariffs are read again first: if
+ * the fare is now different, nothing is booked and FareChangedError carries the new fare.
+ * When that read fails the quote is booked as shown; if the rules then refuse a tariff
+ * fare (tariff changed or turned off meanwhile), the trip is priced again the same way.
+ */
 export async function createStandardBooking(
   passengerId: string,
   quote: TripQuote,
+  fareSettings: FareSettings,
 ): Promise<Booking> {
   if (quote.isOutOfArea) {
     throw new BookingServiceError(
@@ -277,12 +358,24 @@ export async function createStandardBooking(
     );
   }
 
+  let bookedQuote = quote;
+  const latestTariffs = await fetchBarangayTariffs();
+  if (latestTariffs !== null) {
+    const latest = requoteTrip(quote, fareSettings, latestTariffs);
+    if (latest.standardEstimatedFare !== quote.standardEstimatedFare) {
+      throw new FareChangedError(latest, latestTariffs);
+    }
+    // Same amount (e.g. a tariff equal to the per-km fare): book it with the current basis.
+    bookedQuote = latest;
+  }
+
   try {
     const docRef = await addDoc(
       collection(firestore, COLLECTIONS.bookings),
-      buildBookingDocument(passengerId, quote, {
+      buildBookingDocument(passengerId, bookedQuote, {
         bookingType: 'standard',
         status: 'pending',
+        ...standardFareFields(bookedQuote),
       }),
     );
 
@@ -295,6 +388,18 @@ export async function createStandardBooking(
   } catch (error) {
     if (error instanceof BookingServiceError) {
       throw error;
+    }
+
+    if (
+      (error as { code?: string }).code === 'permission-denied' &&
+      bookedQuote.fareBasis === 'barangay_tariff'
+    ) {
+      // No tariffs (read failed again) prices the trip per-km, which the rules accept.
+      const retryTariffs = await fetchBarangayTariffs();
+      const latest = requoteTrip(bookedQuote, fareSettings, retryTariffs ?? {});
+      if (latest.standardEstimatedFare !== bookedQuote.standardEstimatedFare) {
+        throw new FareChangedError(latest, retryTariffs);
+      }
     }
 
     throw new BookingServiceError(
@@ -380,6 +485,11 @@ export async function acceptProposalAndCreateBooking(
         standardEstimatedFare: request.standardEstimatedFare,
         bookingType: 'out_of_area',
         isOutOfArea: true,
+        // Not written: only createStandardBooking adds the fare basis fields.
+        fareBasis: 'per_km',
+        pickupBarangayId: null,
+        destinationBarangayId: null,
+        perKmRate: null,
       },
       {
         driverProposedFare: proposal.driverProposedFare,

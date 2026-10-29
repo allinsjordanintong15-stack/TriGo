@@ -1,21 +1,8 @@
 import { DEFAULT_FARE_SETTINGS } from '@/constants';
 import { OUT_OF_AREA_FARE_SETTINGS } from '@/constants/outOfAreaFareSettings';
 import { COLLECTIONS, firestore } from '@/firebase';
-import {
-  FareSettings,
-  OutOfAreaFareSettings,
-  VehicleType,
-} from '@/types';
-import { calculatePerKmFare } from '@/utils/fareQuote';
+import { FareSettings, OutOfAreaFareSettings } from '@/types';
 import { doc, getDoc } from 'firebase/firestore';
-
-export function calculateEstimatedFare(
-  vehicleType: VehicleType,
-  distanceKm: number,
-  settings: FareSettings = DEFAULT_FARE_SETTINGS,
-): number {
-  return calculatePerKmFare(vehicleType, distanceKm, settings);
-}
 
 /**
  * Active fare configuration document id in the `fareSettings` collection.

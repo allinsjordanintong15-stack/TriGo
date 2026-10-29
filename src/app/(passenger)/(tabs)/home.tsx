@@ -76,6 +76,8 @@ export default function PassengerHomeScreen() {
     vehicleType,
     selectionMode,
     fareConfig,
+    barangayTariffs,
+    tariffsStatus,
     setPickupLocation,
     setDestination,
     setVehicleType,
@@ -143,9 +145,10 @@ export default function PassengerHomeScreen() {
     routeState.status === 'road' && routeState.key === currentRouteKey ? routeState.route : null;
 
   // Preview of the fare the confirmation screen will show: the same buildTripQuote on
-  // the same road route. Hidden until the route for the current points has loaded.
+  // the same road route. Hidden until the route for the current points and the barangay
+  // tariffs have loaded.
   let previewFare: number | null = null;
-  if (pickupLocation && destination && vehicleType && roadRoute) {
+  if (pickupLocation && destination && vehicleType && roadRoute && tariffsStatus !== 'loading') {
     try {
       previewFare = buildTripQuote(
         pickupLocation,
@@ -153,6 +156,7 @@ export default function PassengerHomeScreen() {
         vehicleType,
         roadRoute.distanceKm,
         fareConfig.fares,
+        barangayTariffs,
       ).standardEstimatedFare;
     } catch {
       previewFare = null;
@@ -373,6 +377,7 @@ export default function PassengerHomeScreen() {
         vehicleType,
         roadRoute.distanceKm,
         fareConfig.fares,
+        barangayTariffs,
       );
     } catch (error) {
       setFormError(
@@ -383,6 +388,8 @@ export default function PassengerHomeScreen() {
   }
 
   function handleBookRide() {
+    // The button is disabled meanwhile; a quote now would miss a barangay tariff.
+    if (tariffsStatus === 'loading') return;
     setFormError('');
     const quote = validateBookingInputs();
     if (!quote) return;
@@ -645,7 +652,8 @@ export default function PassengerHomeScreen() {
                   title={tripIsOutOfArea ? 'Request Out-of-Area Ride' : 'Book a Ride'}
                   onPress={handleBookRide}
                   // Fares are only quoted on a road route: wait for it, and block if it failed.
-                  loading={routeState.status === 'loading'}
+                  // Also wait for the barangay tariffs (at most ~5 s, then per-km).
+                  loading={routeState.status === 'loading' || tariffsStatus === 'loading'}
                   disabled={routeState.status === 'unavailable'}
                 />
               </View>

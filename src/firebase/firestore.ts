@@ -10,6 +10,7 @@ export const COLLECTIONS = {
   ratings: 'ratings',
   notifications: 'notifications',
   fareSettings: 'fareSettings',
+  barangayTariffs: 'barangayTariffs',
   outOfAreaRequests: 'outOfAreaRequests',
   drivers: 'drivers',
   driverApplications: 'driverApplications',
