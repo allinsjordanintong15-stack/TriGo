@@ -1,6 +1,6 @@
 # TriGo — Project Status
 
-_Last updated: 2026-10-30 (after barangay tariff fares step 6)._
+_Last updated: 2026-10-30 (after location search step 6)._
 
 TriGo is a transport booking app for tricycle and motorcycle rides in Trinidad, Bohol. It
 has two parts:
@@ -24,6 +24,11 @@ things stand.
   admin-managed support contacts with tap-to-call.
 - **Booking a ride**
   - Pickup and destination are set on a map (MapLibre with OpenFreeMap tiles).
+  - **Location search:** barangays are matched in the app as the passenger types
+    (typos allowed) and listed above place results; choosing one puts the pin inside
+    that barangay (Poblacion: the town centre), with a "Move the pin" hint to tap the
+    exact spot. Places come from OpenRouteService biased to Trinidad, labelled with
+    their barangay, with the phone's geocoder as fallback.
   - The road distance comes from OpenRouteService.
   - The fare is fixed and keeps its centavos. A trip between Poblacion and a barangay
     with an active tariff is charged that barangay tariff; every other trip uses the
@@ -150,6 +155,15 @@ things stand.
   - If ORS cannot return a road route, the passenger cannot book. Straight-line fares are
     not allowed. Points far from a road are retried once with a wider snap radius.
   - Outages, rate limits or slow responses block booking.
+  - Place search also uses the ORS free quota. It is queried only from 3 characters,
+    after a 400 ms pause, once per text per session, and not for exact barangay names.
+- **Few Trinidad landmarks in place search.** ORS uses OpenStreetMap, which has few
+  Trinidad places, so many local landmarks are not found; passengers pick the barangay
+  and tap the exact spot instead.
+- **Curated barangay pin points not collected yet.** Only Poblacion has a hand-set point
+  (the town centre); the other barangays use a computed point inside the boundary.
+  Points such as barangay halls still need to be collected and added to
+  `src/constants/barangayPinPoints.ts`.
 - **The rules cannot check the barangay of a pin.** For a tariff booking the rules check
   that the fare equals the active admin tariff for the stored barangay, but not that the
   pickup or destination is really inside that barangay (rules have no point-in-polygon
