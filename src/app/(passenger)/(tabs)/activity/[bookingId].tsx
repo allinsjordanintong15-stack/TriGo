@@ -18,6 +18,7 @@ import {
   getPassengerStatusHeader,
   isActiveBookingStatus,
 } from '@/utils/bookingStatus';
+import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -223,6 +224,7 @@ export default function BookingDetailScreen() {
           }
           agreedFare={isOutOfArea ? (booking.finalFare ?? booking.agreedFare) : null}
           isOutOfArea={isOutOfArea}
+          fareBasisLabel={getFareBasisLabel(booking) ?? undefined}
           label={isCompleted ? 'Final fare' : undefined}
           footer={
             isCompleted && booking.paymentMethod ? (

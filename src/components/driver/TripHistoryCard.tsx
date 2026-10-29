@@ -4,6 +4,7 @@ import { colors, spacing, typography } from '@/constants/theme';
 import { Booking } from '@/types';
 import { formatPaymentMethod } from '@/utils/bookingStatus';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 interface TripHistoryCardProps {
@@ -31,6 +32,7 @@ export function TripHistoryCard({ trip, onPress }: TripHistoryCardProps) {
       : trip.cancelledBy === 'passenger'
         ? 'Cancelled by passenger'
         : 'Cancelled';
+  const fareBasis = getFareBasisLabel(trip);
 
   return (
     <Pressable
@@ -51,6 +53,12 @@ export function TripHistoryCard({ trip, onPress }: TripHistoryCardProps) {
       <Text style={styles.address} numberOfLines={1}>
         {trip.destination.address}
       </Text>
+
+      {fareBasis ? (
+        <Text style={styles.fareBasis} numberOfLines={1}>
+          {fareBasis}
+        </Text>
+      ) : null}
 
       <View style={styles.bottomRow}>
         <Text style={[styles.summary, isCompleted ? styles.summaryFare : null]}>{summary}</Text>
@@ -88,6 +96,11 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     marginVertical: 2,
+  },
+  fareBasis: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
   },
   bottomRow: {
     flexDirection: 'row',

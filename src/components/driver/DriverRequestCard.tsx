@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography } from '@/constants/theme';
 import { Booking } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 interface DriverRequestCardProps {
@@ -20,6 +21,8 @@ export function formatRequestAge(createdAt: Date): string {
 }
 
 export function DriverRequestCard({ booking, distanceToPickupKm, onPress }: DriverRequestCardProps) {
+  const fareBasis = getFareBasisLabel(booking);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -31,6 +34,12 @@ export function DriverRequestCard({ booking, distanceToPickupKm, onPress }: Driv
         <Text style={styles.fare}>{formatPhilippinePeso(booking.estimatedFare)}</Text>
         <Text style={styles.age}>{formatRequestAge(booking.createdAt)}</Text>
       </View>
+
+      {fareBasis ? (
+        <Text style={styles.fareBasis} numberOfLines={1}>
+          {fareBasis}
+        </Text>
+      ) : null}
 
       <View style={styles.route}>
         <View style={styles.routePoints}>
@@ -87,6 +96,12 @@ const styles = StyleSheet.create({
     ...typography.title,
     fontSize: 20,
     color: colors.primary,
+  },
+  fareBasis: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.sm,
   },
   age: {
     ...typography.caption,

@@ -23,6 +23,7 @@ import { Booking, PaymentMethod } from '@/types';
 import { canDriverCancelBooking, getDisplayFare } from '@/utils/booking';
 import { formatPaymentMethod, getBookingDisplay } from '@/utils/bookingStatus';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -153,6 +154,7 @@ export default function DriverTripScreen() {
 
   const display = getBookingDisplay(booking, 'driver');
   const fare = getDisplayFare(booking);
+  const fareBasis = getFareBasisLabel(booking);
   const canCancel = canDriverCancelBooking(booking);
   const isFinished = booking.status === 'completed' || booking.status === 'cancelled';
   const vehicleLabel = booking.vehicleType.charAt(0).toUpperCase() + booking.vehicleType.slice(1);
@@ -200,6 +202,7 @@ export default function DriverTripScreen() {
             label="Booking type"
             value={booking.bookingType === 'standard' ? 'Standard TriGo booking' : 'Out-of-area trip'}
           />
+          {fareBasis ? <DetailRow label="Fare basis" value={fareBasis} /> : null}
           <DetailRow
             label={booking.finalFare !== null ? 'Final fare' : 'Fare'}
             value={formatPhilippinePeso(booking.finalFare ?? fare)}

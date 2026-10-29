@@ -32,8 +32,9 @@ import {
   isLocationWithinServiceArea,
   isOutOfAreaTrip,
 } from '@/services/serviceAreaService';
-import { Location } from '@/types';
+import { Location, TripQuote } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -147,21 +148,22 @@ export default function PassengerHomeScreen() {
   // Preview of the fare the confirmation screen will show: the same buildTripQuote on
   // the same road route. Hidden until the route for the current points and the barangay
   // tariffs have loaded.
-  let previewFare: number | null = null;
+  let previewQuote: TripQuote | null = null;
   if (pickupLocation && destination && vehicleType && roadRoute && tariffsStatus !== 'loading') {
     try {
-      previewFare = buildTripQuote(
+      previewQuote = buildTripQuote(
         pickupLocation,
         destination,
         vehicleType,
         roadRoute.distanceKm,
         fareConfig.fares,
         barangayTariffs,
-      ).standardEstimatedFare;
+      );
     } catch {
-      previewFare = null;
+      previewQuote = null;
     }
   }
+  const previewFareBasis = previewQuote ? getFareBasisLabel(previewQuote) : null;
 
   // Fetch the road route when the pickup or destination coordinates change (not on
   // address-only updates or re-renders); ignore results for stale points.
@@ -637,14 +639,22 @@ export default function PassengerHomeScreen() {
                   </View>
                 ) : null}
 
-                {previewFare !== null && roadRoute ? (
-                  <Text style={styles.farePreview} numberOfLines={1}>
+                {previewQuote !== null && roadRoute ? (
+                  <Text
+                    style={[styles.farePreview, previewFareBasis ? styles.farePreviewWithBasis : null]}
+                    numberOfLines={1}
+                  >
                     Fare{' '}
                     <Text style={styles.farePreviewAmount}>
-                      {formatPhilippinePeso(previewFare)}
+                      {formatPhilippinePeso(previewQuote.standardEstimatedFare)}
                     </Text>
                     {` · ${roadRoute.distanceKm.toFixed(2)} km`}
                     {roadRoute.durationMin > 0 ? ` · ~${roadRoute.durationMin} min` : ''}
+                  </Text>
+                ) : null}
+                {previewQuote !== null && roadRoute && previewFareBasis ? (
+                  <Text style={styles.farePreviewBasis} numberOfLines={1}>
+                    {previewFareBasis}
                   </Text>
                 ) : null}
 
@@ -766,6 +776,15 @@ const styles = StyleSheet.create({
   farePreview: {
     ...typography.caption,
     color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  farePreviewWithBasis: {
+    marginBottom: 2,
+  },
+  farePreviewBasis: {
+    ...typography.caption,
+    color: colors.textMuted,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },

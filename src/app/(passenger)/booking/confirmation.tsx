@@ -21,6 +21,7 @@ import {
 import { OutOfAreaRequest } from '@/types';
 import { buildConfirmationQuote } from '@/utils/booking';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import {
   getPassengerOfferState,
   PASSENGER_OFFER_TEXT,
@@ -192,6 +193,9 @@ export default function BookingConfirmationScreen() {
           estimatedFare={confirmation.estimatedFare}
           agreedFare={confirmation.agreedFare}
           isOutOfArea={isOutOfAreaConfirmation}
+          fareBasisLabel={
+            isOutOfAreaConfirmation ? undefined : (getFareBasisLabel(tripQuote) ?? undefined)
+          }
         />
       </ScrollView>
 

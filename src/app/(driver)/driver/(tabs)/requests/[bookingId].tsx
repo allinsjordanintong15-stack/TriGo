@@ -16,6 +16,7 @@ import {
 import { Booking } from '@/types';
 import { calculateDistanceKm } from '@/utils/distance';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -166,6 +167,7 @@ export default function DriverRequestDetailScreen() {
     : null;
   const vehicleLabel =
     booking.vehicleType.charAt(0).toUpperCase() + booking.vehicleType.slice(1);
+  const fareBasis = getFareBasisLabel(booking);
 
   return (
     <View style={styles.container}>
@@ -197,6 +199,7 @@ export default function DriverRequestDetailScreen() {
             label="Booking type"
             value={booking.bookingType === 'standard' ? 'Standard TriGo booking' : 'Out-of-area trip'}
           />
+          {fareBasis ? <DetailRow label="Fare basis" value={fareBasis} /> : null}
           <DetailRow
             label="Estimated fare"
             value={formatPhilippinePeso(booking.estimatedFare)}

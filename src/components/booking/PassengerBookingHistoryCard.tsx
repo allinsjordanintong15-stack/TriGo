@@ -3,6 +3,7 @@ import { Booking } from '@/types';
 import { colors, radius, spacing, typography } from '@/constants/theme';
 import { getDisplayFare } from '@/utils/booking';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
@@ -25,6 +26,7 @@ export function PassengerBookingHistoryCard({
   onPress,
 }: PassengerBookingHistoryCardProps) {
   const vehicleLabel = booking.vehicleType.charAt(0).toUpperCase() + booking.vehicleType.slice(1);
+  const fareBasis = getFareBasisLabel(booking);
 
   return (
     <Pressable
@@ -48,6 +50,12 @@ export function PassengerBookingHistoryCard({
         <Text style={styles.metaDot}>•</Text>
         <Text style={styles.meta}>{formatDate(booking.createdAt)}</Text>
       </View>
+
+      {fareBasis ? (
+        <Text style={styles.fareBasis} numberOfLines={1}>
+          {fareBasis}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -81,6 +89,11 @@ const styles = StyleSheet.create({
   meta: {
     ...typography.caption,
     color: colors.textSecondary,
+  },
+  fareBasis: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
   },
   metaDot: {
     ...typography.caption,
