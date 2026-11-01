@@ -1,8 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/constants/theme';
+import { useNewRequestAlert } from '@/hooks/useNewRequestAlert';
 import { Tabs } from 'expo-router';
 
 export default function DriverTabsLayout() {
+  // Vibrates for new requests on every driver tab, not only on Requests.
+  useNewRequestAlert();
+
   return (
     <Tabs
       screenOptions={{
