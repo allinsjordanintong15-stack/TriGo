@@ -12,6 +12,8 @@ interface ButtonProps extends Omit<PressableProps, 'style'> {
   title: string;
   loading?: boolean;
   variant?: 'primary' | 'secondary';
+  /** 'large': a taller button with bigger text, for use while riding (e.g. the Trip screen). */
+  size?: 'default' | 'large';
   style?: ViewStyle;
 }
 
@@ -19,6 +21,7 @@ export function Button({
   title,
   loading = false,
   variant = 'primary',
+  size = 'default',
   disabled,
   style,
   ...props
@@ -33,6 +36,7 @@ export function Button({
           styles.base,
           isPrimary ? styles.primary : styles.secondary,
         ];
+        if (size === 'large') baseStyles.push(styles.large);
         if (isDisabled) baseStyles.push(styles.disabled);
         if (pressed && !isDisabled) baseStyles.push(styles.pressed);
         if (style) baseStyles.push(style);
@@ -44,7 +48,13 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={isPrimary ? colors.white : colors.primary} />
       ) : (
-        <Text style={[styles.text, isPrimary ? styles.textPrimary : styles.textSecondary]}>
+        <Text
+          style={[
+            styles.text,
+            size === 'large' ? styles.textLarge : null,
+            isPrimary ? styles.textPrimary : styles.textSecondary,
+          ]}
+        >
           {title}
         </Text>
       )}
@@ -59,6 +69,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 52,
+  },
+  large: {
+    minHeight: 64,
+    paddingVertical: 18,
   },
   primary: {
     backgroundColor: colors.primary,
@@ -77,6 +91,10 @@ const styles = StyleSheet.create({
   text: {
     ...typography.body,
     fontWeight: '600',
+  },
+  textLarge: {
+    fontSize: 20,
+    fontWeight: '700',
   },
   textPrimary: {
     color: colors.white,

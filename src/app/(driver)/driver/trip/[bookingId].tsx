@@ -1,6 +1,9 @@
 import { ContactCallButton } from '@/components/booking/ContactCallButton';
+import { RouteTimeline } from '@/components/booking/RouteTimeline';
+import { StatusStepper } from '@/components/booking/StatusStepper';
 import { TripChoiceDialog, TripChoiceOption } from '@/components/driver/TripChoiceDialog';
 import { LoadingScreen } from '@/components/LoadingScreen';
+import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -8,8 +11,9 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DRIVER_CANCELLATION_REASONS } from '@/constants/cancellation';
-import { colors, spacing, typography } from '@/constants/theme';
+import { colors, radius, spacing, typography } from '@/constants/theme';
 import { useDriverAccess } from '@/hooks/useDriverAccess';
+import { useKeepAwakeWhile } from '@/hooks/useKeepAwakeWhile';
 import { useTripContact } from '@/hooks/useTripContact';
 import { subscribeToBooking } from '@/services/bookingService';
 import {
@@ -21,14 +25,20 @@ import {
 } from '@/services/driverBookingService';
 import { Booking, PaymentMethod } from '@/types';
 import { canDriverCancelBooking, getDisplayFare } from '@/utils/booking';
-import { formatPaymentMethod, getBookingDisplay } from '@/utils/bookingStatus';
+import { formatPaymentMethod, getBookingDisplay, getBookingProgress } from '@/utils/bookingStatus';
+import { formatDateTime } from '@/utils/dateTime';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { getFareBasisLabel } from '@/utils/fareBasisLabel';
+import {
+  googleMapsDirectionsUrl,
+  isActiveTripStatus,
+  navigationTarget,
+} from '@/utils/tripNavigation';
+import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { formatDateTime } from '@/utils/dateTime';
 
 // TEMP until Task 4: passenger selects method at booking
 const PAYMENT_OPTIONS: readonly TripChoiceOption<PaymentMethod>[] = [
@@ -42,18 +52,45 @@ const CANCEL_REASON_OPTIONS: readonly TripChoiceOption<string>[] = DRIVER_CANCEL
 
 type PendingAction = 'arrive' | 'start' | 'complete' | 'cancel' | null;
 
+/** Keep-awake lock name for this screen (separate from any other lock). */
+const KEEP_AWAKE_TAG = 'driver-trip';
+
+const NAVIGATE_ERROR = 'Could not open Google Maps. Check that Maps or a browser is installed.';
+
 interface DetailRowProps {
   label: string;
   value: string;
-  highlight?: boolean;
 }
 
-function DetailRow({ label, value, highlight }: DetailRowProps) {
+function DetailRow({ label, value }: DetailRowProps) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={[styles.rowValue, highlight ? styles.rowValueHighlight : null]}>{value}</Text>
+      <Text style={styles.rowValue}>{value}</Text>
     </View>
+  );
+}
+
+interface NavigateButtonProps {
+  label: string;
+  url: string;
+  onError: () => void;
+}
+
+/** Opens Google Maps directions; tall, bold and outlined so it is easy to hit while riding. */
+function NavigateButton({ label, url, onError }: NavigateButtonProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} in Google Maps`}
+      style={({ pressed }) => [styles.navigateButton, pressed ? styles.navigatePressed : null]}
+      onPress={() => {
+        Linking.openURL(url).catch(onError);
+      }}
+    >
+      <Ionicons name="navigate" size={22} color={colors.primary} />
+      <Text style={styles.navigateText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -65,7 +102,11 @@ function goBack() {
   }
 }
 
-/** Active ride screen for the assigned driver; read-only once the trip has ended. */
+/**
+ * Active ride screen for the assigned driver; read-only once the trip has ended. The main
+ * action for the current step sits in a large sticky footer, and the screen stays on
+ * while the trip is active.
+ */
 export default function DriverTripScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ bookingId?: string }>();
@@ -103,6 +144,14 @@ export default function DriverTripScreen() {
 
   // The passenger's card, readable only while this trip is active (see contacts rules).
   const passengerContact = useTripContact(booking?.passengerId ?? null, booking?.status ?? null);
+
+  // Keep the phone's screen on while this driver is on the trip (accepted → in progress).
+  const isMyActiveTrip =
+    booking !== null &&
+    driverId !== null &&
+    booking.driverId === driverId &&
+    isActiveTripStatus(booking.status);
+  useKeepAwakeWhile(isMyActiveTrip, KEEP_AWAKE_TAG);
 
   async function runAction(action: () => Promise<void>) {
     setSubmitting(true);
@@ -155,33 +204,70 @@ export default function DriverTripScreen() {
   const canCancel = canDriverCancelBooking(booking);
   const isFinished = booking.status === 'completed' || booking.status === 'cancelled';
   const vehicleLabel = booking.vehicleType.charAt(0).toUpperCase() + booking.vehicleType.slice(1);
-  const timeline = [
-    { label: 'Accepted', value: booking.acceptedAt && formatDateTime(booking.acceptedAt) },
-    { label: 'Arrived at pickup', value: booking.arrivedAt && formatDateTime(booking.arrivedAt) },
-    { label: 'Trip started', value: booking.startedAt && formatDateTime(booking.startedAt) },
-    { label: 'Completed', value: booking.completedAt && formatDateTime(booking.completedAt) },
-    { label: 'Cancelled', value: booking.cancelledAt && formatDateTime(booking.cancelledAt) },
-  ].filter((entry): entry is { label: string; value: string } => entry.value !== null);
+  const passengerName = passengerContact?.fullName || 'TriGo passenger';
+
+  // Pickup until the trip starts, then the destination.
+  const target = navigationTarget(booking.status);
+  const navigateTo =
+    target === 'pickup'
+      ? { label: 'Navigate to pickup', point: booking.pickupLocation }
+      : target === 'destination'
+        ? { label: 'Navigate to destination', point: booking.destination }
+        : null;
+
+  // Full dates for the record once the trip has ended (the stepper shows clock times only).
+  const tripTimes = isFinished
+    ? [
+        { label: 'Accepted', value: booking.acceptedAt && formatDateTime(booking.acceptedAt) },
+        { label: 'Arrived at pickup', value: booking.arrivedAt && formatDateTime(booking.arrivedAt) },
+        { label: 'Trip started', value: booking.startedAt && formatDateTime(booking.startedAt) },
+        { label: 'Completed', value: booking.completedAt && formatDateTime(booking.completedAt) },
+        { label: 'Cancelled', value: booking.cancelledAt && formatDateTime(booking.cancelledAt) },
+      ].filter((entry): entry is { label: string; value: string } => entry.value !== null)
+    : [];
+
+  // The one main action for the current step, shown in the sticky footer.
+  const primaryAction =
+    booking.status === 'accepted'
+      ? { title: "I've Arrived", onPress: () => setDialog('arrive') }
+      : booking.status === 'arrived'
+        ? { title: 'Start Trip', onPress: () => setDialog('start') }
+        : booking.status === 'in_progress'
+          ? { title: 'Complete Trip', onPress: () => setDialog('complete') }
+          : isFinished
+            ? { title: 'Back to Home', onPress: () => router.replace('/driver/home') }
+            : null;
 
   return (
     <View style={styles.container}>
       {header}
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: primaryAction ? spacing.lg : insets.bottom + spacing.xl },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.banner}>
+        <View style={styles.card}>
           <StatusBadge status={booking.status} />
-          <Text style={styles.bannerTitle}>{display.title}</Text>
-          <Text style={styles.bannerMessage}>{display.message}</Text>
+          <Text style={styles.statusTitle}>{display.title}</Text>
+          <Text style={styles.statusMessage}>{display.message}</Text>
+          <View style={styles.stepper}>
+            <StatusStepper steps={getBookingProgress(booking)} />
+          </View>
         </View>
 
         {passengerContact ? (
           <View style={styles.card}>
-            <Text style={styles.contactCaption}>Passenger</Text>
-            <Text style={styles.contactName} numberOfLines={1}>
-              {passengerContact.fullName || 'TriGo passenger'}
-            </Text>
+            <View style={styles.contactRow}>
+              <Avatar name={passengerName} size={48} />
+              <View style={styles.contactText}>
+                <Text style={styles.caption}>Passenger</Text>
+                <Text style={styles.contactName} numberOfLines={1}>
+                  {passengerName}
+                </Text>
+              </View>
+            </View>
             <ContactCallButton
               mobileNumber={passengerContact.mobileNumber}
               calleeLabel="the passenger"
@@ -191,54 +277,49 @@ export default function DriverTripScreen() {
         ) : null}
 
         <View style={styles.card}>
-          <DetailRow label="Pickup" value={booking.pickupLocation.address} />
-          <DetailRow label="Destination" value={booking.destination.address} />
-          <DetailRow label="Vehicle type" value={vehicleLabel} />
-          <DetailRow label="Trip distance" value={`${booking.distanceKm.toFixed(2)} km`} />
-          <DetailRow
-            label="Booking type"
-            value={booking.bookingType === 'standard' ? 'Standard TriGo booking' : 'Out-of-area trip'}
+          <RouteTimeline
+            pickupAddress={booking.pickupLocation.address}
+            destinationAddress={booking.destination.address}
           />
-          {fareBasis ? <DetailRow label="Fare basis" value={fareBasis} /> : null}
-          <DetailRow
-            label={booking.finalFare !== null ? 'Final fare' : 'Fare'}
-            value={formatPhilippinePeso(booking.finalFare ?? fare)}
-            highlight
-          />
-          {booking.status === 'completed' ? (
-            <DetailRow label="Payment method" value={formatPaymentMethod(booking.paymentMethod)} />
+          <Text style={styles.routeMeta}>
+            {booking.distanceKm.toFixed(1)} km · {vehicleLabel} ·{' '}
+            {booking.bookingType === 'standard' ? 'Standard booking' : 'Out-of-area trip'}
+          </Text>
+          {navigateTo ? (
+            <NavigateButton
+              label={navigateTo.label}
+              url={googleMapsDirectionsUrl(navigateTo.point)}
+              onError={() => setError(NAVIGATE_ERROR)}
+            />
           ) : null}
         </View>
 
-        {timeline.length > 0 ? (
-          <View style={styles.card}>
-            {timeline.map((entry) => (
+        <View style={styles.card}>
+          <Text style={styles.caption}>{booking.finalFare !== null ? 'Final fare' : 'Fare'}</Text>
+          <Text style={styles.fareValue}>{formatPhilippinePeso(booking.finalFare ?? fare)}</Text>
+          {fareBasis ? <Text style={styles.fareNote}>{fareBasis}</Text> : null}
+          {booking.status === 'completed' ? (
+            <Text style={styles.fareNote}>Paid by {formatPaymentMethod(booking.paymentMethod)}</Text>
+          ) : null}
+        </View>
+
+        {tripTimes.length > 0 ? (
+          <View style={[styles.card, styles.listCard]}>
+            {tripTimes.map((entry) => (
               <DetailRow key={entry.label} label={entry.label} value={entry.value} />
             ))}
           </View>
         ) : null}
 
-        <ErrorBanner message={error} />
+        {/* With a sticky footer the error shows there, next to the button that caused it. */}
+        {primaryAction ? null : <ErrorBanner message={error} />}
 
-        {booking.status === 'accepted' ? (
-          <Button title="I've Arrived" onPress={() => setDialog('arrive')} />
-        ) : null}
-        {booking.status === 'arrived' ? (
-          <Button title="Start Trip" onPress={() => setDialog('start')} />
-        ) : null}
-        {booking.status === 'in_progress' ? (
-          <Button title="Complete Trip" onPress={() => setDialog('complete')} />
-        ) : null}
         {canCancel ? (
           <>
-            <View style={styles.spacer} />
             <Button title="Cancel Trip" variant="secondary" onPress={() => setDialog('cancel')} />
+            <View style={styles.spacer} />
           </>
         ) : null}
-        {isFinished ? (
-          <Button title="Back to Home" onPress={() => router.replace('/driver/home')} />
-        ) : null}
-        <View style={styles.spacer} />
         <Button
           title="Report a Problem"
           variant="secondary"
@@ -250,6 +331,13 @@ export default function DriverTripScreen() {
           }
         />
       </ScrollView>
+
+      {primaryAction ? (
+        <View style={[styles.stickyFooter, { paddingBottom: insets.bottom + spacing.md }]}>
+          <ErrorBanner message={error} />
+          <Button title={primaryAction.title} size="large" onPress={primaryAction.onPress} />
+        </View>
+      ) : null}
 
       <ConfirmationDialog
         visible={dialog === 'arrive'}
@@ -302,15 +390,6 @@ export default function DriverTripScreen() {
 }
 
 const styles = StyleSheet.create({
-  contactCaption: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  contactName: {
-    ...typography.body,
-    fontWeight: '700',
-    color: colors.text,
-  },
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -322,31 +401,90 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: spacing.lg,
   },
-  banner: {
-    backgroundColor: colors.primaryLight,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.primary,
-    borderRadius: 16,
+  stickyFooter: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    backgroundColor: colors.background,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.lg,
   },
-  bannerTitle: {
-    ...typography.label,
+  listCard: {
+    paddingVertical: spacing.xs,
+  },
+  statusTitle: {
+    ...typography.body,
+    fontWeight: '700',
     color: colors.primaryDark,
     marginTop: spacing.sm,
   },
-  bannerMessage: {
+  statusMessage: {
     ...typography.caption,
     color: colors.textSecondary,
     lineHeight: 18,
     marginTop: 2,
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    marginBottom: spacing.lg,
+  stepper: {
+    marginTop: spacing.md,
+  },
+  caption: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  contactText: {
+    flex: 1,
+  },
+  contactName: {
+    ...typography.body,
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  routeMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+  },
+  navigateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    minHeight: 56,
+    marginTop: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.white,
+  },
+  navigatePressed: {
+    opacity: 0.85,
+  },
+  navigateText: {
+    ...typography.body,
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  fareValue: {
+    ...typography.title,
+    color: colors.primary,
+    marginTop: 2,
+  },
+  fareNote: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
   },
   row: {
     paddingVertical: spacing.sm,
@@ -361,11 +499,6 @@ const styles = StyleSheet.create({
   rowValue: {
     ...typography.body,
     color: colors.text,
-  },
-  rowValueHighlight: {
-    ...typography.title,
-    fontSize: 20,
-    color: colors.primary,
   },
   spacer: {
     height: spacing.sm,
