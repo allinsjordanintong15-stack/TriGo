@@ -277,7 +277,7 @@ function CommissionRow({ item, onPress }: { item: CommissionRecord; onPress: () 
         </Text>
       </View>
       <Text style={styles.rowAmount}>{formatPhilippinePeso(centavosToPesos(item.amountCentavos))}</Text>
-      <Ionicons name="chevron-forward" color={colors.textMuted} size={16} />
+      <Ionicons name="chevron-forward" color={colors.textMuted} size={20} />
     </Pressable>
   );
 }
@@ -305,6 +305,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    minHeight: 56,
     backgroundColor: colors.surface,
     borderRadius: 16,
     padding: spacing.md,

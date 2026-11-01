@@ -43,7 +43,12 @@ export function SupportContactsList() {
           <Text style={styles.noticeText}>
             Support contacts could not be loaded. Check your internet connection.
           </Text>
-          <Pressable accessibilityRole="button" onPress={loadContacts} hitSlop={8}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={loadContacts}
+            hitSlop={8}
+            style={styles.retryWrap}
+          >
             <Text style={styles.retry}>Try again</Text>
           </Pressable>
         </View>
@@ -162,6 +167,11 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     lineHeight: 18,
     flex: 1,
+  },
+  retryWrap: {
+    alignSelf: 'flex-start',
+    minHeight: 48,
+    justifyContent: 'center',
   },
   retry: {
     ...typography.caption,

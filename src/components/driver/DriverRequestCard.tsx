@@ -63,7 +63,7 @@ export function DriverRequestCard({ booking, distanceToPickupKm, now, onPress }:
         <Ionicons
           name="chevron-forward"
           color={colors.textMuted}
-          size={16}
+          size={20}
           style={styles.chevron}
         />
       </View>

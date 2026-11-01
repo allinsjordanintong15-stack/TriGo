@@ -64,7 +64,7 @@ export function TripChoiceDialog<T extends string>({
                   <Ionicons
                     name={isSelected ? 'radio-button-on' : 'radio-button-off'}
                     color={isSelected ? colors.primary : colors.textMuted}
-                    size={20}
+                    size={24}
                   />
                   <Text style={styles.optionLabel}>{option.label}</Text>
                 </Pressable>
@@ -116,6 +116,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    minHeight: 52,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: 12,

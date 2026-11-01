@@ -32,7 +32,12 @@ export function FaresCollectedCard({
         <Period label="This week" value={thisWeek} error={error} />
       </View>
 
-      <Pressable accessibilityRole="button" onPress={onViewHistory} hitSlop={8}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onViewHistory}
+        hitSlop={8}
+        style={styles.linkWrap}
+      >
         <Text style={styles.link}>View trip history</Text>
       </Pressable>
     </View>
@@ -120,6 +125,11 @@ const styles = StyleSheet.create({
   loading: {
     alignSelf: 'flex-start',
     marginTop: spacing.sm,
+  },
+  linkWrap: {
+    alignSelf: 'flex-start',
+    minHeight: 48,
+    justifyContent: 'center',
   },
   link: {
     ...typography.label,

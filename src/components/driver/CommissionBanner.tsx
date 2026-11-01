@@ -72,8 +72,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   linkWrap: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     alignSelf: 'flex-start',
+    minHeight: 48,
+    justifyContent: 'center',
   },
   link: {
     ...typography.label,

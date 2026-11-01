@@ -48,6 +48,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     backgroundColor: colors.primary,
     borderRadius: radius.md,
+    minHeight: 48,
     paddingVertical: 12,
   },
   pressed: {

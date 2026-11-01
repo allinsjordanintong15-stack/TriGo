@@ -64,6 +64,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    minHeight: 72,
     backgroundColor: colors.white,
     borderRadius: radius.lg,
     paddingHorizontal: spacing.lg,

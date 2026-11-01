@@ -14,8 +14,9 @@ export const colors = {
   // Cards and subtle surfaces use Primary Light per the TriGo design system.
   surface: '#E8F3EC',
   text: '#1A1A1A',
-  textSecondary: '#666666',
-  textMuted: '#999999',
+  // Darkened 2026-11-01 for outdoor contrast: 8.4:1 and 5.3:1 on white (WCAG AA).
+  textSecondary: '#4D4D4D',
+  textMuted: '#6B6B6B',
   border: '#E0E0E0',
   white: '#FFFFFF',
 } as const;

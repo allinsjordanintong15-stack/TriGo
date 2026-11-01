@@ -24,7 +24,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: '#1B5E3A',
     },
     predictiveBackGestureEnabled: false,
-    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'CAMERA'],
+    // VIBRATE: new-request alert for drivers (React Native Vibration).
+    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'CAMERA', 'VIBRATE'],
   },
   web: {
     favicon: './assets/images/icon.png',

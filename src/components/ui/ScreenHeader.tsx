@@ -22,6 +22,7 @@ export function ScreenHeader({ title, onBack, right }: ScreenHeaderProps) {
             accessibilityRole="button"
             accessibilityLabel="Go back"
             style={styles.back}
+            hitSlop={4}
             onPress={onBack}
           >
             <Ionicons name="chevron-back" color={colors.primary} size={26} />
@@ -61,14 +62,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   back: {
-    width: 40,
-    height: 40,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.xs,
   },
   backPlaceholder: {
-    width: 40,
+    width: 48,
     marginRight: spacing.xs,
   },
   title: {
@@ -79,7 +80,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   right: {
-    width: 40,
+    width: 48,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },

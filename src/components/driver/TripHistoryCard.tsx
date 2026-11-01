@@ -57,7 +57,7 @@ export function TripHistoryCard({ trip, onPress }: TripHistoryCardProps) {
         <Text style={styles.meta} numberOfLines={1}>
           {outcome}
         </Text>
-        <Ionicons name="chevron-forward" color={colors.textMuted} size={16} style={styles.chevron} />
+        <Ionicons name="chevron-forward" color={colors.textMuted} size={20} style={styles.chevron} />
       </View>
 
       {fareBasis ? (

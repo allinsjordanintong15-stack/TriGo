@@ -1,4 +1,5 @@
 import { ContactCallButton } from '@/components/booking/ContactCallButton';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { formatVehicleDescription, getVehicleOption } from '@/constants/vehicles';
 import { DriverRecord } from '@/types';
@@ -58,7 +59,10 @@ export function DriverCard({ driver, mobileNumber = null }: DriverCardProps) {
               {driver.fullName || 'TriGo driver'}
             </Text>
             {driver.rating > 0 ? (
-              <Text style={styles.rating}>★ {driver.rating.toFixed(1)}</Text>
+              <View style={styles.ratingRow}>
+                <Ionicons name="star" size={14} color={colors.gold} />
+                <Text style={styles.rating}>{driver.rating.toFixed(1)}</Text>
+              </View>
             ) : null}
           </View>
           <Text style={styles.meta} numberOfLines={2}>
@@ -128,10 +132,16 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     flexShrink: 1,
   },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  // Gold is decoration only (the star); the number stays dark for contrast.
   rating: {
     ...typography.caption,
     fontWeight: '700',
-    color: colors.gold,
+    color: colors.primaryDark,
   },
   meta: {
     ...typography.caption,
