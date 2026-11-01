@@ -7,6 +7,14 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
 import { lastUpdated } from '../lib/format';
 import {
+  BOOKING_EXPIRY_RANGE,
+  bookingSettingsEqual,
+  loadBookingSettings,
+  saveBookingSettings,
+  StaleBookingSettingsError,
+  type LoadedBookingSettings,
+} from '../settings/bookingSettings';
+import {
   EXPIRY_RANGE,
   loadOutOfArea,
   outOfAreaEqual,
@@ -45,11 +53,204 @@ import {
 export function SystemSettingsPage() {
   return (
     <div className="stack page-narrow">
-      <PageHeader title="System settings" subtitle="Out-of-area trips, TriGo's GCash account and support contacts." />
+      <PageHeader
+        title="System settings"
+        subtitle="Booking requests, out-of-area trips, TriGo's GCash account and support contacts."
+      />
+      <BookingSettingsCard />
       <OutOfAreaSettingsCard />
       <PaymentAccountCard />
       <SupportContactsCard />
     </div>
+  );
+}
+
+// ─── Standard booking requests ─────────────────────────────────────────────
+
+function BookingSettingsCard() {
+  const { admin } = useAuth();
+  const [loaded, setLoaded] = useState<LoadedBookingSettings | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [value, setValue] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedMessage, setSavedMessage] = useState(false);
+
+  const reload = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const result = await loadBookingSettings();
+      setLoaded(result);
+      setValue(String(result.settings.requestExpiryMinutes));
+    } catch {
+      setLoadError('Could not load booking settings. Check your connection and reload the page.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const result = useMemo(
+    () => (value === null ? null : parseWholeNumber(value, BOOKING_EXPIRY_RANGE, 'minutes')),
+    [value],
+  );
+
+  if (loadError) {
+    return (
+      <div className="card">
+        <h3>Booking requests</h3>
+        <div className="alert-error" role="alert">
+          {loadError}
+        </div>
+      </div>
+    );
+  }
+
+  if (!loaded || value === null || result === null) {
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading booking settings…" lines={2} />
+      </div>
+    );
+  }
+
+  const current = loaded.settings;
+  const usingDefaults = loaded.saved === null;
+  const parsed = 'value' in result ? { requestExpiryMinutes: result.value } : null;
+  const error = 'error' in result ? result.error : null;
+  // With nothing saved yet, saving the default unchanged is allowed (it stores it).
+  const hasChanges = parsed !== null && (usingDefaults || !bookingSettingsEqual(parsed, current));
+  const isPristine = bookingSettingsEqual(parsed, current);
+
+  function handleChange(next: string) {
+    setSavedMessage(false);
+    setSaveError(null);
+    setValue(next);
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (hasChanges) {
+      setSaveError(null);
+      setConfirming(true);
+    }
+  }
+
+  async function handleConfirm() {
+    if (!parsed || !admin || !loaded) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await saveBookingSettings(parsed, loaded.saved, admin.uid);
+      setConfirming(false);
+      setSavedMessage(true);
+      await reload();
+    } catch (err) {
+      setSaveError(
+        err instanceof StaleBookingSettingsError
+          ? err.message
+          : 'Could not save booking settings. Check your connection and try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <form className="card" onSubmit={handleSubmit} noValidate>
+        <h3>Booking requests</h3>
+        <p className="muted">
+          Standard bookings inside Trinidad. A booking no driver accepts in time expires: drivers stop seeing it and
+          the passenger can try again or cancel.
+        </p>
+        <p className="muted small">
+          {usingDefaults
+            ? 'No booking settings are saved yet, so the app uses its built-in default shown below.'
+            : lastUpdated(loaded.updatedAt)}{' '}
+          The app picks up changes the next time it loads its settings. Bookings already sent keep their expiry.
+        </p>
+
+        <label className="field" htmlFor="booking-expiry">
+          <span>Booking request expiry (minutes)</span>
+          <input
+            id="booking-expiry"
+            inputMode="numeric"
+            value={value}
+            onChange={(e) => handleChange(e.target.value)}
+            aria-invalid={error ? true : undefined}
+            disabled={saving}
+          />
+          <span className="hint">
+            {error ? (
+              <span className="field-error">{error}</span>
+            ) : (
+              `How long a booking stays open for drivers. ${BOOKING_EXPIRY_RANGE.min}–${BOOKING_EXPIRY_RANGE.max} minutes. Current: ${current.requestExpiryMinutes} min`
+            )}
+          </span>
+        </label>
+
+        {savedMessage && (
+          <div className="alert-success" role="status">
+            Booking settings saved.
+          </div>
+        )}
+
+        <div className="form-actions">
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => {
+              setSavedMessage(false);
+              setValue(String(current.requestExpiryMinutes));
+            }}
+            disabled={saving || isPristine}
+          >
+            Reset
+          </button>
+          <button type="submit" className="btn-primary" disabled={saving || !hasChanges}>
+            Save changes…
+          </button>
+        </div>
+      </form>
+
+      {confirming && parsed && (
+        <ConfirmDialog
+          title="Save booking settings?"
+          confirmLabel="Save settings"
+          busy={saving}
+          onConfirm={() => void handleConfirm()}
+          onCancel={() => setConfirming(false)}
+        >
+          <table className="change-table">
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Old</th>
+                <th />
+                <th>New</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className={current.requestExpiryMinutes !== parsed.requestExpiryMinutes ? 'changed' : 'unchanged'}>
+                <td>Booking request expiry</td>
+                <td>{current.requestExpiryMinutes} min</td>
+                <td aria-hidden="true">→</td>
+                <td>{parsed.requestExpiryMinutes} min</td>
+              </tr>
+            </tbody>
+          </table>
+          {usingDefaults && <p className="muted small">Old = built-in default.</p>}
+          {saveError && (
+            <div className="alert-error" role="alert">
+              {saveError}
+            </div>
+          )}
+        </ConfirmDialog>
+      )}
+    </>
   );
 }
 

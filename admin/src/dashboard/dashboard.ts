@@ -24,9 +24,6 @@ import { cancelledBookings, completedTrips, recordedCommission } from '../report
 // Pending payments, applications and open complaints come from the sidebar badge counts
 // (lib/adminCounts.ts), so they are not loaded again here.
 
-/** Standard bookings never expire, so only recent pending ones count as open requests. */
-export const OPEN_STANDARD_WINDOW_MS = 60 * 60 * 1000;
-
 export const RECENT_BOOKINGS_LIMIT = 8;
 
 export const CHART_DAYS = 7;
@@ -65,7 +62,7 @@ export type LiveNow = {
   openRequests: {
     /** Out-of-area requests still searching and not expired. */
     outOfArea: number;
-    /** Standard bookings still pending, updated in the last OPEN_STANDARD_WINDOW_MS. */
+    /** Standard bookings still pending and not expired (expiresAt in the future). */
     standard: number;
   };
 };
@@ -78,13 +75,14 @@ export async function loadLiveNow(now = new Date()): Promise<LiveNow> {
     countOf(query(drivers, where('isOnline', '==', true))),
     countOf(query(drivers, where('isOnline', '==', true), where('isAvailable', '==', true))),
     countOf(query(drivers, where('currentBookingId', '!=', null))),
-    // Index: bookings (status, updatedAt DESC).
+    // Index: bookings (bookingType, status, expiresAt). Bookings made before expiry existed
+    // have no expiresAt, so the range filter leaves them out (they count as expired).
     countOf(
       query(
         collection(db, 'bookings'),
+        where('bookingType', '==', 'standard'),
         where('status', '==', 'pending'),
-        where('updatedAt', '>=', Timestamp.fromMillis(now.getTime() - OPEN_STANDARD_WINDOW_MS)),
-        orderBy('updatedAt', 'desc'),
+        where('expiresAt', '>', nowStamp),
       ),
     ),
     // Index: outOfAreaRequests (status, vehicleType, expiresAt), the one drivers use.

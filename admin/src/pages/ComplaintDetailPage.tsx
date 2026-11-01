@@ -3,8 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import {
-  BOOKING_STATUS_LABELS,
   BOOKING_TYPE_LABELS,
+  bookingStatusBadge,
   displayFare,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
@@ -167,7 +167,7 @@ export function ComplaintDetailPage() {
           <>
             <dl className="detail-grid">
               <Detail label="Booking ID" value={booking.bookingId} mono />
-              <Detail label="Status" value={booking.status ? BOOKING_STATUS_LABELS[booking.status] : 'Unknown'} />
+              <Detail label="Status" value={bookingStatusBadge(booking).label} />
               <Detail
                 label="Type"
                 value={[

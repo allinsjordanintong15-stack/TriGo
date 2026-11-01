@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 
 import {
-  BOOKING_STATUS_LABELS,
   BOOKING_TYPE_LABELS,
   displayFare,
   fareBasisLabel,
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
+import { BookingStatusBadge } from '../components/BookingStatusBadge';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
@@ -163,9 +163,7 @@ export function PassengerDetailPage() {
                       )}
                     </td>
                     <td>
-                      <span className={`booking-status booking-status-${booking.status ?? 'unknown'}`}>
-                        {booking.status ? BOOKING_STATUS_LABELS[booking.status] : 'Unknown'}
-                      </span>
+                      <BookingStatusBadge booking={booking} />
                       {booking.status === 'cancelled' && (
                         <div className="muted small">
                           {booking.cancelledBy ? `by ${booking.cancelledBy}` : ''}

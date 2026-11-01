@@ -3,13 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import {
-  BOOKING_STATUS_LABELS,
   BOOKING_TYPE_LABELS,
   displayFare,
   fareBasisLabel,
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
+import { BookingStatusBadge } from '../components/BookingStatusBadge';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
@@ -493,9 +493,7 @@ export function DriverDetailPage() {
                       {trip.distanceKm !== null && <div className="muted small">{trip.distanceKm.toFixed(1)} km</div>}
                     </td>
                     <td>
-                      <span className={`booking-status booking-status-${trip.status ?? 'unknown'}`}>
-                        {trip.status ? BOOKING_STATUS_LABELS[trip.status] : 'Unknown'}
-                      </span>
+                      <BookingStatusBadge booking={trip} />
                       {trip.status === 'cancelled' && (
                         <div className="muted small">
                           {trip.cancelledBy ? `by ${trip.cancelledBy}` : ''}

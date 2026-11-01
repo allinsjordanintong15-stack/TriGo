@@ -2,7 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
-import { BOOKING_STATUS_LABELS, displayFare, type AdminBooking } from '../bookings/bookings';
+import { displayFare, type AdminBooking } from '../bookings/bookings';
+import { BookingStatusBadge } from '../components/BookingStatusBadge';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
@@ -369,9 +370,7 @@ function RecentTable({ rows }: { rows: RecentBooking[] }) {
                 {booking.pickupAddress || '—'} → {booking.destinationAddress || '—'}
               </td>
               <td>
-                <span className={`booking-status booking-status-${booking.status ?? 'unknown'}`}>
-                  {booking.status ? BOOKING_STATUS_LABELS[booking.status] : 'Unknown'}
-                </span>
+                <BookingStatusBadge booking={booking} />
               </td>
               <td className="num">{formatPeso(displayFare(booking))}</td>
             </tr>

@@ -51,6 +51,11 @@ export type AdminBooking = {
   startedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
+  /**
+   * When an unaccepted standard booking stops being open to drivers. Null on out-of-area
+   * bookings and on standard bookings made before expiry existed (those count as expired).
+   */
+  expiresAt: Date | null;
   /** The request an out-of-area booking was confirmed from. */
   outOfAreaRequestId: string | null;
 };
@@ -94,8 +99,29 @@ export function readBooking(bookingId: string, data: DocumentData): AdminBooking
     startedAt: toDate(data.startedAt),
     completedAt: toDate(data.completedAt),
     cancelledAt: toDate(data.cancelledAt),
+    expiresAt: toDate(data.expiresAt),
     outOfAreaRequestId: typeof data.outOfAreaRequestId === 'string' ? data.outOfAreaRequestId : null,
   };
+}
+
+/**
+ * Same rule as the mobile app (src/utils/bookingExpiry.ts): a standard booking still pending
+ * whose expiresAt has passed, or that has none (made before expiry existed). Expiry is never
+ * written to the booking, so its status stays 'pending'. Out-of-area bookings never expire this way.
+ */
+export function isBookingExpired(booking: AdminBooking, now: number = Date.now()): boolean {
+  return (
+    booking.bookingType === 'standard' &&
+    booking.status === 'pending' &&
+    (booking.expiresAt === null || booking.expiresAt.getTime() <= now)
+  );
+}
+
+/** The status badge text and class: "Expired" for an expired standard booking. */
+export function bookingStatusBadge(booking: AdminBooking, now: number = Date.now()): { label: string; className: string } {
+  if (isBookingExpired(booking, now)) return { label: 'Expired', className: 'booking-status-expired' };
+  if (!booking.status) return { label: 'Unknown', className: 'booking-status-unknown' };
+  return { label: BOOKING_STATUS_LABELS[booking.status], className: `booking-status-${booking.status}` };
 }
 
 /** Newest first; bookings without createdAt go last. */

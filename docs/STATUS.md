@@ -39,6 +39,9 @@ things stand.
     the passenger sees the new fare and must confirm again.
 - **Booking status**
   - The ride goes through accepted → arrived → in progress → completed, or is cancelled.
+  - A standard booking no driver accepts expires after an admin-set time (default 10
+    minutes). The passenger sees "No driver accepted your request" with Try again or
+    Cancel, and it shows as Expired in Activity.
   - While the trip is active, the passenger and the assigned driver can see each other's
     contact numbers.
 - **Out-of-area trips** (pickup or destination outside Trinidad)
@@ -54,7 +57,8 @@ things stand.
 ### Driver (mobile app)
 - Tabs: Home, Requests, Trips, Earnings, Profile.
 - An online/available toggle.
-- **Requests:** accept standard bookings, and accept or claim out-of-area requests.
+- **Requests:** accept standard bookings (only unexpired ones are listed), and accept or
+  claim out-of-area requests.
 - Run the active trip and complete it. Completing records the payment method (Cash or
   GCash) and the final fare.
 - **Home:** fares collected, labelled "before commission", and a commission summary card.
@@ -79,11 +83,15 @@ things stand.
   can be edited.
 - **Passengers:** list and detail.
 - **Out-of-Area Trips:** read-only monitor. Expired requests are shown as Expired.
+- **Booking lists** (Dashboard, passenger and driver detail, complaint detail): standard
+  bookings no driver accepted in time are shown as Expired. The Dashboard "Open requests"
+  count includes only unexpired standard bookings.
 - **Fares:** per-km fare settings per vehicle type.
 - **Barangay tariffs:** stored per barangay and applied to new standard bookings.
   Passenger and driver booking lists show each booking's fare basis.
 - **Commission settings:** percentage, payment period in days and grace period in days.
 - **System settings:**
+  - Booking request expiry for standard bookings (1–30 minutes, default 10).
   - Out-of-area on/off, request expiry and driver search radius.
   - Support contacts.
   - TriGo's GCash account name and number, which drivers see.
@@ -184,10 +192,8 @@ things stand.
     not in scope yet.
 - **Driver rating is display only.** `drivers.rating` is shown, but there is no rating flow
   that updates it.
-- **Standard bookings never expire.** A standard booking that no driver accepts stays
-  `pending` until the passenger cancels it; only out-of-area requests have an expiry.
-- **No Cloud Functions.** Expired out-of-area requests are never rewritten; they are shown
-  as expired from `expiresAt`. Every balance change is a client write checked by the rules.
+- **No Cloud Functions.** Expired standard bookings and out-of-area requests are never
+  rewritten (a booking stays `pending`); they are shown as expired from `expiresAt`. Every balance change is a client write checked by the rules.
 
 ## Pending decisions
 

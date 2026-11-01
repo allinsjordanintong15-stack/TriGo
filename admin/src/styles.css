@@ -1257,6 +1257,12 @@ h3 {
   color: var(--color-error);
 }
 
+/* A standard booking no driver accepted in time (derived from expiresAt, never stored). */
+.booking-status-expired {
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
 /* ─── Out-of-area trips ────────────────────────────────────────────────── */
 
 .filter-field {
