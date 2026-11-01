@@ -1,6 +1,6 @@
 import { BookingStatus } from '@/types';
 import { colors, spacing, typography } from '@/constants/theme';
-import { getBookingStatusDisplay } from '@/utils/bookingStatus';
+import { EXPIRED_STATUS_DISPLAY, getBookingStatusDisplay } from '@/utils/bookingStatus';
 import { StyleSheet, Text } from 'react-native';
 
 function statusColors(status: BookingStatus): { bg: string; text: string } {
@@ -18,11 +18,15 @@ function statusColors(status: BookingStatus): { bg: string; text: string } {
 
 interface StatusBadgeProps {
   status: BookingStatus;
+  /** A pending standard booking past its expiry (isBookingExpired): shown as "Expired". */
+  expired?: boolean;
 }
 
-export function StatusBadge({ status }: StatusBadgeProps) {
-  const { bg, text } = statusColors(status);
-  const display = getBookingStatusDisplay(status);
+export function StatusBadge({ status, expired = false }: StatusBadgeProps) {
+  const { bg, text } = expired
+    ? { bg: colors.border, text: colors.text }
+    : statusColors(status);
+  const display = expired ? EXPIRED_STATUS_DISPLAY : getBookingStatusDisplay(status);
 
   return (
     <Text

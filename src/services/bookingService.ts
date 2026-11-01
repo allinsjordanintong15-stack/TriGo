@@ -4,6 +4,7 @@ import {
   OUT_OF_AREA_FARE_SETTINGS,
 } from '@/constants/outOfAreaFareSettings';
 import { canPassengerCancelBooking } from '@/utils/booking';
+import { bookingExpiryMinutes, isBookingExpired } from '@/utils/bookingExpiry';
 import {
   getPassengerOfferState,
   PASSENGER_OFFER_TEXT,
@@ -260,6 +261,8 @@ export function docToBooking(id: string, data: Record<string, unknown>): Booking
     outOfAreaRequestId: (data.outOfAreaRequestId as string | null) ?? null,
     createdAt: timestampToDate(data.createdAt as Timestamp) ?? new Date(),
     updatedAt: timestampToDate(data.updatedAt as Timestamp) ?? new Date(),
+    // Missing on out-of-area bookings and on standard bookings made before expiry.
+    expiresAt: timestampToDate(data.expiresAt as Timestamp | null | undefined),
     acceptedAt: timestampToDate(data.acceptedAt as Timestamp | null),
     arrivedAt: timestampToDate(data.arrivedAt as Timestamp | null),
     startedAt: timestampToDate(data.startedAt as Timestamp | null),
@@ -346,11 +349,13 @@ function standardFareFields(quote: TripQuote) {
  * the fare is now different, nothing is booked and FareChangedError carries the new fare.
  * When that read fails the quote is booked as shown; if the rules then refuse a tariff
  * fare (tariff changed or turned off meanwhile), the trip is priced again the same way.
+ * The booking stays open to drivers for `expiryMinutes` (admin setting, 1-30).
  */
 export async function createStandardBooking(
   passengerId: string,
   quote: TripQuote,
   fareSettings: FareSettings,
+  expiryMinutes: number,
 ): Promise<Booking> {
   if (quote.isOutOfArea) {
     throw new BookingServiceError(
@@ -376,6 +381,10 @@ export async function createStandardBooking(
         bookingType: 'standard',
         status: 'pending',
         ...standardFareFields(bookedQuote),
+        // Standard only: the out-of-area booking rule does not allow expiresAt.
+        expiresAt: Timestamp.fromMillis(
+          Date.now() + bookingExpiryMinutes(expiryMinutes) * 60 * 1000,
+        ),
       }),
     );
 
@@ -589,6 +598,7 @@ export function subscribeToBooking(
 export async function cancelBooking(
   bookingId: string,
   passengerId: string,
+  reason: string | null = null,
 ): Promise<Booking> {
   const bookingRef = doc(firestore, COLLECTIONS.bookings, bookingId);
 
@@ -612,6 +622,7 @@ export async function cancelBooking(
       transaction.update(bookingRef, {
         status: 'cancelled',
         cancelledBy: 'passenger',
+        ...(reason ? { cancellationReason: reason } : {}),
         cancelledAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -643,4 +654,44 @@ export async function cancelBooking(
   }
 
   return docToBooking(updated.id, updated.data());
+}
+
+/** Recorded on an expired booking the passenger closes or books again. */
+export const NO_DRIVER_ACCEPTED_REASON = 'No driver accepted';
+
+/**
+ * "Try again" on an expired standard booking: books the same trip again (new booking,
+ * new expiry) at the fare it had, then closes the expired one. A fare that changed since
+ * throws FareChangedError (nothing booked) so the passenger confirms the new fare. If
+ * closing the expired booking fails, it simply stays expired.
+ */
+export async function rebookExpiredBooking(
+  passengerId: string,
+  expired: Booking,
+  fareSettings: FareSettings,
+  expiryMinutes: number,
+): Promise<Booking> {
+  if (!isBookingExpired(expired)) {
+    throw new BookingServiceError('This booking is still open.');
+  }
+
+  const quote: TripQuote = {
+    pickupLocation: expired.pickupLocation,
+    destination: expired.destination,
+    vehicleType: expired.vehicleType,
+    distanceKm: expired.distanceKm,
+    standardEstimatedFare: expired.estimatedFare,
+    bookingType: 'standard',
+    isOutOfArea: false,
+    fareBasis: expired.fareBasis,
+    pickupBarangayId: expired.pickupBarangayId,
+    destinationBarangayId: expired.destinationBarangayId,
+    perKmRate: expired.perKmRate,
+  };
+
+  const booking = await createStandardBooking(passengerId, quote, fareSettings, expiryMinutes);
+  await cancelBooking(expired.bookingId, passengerId, NO_DRIVER_ACCEPTED_REASON).catch(() => {
+    // Still shown as expired; nothing else depends on it.
+  });
+  return booking;
 }

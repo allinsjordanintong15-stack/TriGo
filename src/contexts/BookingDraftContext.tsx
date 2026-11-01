@@ -4,6 +4,7 @@ import { fetchBarangayTariffs, TariffsStatus } from '@/services/barangayTariffSe
 import { fetchFareConfig, TriGoFareConfig } from '@/services/fareService';
 import { RoadRoute } from '@/services/routingService';
 import { Location, TripQuote, VehicleType } from '@/types';
+import { DEFAULT_BOOKING_SETTINGS } from '@/utils/bookingExpiry';
 import { BarangayTariffs } from '@/utils/fareQuote';
 import {
   createContext,
@@ -47,6 +48,7 @@ export interface BookingDraftContextValue {
 const DEFAULT_FARE_CONFIG: TriGoFareConfig = {
   fares: DEFAULT_FARE_SETTINGS,
   outOfArea: OUT_OF_AREA_FARE_SETTINGS,
+  booking: DEFAULT_BOOKING_SETTINGS,
 };
 
 export const BookingDraftContext = createContext<BookingDraftContextValue | undefined>(

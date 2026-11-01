@@ -2,6 +2,7 @@ import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { Booking } from '@/types';
 import { colors, radius, spacing, typography } from '@/constants/theme';
 import { getDisplayFare } from '@/utils/booking';
+import { isBookingExpired } from '@/utils/bookingExpiry';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -35,7 +36,7 @@ export function PassengerBookingHistoryCard({
       onPress={onPress}
     >
       <View style={styles.topRow}>
-        <StatusBadge status={booking.status} />
+        <StatusBadge status={booking.status} expired={isBookingExpired(booking)} />
         <Text style={styles.fare}>{formatPhilippinePeso(getDisplayFare(booking))}</Text>
       </View>
 

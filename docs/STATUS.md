@@ -157,6 +157,9 @@ things stand.
   - Outages, rate limits or slow responses block booking.
   - Place search also uses the ORS free quota. It is queried only from 3 characters,
     after a 400 ms pause, once per text per session, and not for exact barangay names.
+  - Checked 2026-10-30: 3 of 3 routing requests returned 200 in about 1.3 s, and the
+    route worked on the phone. Earlier timeouts were not reproduced. An OSRM backup is
+    still planned before the defense.
 - **Few Trinidad landmarks in place search.** ORS uses OpenStreetMap, which has few
   Trinidad places, so many local landmarks are not found; passengers pick the barangay
   and tap the exact spot instead.

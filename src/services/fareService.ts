@@ -1,7 +1,8 @@
 import { DEFAULT_FARE_SETTINGS } from '@/constants';
 import { OUT_OF_AREA_FARE_SETTINGS } from '@/constants/outOfAreaFareSettings';
 import { COLLECTIONS, firestore } from '@/firebase';
-import { FareSettings, OutOfAreaFareSettings } from '@/types';
+import { BookingSettings, FareSettings, OutOfAreaFareSettings } from '@/types';
+import { bookingExpiryMinutes, DEFAULT_BOOKING_SETTINGS } from '@/utils/bookingExpiry';
 import { doc, getDoc } from 'firebase/firestore';
 
 /**
@@ -15,6 +16,7 @@ export const ACTIVE_FARE_CONFIG_DOC = 'active';
 export interface TriGoFareConfig {
   fares: FareSettings;
   outOfArea: OutOfAreaFareSettings;
+  booking: BookingSettings;
 }
 
 /**
@@ -32,6 +34,7 @@ export async function fetchFareConfig(): Promise<TriGoFareConfig> {
       return {
         fares: DEFAULT_FARE_SETTINGS,
         outOfArea: OUT_OF_AREA_FARE_SETTINGS,
+        booking: DEFAULT_BOOKING_SETTINGS,
       };
     }
 
@@ -46,11 +49,15 @@ export async function fetchFareConfig(): Promise<TriGoFareConfig> {
         ...OUT_OF_AREA_FARE_SETTINGS,
         ...(data.outOfArea ?? {}),
       },
+      booking: {
+        requestExpiryMinutes: bookingExpiryMinutes(data.booking?.requestExpiryMinutes),
+      },
     };
   } catch {
     return {
       fares: DEFAULT_FARE_SETTINGS,
       outOfArea: OUT_OF_AREA_FARE_SETTINGS,
+      booking: DEFAULT_BOOKING_SETTINGS,
     };
   }
 }

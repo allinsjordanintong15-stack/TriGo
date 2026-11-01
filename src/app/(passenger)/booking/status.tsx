@@ -17,12 +17,16 @@ import { useTripContact } from '@/hooks/useTripContact';
 import {
   BookingServiceError,
   cancelBooking,
+  FareChangedError,
+  NO_DRIVER_ACCEPTED_REASON,
+  rebookExpiredBooking,
   subscribeToBooking,
 } from '@/services/bookingService';
 import { getDriverRecord } from '@/services/driverService';
 import { getRoadRoute, RoadRoute } from '@/services/routingService';
 import { Booking, DriverRecord, Location } from '@/types';
 import { canPassengerCancelBooking } from '@/utils/booking';
+import { isBookingExpired } from '@/utils/bookingExpiry';
 import {
   formatPaymentMethod,
   getBookingProgress,
@@ -41,13 +45,24 @@ const DRIVER_CONFIRM_NOTICE_MS = 2 * 60 * 1000;
 export default function BookingStatusScreen() {
   const insets = useSafeAreaInsets();
   const { passenger } = useAuth();
-  const { activeBookingId, setActiveBookingId, tripQuote, tripRoute } = useBookingDraft();
+  const {
+    activeBookingId,
+    setActiveBookingId,
+    setActiveOutOfAreaRequestId,
+    tripQuote,
+    tripRoute,
+    setTripQuote,
+    setTripRoute,
+    setBarangayTariffs,
+    fareConfig,
+  } = useBookingDraft();
   const params = useLocalSearchParams<{ bookingId?: string }>();
   const bookingId = params.bookingId ?? activeBookingId;
 
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [rebooking, setRebooking] = useState(false);
   const [error, setError] = useState('');
   const [assignedDriverRecord, setAssignedDriverRecord] = useState<DriverRecord | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -132,18 +147,23 @@ export default function BookingStatusScreen() {
     // Only re-run when the trip's endpoints change, not on every booking snapshot.
   }, [bookingRouteKey, needsFetchedRoute]);
 
+  const route =
+    contextRoute ?? (fetchedRoute?.key === bookingRouteKey ? fetchedRoute.route : null);
+
   // The driver's number, readable only while the trip is active (see contacts rules).
   const driverContact = useTripContact(booking?.driverId ?? null, booking?.status ?? null);
 
-  // An out-of-area booking waits for its agreed driver to confirm; tick while it does.
+  // Tick while pending: an out-of-area booking waits for its agreed driver to confirm, and
+  // a standard booking expires if no driver accepts in time.
   const awaitingDriverConfirm =
     booking?.bookingType === 'out_of_area' && booking.status === 'pending';
+  const isPending = booking?.status === 'pending';
   useEffect(() => {
-    if (!awaitingDriverConfirm) return;
+    if (!isPending) return;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 10 * 1000);
     return () => clearInterval(timer);
-  }, [awaitingDriverConfirm]);
+  }, [isPending]);
 
   async function handleConfirmCancel() {
     await handleCancel();
@@ -167,6 +187,73 @@ export default function BookingStatusScreen() {
     } finally {
       setCancelling(false);
     }
+  }
+
+  // Expired: book the same trip again in one tap; a changed fare is confirmed first.
+  async function handleTryAgain() {
+    if (!passenger || !booking) return;
+
+    setRebooking(true);
+    setError('');
+
+    try {
+      const rebooked = await rebookExpiredBooking(
+        passenger.uid,
+        booking,
+        fareConfig.fares,
+        fareConfig.booking.requestExpiryMinutes,
+      );
+      setActiveBookingId(rebooked.bookingId);
+      router.replace({
+        pathname: '/(passenger)/booking/status',
+        params: { bookingId: rebooked.bookingId },
+      });
+    } catch (err) {
+      if (err instanceof FareChangedError) {
+        setActiveOutOfAreaRequestId(null);
+        setTripQuote(err.quote);
+        setTripRoute(route);
+        if (err.tariffs) setBarangayTariffs(err.tariffs);
+        router.replace({
+          pathname: '/(passenger)/booking/confirmation',
+          params: { notice: err.message },
+        });
+        return;
+      }
+      setError(
+        err instanceof BookingServiceError
+          ? err.message
+          : 'Unable to book again. Please check your internet connection and try again.',
+      );
+    } finally {
+      setRebooking(false);
+    }
+  }
+
+  // Expired: close the booking (recorded as cancelled, no driver accepted) and go home.
+  async function handleCloseExpired() {
+    if (!bookingId || !passenger) return;
+
+    setCancelling(true);
+    setError('');
+
+    try {
+      await cancelBooking(bookingId, passenger.uid, NO_DRIVER_ACCEPTED_REASON);
+      setCancelling(false);
+      goHome();
+    } catch (err) {
+      setCancelling(false);
+      setError(
+        err instanceof BookingServiceError
+          ? err.message
+          : 'Unable to cancel booking. Please try again.',
+      );
+    }
+  }
+
+  function goHome() {
+    setActiveBookingId(null);
+    router.dismissTo('/home');
   }
 
   if (!bookingId) {
@@ -200,20 +287,14 @@ export default function BookingStatusScreen() {
     assignedDriverRecord && assignedDriverRecord.driverId === booking.driverId
       ? assignedDriverRecord
       : null;
+  const isExpired = isBookingExpired(booking, now);
   const canCancel = canPassengerCancelBooking(booking);
-  const isActive = isActiveBookingStatus(booking.status);
-  const header = getPassengerStatusHeader(booking);
+  const isActive = isActiveBookingStatus(booking.status) && !isExpired;
+  const header = getPassengerStatusHeader(booking, now);
   const isOutOfArea = booking.bookingType === 'out_of_area';
   const isCompleted = booking.status === 'completed';
-  const route =
-    contextRoute ?? (fetchedRoute?.key === bookingRouteKey ? fetchedRoute.route : null);
   const showDriverConfirmNotice =
     awaitingDriverConfirm && now - booking.createdAt.getTime() >= DRIVER_CONFIRM_NOTICE_MS;
-
-  function goHome() {
-    setActiveBookingId(null);
-    router.dismissTo('/home');
-  }
 
   return (
     <View style={styles.screen}>
@@ -224,8 +305,14 @@ export default function BookingStatusScreen() {
           <StatusHeader
             title={header.title}
             message={header.message}
-            pulsing={booking.status === 'pending'}
-            tone={booking.status === 'cancelled' ? 'cancelled' : isActive ? 'active' : 'done'}
+            pulsing={booking.status === 'pending' && !isExpired}
+            tone={
+              booking.status === 'cancelled' || isExpired
+                ? 'cancelled'
+                : isActive
+                  ? 'active'
+                  : 'done'
+            }
           />
           {showDriverConfirmNotice ? (
             <Text style={styles.notice}>
@@ -233,7 +320,7 @@ export default function BookingStatusScreen() {
             </Text>
           ) : null}
           <View style={styles.stepper}>
-            <StatusStepper steps={getBookingProgress(booking)} />
+            <StatusStepper steps={getBookingProgress(booking, now)} />
           </View>
         </View>
 
@@ -287,7 +374,17 @@ export default function BookingStatusScreen() {
         </View>
       ) : null}
 
-      {canCancel ? (
+      {isExpired ? (
+        <StickyActionBar
+          buttonTitle="Try again"
+          loading={rebooking}
+          disabled={cancelling}
+          onPress={handleTryAgain}
+          secondaryTitle="Cancel"
+          onSecondaryPress={handleCloseExpired}
+          secondaryLoading={cancelling}
+        />
+      ) : canCancel ? (
         <StickyActionBar
           buttonTitle="Cancel Booking"
           variant="secondary"

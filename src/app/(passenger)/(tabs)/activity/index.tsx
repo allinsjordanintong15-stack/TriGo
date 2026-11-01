@@ -6,16 +6,23 @@ import { LoadingScreen } from '@/components/LoadingScreen';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
+import { useNow } from '@/hooks/useNow';
 import { subscribeToPassengerBookings } from '@/services/bookingService';
-import { Booking, BookingStatus } from '@/types';
+import { Booking } from '@/types';
+import { isBookingExpired } from '@/utils/bookingExpiry';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 const LOAD_ERROR_MESSAGE = 'Unable to load your bookings. Check your connection and try again.';
 
-function isPastStatus(status: BookingStatus): boolean {
-  return status === 'completed' || status === 'cancelled';
+/** Completed, cancelled, or expired (no driver accepted in time). */
+function isPastBooking(booking: Booking, now: number): boolean {
+  return (
+    booking.status === 'completed' ||
+    booking.status === 'cancelled' ||
+    isBookingExpired(booking, now)
+  );
 }
 
 export default function ActivityScreen() {
@@ -46,8 +53,10 @@ export default function ActivityScreen() {
     return unsubscribe;
   }, [passengerId, retryCount]);
 
-  const active = (bookings ?? []).filter((b) => !isPastStatus(b.status));
-  const past = (bookings ?? []).filter((b) => isPastStatus(b.status));
+  // Moves a waiting booking to Past once it expires.
+  const now = useNow(30 * 1000, (bookings ?? []).some((b) => b.status === 'pending'));
+  const active = (bookings ?? []).filter((b) => !isPastBooking(b, now));
+  const past = (bookings ?? []).filter((b) => isPastBooking(b, now));
 
   function openBooking(bookingId: string) {
     router.push({ pathname: '/activity/[bookingId]', params: { bookingId } });

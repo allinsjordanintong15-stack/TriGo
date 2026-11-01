@@ -69,5 +69,3 @@ later entry is referenced in the same row.
 |---|---|---|---|
 | 2026-10-05 | **iOS photo/camera permission text.** The iOS camera and photo-library descriptions in `app.config.ts` mention only driver-application documents. Update them to also cover the passenger profile photo in the next EAS build (native change; Android does not use this text). | Profile photo, iOS build | No |
 | 2026-10-14 | **Firebase Storage needs the Blaze plan.** Blocks passenger profile photos and driver-application document uploads (drivers cannot apply through the app until then). Profile photo code is parked on branch `feature/profile-photo`. | Profile photo, driver applications | No |
-
-- Routing (ORS) checked 2026-10-30: 3 of 3 requests returned 200 in about 1.3 s; phone route OK. Earlier timeouts were not reproduced. OSRM backup still planned before the defense.

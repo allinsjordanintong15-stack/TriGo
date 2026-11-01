@@ -12,6 +12,7 @@ import {
 import { docToDriverRecord } from '@/services/driverService';
 import { Booking, BookingStatus, PaymentMethod, VehicleType } from '@/types';
 import { canDriverCancelBooking, getDisplayFare } from '@/utils/booking';
+import { isBookingExpired } from '@/utils/bookingExpiry';
 import {
   collection,
   count,
@@ -53,14 +54,25 @@ export const DRIVER_FINISHED_BOOKING_STATUSES: BookingStatus[] = ['completed', '
 const REQUEST_UNAVAILABLE_MESSAGE =
   'This ride request is no longer available. Another driver may have accepted it.';
 
+export const REQUEST_EXPIRED_MESSAGE = 'This request has expired.';
+
+/**
+ * A denied accept of a booking that was this close to expiring (or past it by the
+ * device's clock) is reported as expired: the server clock may be ahead of the phone's.
+ */
+const EXPIRY_CLOCK_MARGIN_MS = 60 * 1000;
+
 const OUT_OF_AREA_BOOKING_CLOSED_MESSAGE = 'The passenger cancelled this booking.';
 
 const TRIP_UPDATE_FAILED_MESSAGE =
   'Unable to update this trip. Please check your internet connection and try again.';
 
 /**
- * Open standard bookings a driver with this vehicle type may accept: pending and
- * not yet assigned. Out-of-area bookings are excluded (their driver is agreed upfront).
+ * Open standard bookings a driver with this vehicle type may accept: pending, not yet
+ * assigned and unexpired when the listener starts (bookings without expiresAt, made before
+ * expiry existed, never match). Bookings that expire while listening stay in the results;
+ * callers drop them with isBookingExpired. Out-of-area bookings are excluded (their driver
+ * is agreed upfront).
  */
 export function subscribeToOpenBookings(
   vehicleType: VehicleType,
@@ -73,6 +85,7 @@ export function subscribeToOpenBookings(
     where('driverId', '==', null),
     where('bookingType', '==', 'standard'),
     where('vehicleType', '==', vehicleType),
+    where('expiresAt', '>', Timestamp.now()),
   );
 
   return onSnapshot(
@@ -115,6 +128,8 @@ export function subscribeToDriverActiveBookings(
 export async function acceptBooking(bookingId: string, driverId: string): Promise<void> {
   const bookingRef = doc(firestore, COLLECTIONS.bookings, bookingId);
   const driverRef = doc(firestore, COLLECTIONS.drivers, driverId);
+  // The booking's expiry as last read, to explain a denied accept.
+  let readExpiresAt: Date | null | undefined;
 
   try {
     if (await isCommissionSuspended(driverId)) {
@@ -159,6 +174,10 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
       ) {
         throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
       }
+      readExpiresAt = booking.expiresAt;
+      if (isBookingExpired(booking)) {
+        throw new DriverBookingServiceError(REQUEST_EXPIRED_MESSAGE);
+      }
       if (booking.vehicleType !== driver.vehicleType) {
         throw new DriverBookingServiceError('This request is for a different vehicle type.');
       }
@@ -184,6 +203,13 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
     }
 
     const code = (error as { code?: string }).code;
+    if (
+      code === 'permission-denied' &&
+      readExpiresAt !== undefined &&
+      (readExpiresAt === null || readExpiresAt.getTime() - Date.now() < EXPIRY_CLOCK_MARGIN_MS)
+    ) {
+      throw new DriverBookingServiceError(REQUEST_EXPIRED_MESSAGE);
+    }
     if (code === 'permission-denied') {
       // The booking is no longer open to this driver (accepted by someone else,
       // cancelled), or the driver went offline / became unavailable meanwhile.

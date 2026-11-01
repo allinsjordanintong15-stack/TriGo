@@ -9,9 +9,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
+import { useNow } from '@/hooks/useNow';
 import { BookingServiceError, subscribeToBooking } from '@/services/bookingService';
 import { getDriverRecord } from '@/services/driverService';
 import { Booking, DriverRecord } from '@/types';
+import { isBookingExpired } from '@/utils/bookingExpiry';
 import {
   formatPaymentMethod,
   formatStepTime,
@@ -42,8 +44,8 @@ interface TimelineEntry {
   cancelled?: boolean;
 }
 
-/** Steps the booking actually reached, in order, ending in Completed or Cancelled. */
-function getTimelineEntries(booking: Booking): TimelineEntry[] {
+/** Steps the booking actually reached, in order, ending in Completed, Cancelled or Expired. */
+function getTimelineEntries(booking: Booking, expired: boolean): TimelineEntry[] {
   const entries: { label: string; time: Date | null; cancelled?: boolean }[] = [
     { label: 'Requested', time: booking.createdAt },
     { label: 'Accepted', time: booking.acceptedAt },
@@ -60,6 +62,8 @@ function getTimelineEntries(booking: Booking): TimelineEntry[] {
       time: booking.cancelledAt,
       cancelled: true,
     },
+    // Bookings made before expiry existed have no expiresAt; they show no Expired step.
+    { label: 'Expired', time: expired ? booking.expiresAt : null, cancelled: true },
   ];
   return entries.filter((entry): entry is TimelineEntry => entry.time !== null);
 }
@@ -124,6 +128,9 @@ export default function BookingDetailScreen() {
 
   const retry = () => setRetryCount((count) => count + 1);
 
+  // Shows Expired once a waiting standard booking passes its expiry.
+  const now = useNow(30 * 1000, booking?.status === 'pending');
+
   if (loading && !booking) {
     return (
       <View style={styles.container}>
@@ -154,15 +161,16 @@ export default function BookingDetailScreen() {
     );
   }
 
-  const header = getPassengerStatusHeader(booking);
-  const isActive = isActiveBookingStatus(booking.status);
+  const isExpired = isBookingExpired(booking, now);
+  const header = getPassengerStatusHeader(booking, now);
+  const isActive = isActiveBookingStatus(booking.status) && !isExpired;
   const isOutOfArea = booking.bookingType === 'out_of_area';
   const isCompleted = booking.status === 'completed';
   const assignedDriver =
     assignedDriverRecord && assignedDriverRecord.driverId === booking.driverId
       ? assignedDriverRecord
       : null;
-  const timeline = getTimelineEntries(booking);
+  const timeline = getTimelineEntries(booking, isExpired);
   const bookingDate = formatDate(booking.createdAt);
 
   const loadedBookingId = booking.bookingId;
@@ -196,8 +204,14 @@ export default function BookingDetailScreen() {
           <StatusHeader
             title={header.title}
             message={header.message}
-            pulsing={booking.status === 'pending'}
-            tone={booking.status === 'cancelled' ? 'cancelled' : isActive ? 'active' : 'done'}
+            pulsing={booking.status === 'pending' && !isExpired}
+            tone={
+              booking.status === 'cancelled' || isExpired
+                ? 'cancelled'
+                : isActive
+                  ? 'active'
+                  : 'done'
+            }
           />
           <Text style={styles.reference}>
             {formatBookingReference(booking.bookingId)} · {bookingDate}

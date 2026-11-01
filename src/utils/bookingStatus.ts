@@ -1,4 +1,5 @@
 import { Booking, BookingStatus, PaymentMethod } from '@/types';
+import { bookingSearchMinutes, isBookingExpired } from '@/utils/bookingExpiry';
 
 interface StatusDisplay {
   title: string;
@@ -35,6 +36,12 @@ const STATUS_MESSAGES: Record<BookingStatus, StatusDisplay> = {
 export function getBookingStatusDisplay(status: BookingStatus): StatusDisplay {
   return STATUS_MESSAGES[status] ?? STATUS_MESSAGES.pending;
 }
+
+/** A pending standard booking no driver accepted in time (see isBookingExpired). */
+export const EXPIRED_STATUS_DISPLAY: StatusDisplay = {
+  title: 'Expired',
+  message: 'No driver accepted this request in time.',
+};
 
 /** Status text for a specific booking, e.g. naming who cancelled it. */
 export function getBookingDisplay(booking: Booking, viewer: 'passenger' | 'driver'): StatusDisplay {
@@ -73,7 +80,14 @@ export function formatPaymentMethod(method: PaymentMethod | null): string {
 }
 
 /** Status header for the passenger's live booking screen (passenger wording only). */
-export function getPassengerStatusHeader(booking: Booking): StatusDisplay {
+export function getPassengerStatusHeader(booking: Booking, now: number = Date.now()): StatusDisplay {
+  if (isBookingExpired(booking, now)) {
+    return {
+      title: 'No driver accepted your request',
+      message: `No driver accepted it within ${bookingSearchMinutes(booking.createdAt, booking.expiresAt)} min.`,
+    };
+  }
+
   switch (booking.status) {
     case 'pending':
       return booking.bookingType === 'out_of_area'
@@ -83,7 +97,7 @@ export function getPassengerStatusHeader(booking: Booking): StatusDisplay {
           }
         : {
             title: 'Finding a driver near you…',
-            message: 'This screen updates automatically when a driver accepts.',
+            message: `Searching for up to ${bookingSearchMinutes(booking.createdAt, booking.expiresAt)} min. This screen updates automatically when a driver accepts.`,
           };
     case 'accepted':
       return { title: 'Driver is on the way', message: 'Head to your pickup point.' };
@@ -112,9 +126,9 @@ export interface ProgressStep {
 /**
  * Requested → Accepted → Arrived → In progress → Completed, from the booking's status and
  * timestamps. A cancelled booking keeps the steps it reached; the next one is marked
- * cancelled and the rest stay upcoming.
+ * cancelled and the rest stay upcoming. An expired booking shows Requested, then Expired.
  */
-export function getBookingProgress(booking: Booking): ProgressStep[] {
+export function getBookingProgress(booking: Booking, now: number = Date.now()): ProgressStep[] {
   const steps: { label: string; status: BookingStatus; time: Date | null }[] = [
     { label: 'Requested', status: 'pending', time: booking.createdAt },
     { label: 'Accepted', status: 'accepted', time: booking.acceptedAt },
@@ -133,6 +147,14 @@ export function getBookingProgress(booking: Booking): ProgressStep[] {
       if (index === reached + 1) {
         return { label: 'Cancelled', state: 'cancelled', time: booking.cancelledAt };
       }
+      return { label: step.label, state: 'upcoming', time: null };
+    });
+  }
+
+  if (isBookingExpired(booking, now)) {
+    return steps.map((step, index) => {
+      if (index === 0) return { label: step.label, state: 'done', time: step.time };
+      if (index === 1) return { label: 'Expired', state: 'cancelled', time: booking.expiresAt };
       return { label: step.label, state: 'upcoming', time: null };
     });
   }

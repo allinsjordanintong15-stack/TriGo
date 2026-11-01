@@ -61,6 +61,12 @@ export interface FareAgreement {
   agreedAt: Date | null;
 }
 
+/** Standard booking settings (fareSettings/active.booking, System settings page). */
+export interface BookingSettings {
+  /** Whole minutes a standard booking stays open for drivers (1-30). */
+  requestExpiryMinutes: number;
+}
+
 export interface OutOfAreaFareSettings {
   enabled: boolean;
   requestExpiryMinutes: number;
@@ -232,6 +238,11 @@ export interface Booking {
   outOfAreaRequestId: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * When an unaccepted standard booking stops being open to drivers. Null on out-of-area
+   * bookings and on standard bookings made before expiry existed (those count as expired).
+   */
+  expiresAt: Date | null;
   acceptedAt: Date | null;
   arrivedAt: Date | null;
   startedAt: Date | null;

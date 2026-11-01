@@ -277,6 +277,8 @@ async function seedBooking(id, { passengerId, driverId, place, status, bookingTy
     outOfAreaRequestId: bookingType === 'out_of_area' ? id : null,
     createdAt,
     updatedAt: status === 'completed' || status === 'cancelled' ? endedAt : createdAt,
+    // Standard bookings stay open to drivers for the default 10 minutes (out-of-area: none).
+    ...(bookingType === 'standard' ? { expiresAt: minutesAgo(minutesAgoCreated - 10) } : {}),
     acceptedAt: driverId ? minutesAgo(minutesAgoCreated - 2) : null,
     arrivedAt: null,
     startedAt: null,

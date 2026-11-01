@@ -7,13 +7,16 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useDriverAccess } from '@/hooks/useDriverAccess';
+import { useNow } from '@/hooks/useNow';
 import { subscribeToBooking } from '@/services/bookingService';
 import {
   acceptBooking,
   declineBooking,
   DriverBookingServiceError,
+  REQUEST_EXPIRED_MESSAGE,
 } from '@/services/driverBookingService';
 import { Booking } from '@/types';
+import { isBookingExpired } from '@/utils/bookingExpiry';
 import { calculateDistanceKm } from '@/utils/distance';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { getFareBasisLabel } from '@/utils/fareBasisLabel';
@@ -90,8 +93,12 @@ export default function DriverRequestDetailScreen() {
     booking.status === 'pending' &&
     booking.driverId === null &&
     booking.bookingType === 'standard';
+  // Re-checked every 10 s so Accept disappears soon after the request expires.
+  const now = useNow(10 * 1000, isOpen);
+  const isExpired = booking !== null && isOpen && isBookingExpired(booking, now);
   const canAccept =
     isOpen &&
+    !isExpired &&
     canPerformDriverActions &&
     driverRecord?.isOnline === true &&
     driverRecord.isAvailable &&
@@ -153,6 +160,22 @@ export default function DriverRequestDetailScreen() {
           icon="alert-circle-outline"
           title="Request no longer available"
           message="This ride may have been accepted by another driver or cancelled by the passenger."
+        />
+        <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <Button title="Back to Requests" variant="secondary" onPress={goBackToRequests} />
+        </View>
+      </View>
+    );
+  }
+
+  if (isExpired) {
+    return (
+      <View style={styles.container}>
+        {header}
+        <EmptyState
+          icon="time-outline"
+          title={REQUEST_EXPIRED_MESSAGE}
+          message="No driver accepted it in time, so it is closed. New requests appear on the Requests tab."
         />
         <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.lg }]}>
           <Button title="Back to Requests" variant="secondary" onPress={goBackToRequests} />

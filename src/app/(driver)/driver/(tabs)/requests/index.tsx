@@ -8,11 +8,13 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useCommissionAccount } from '@/hooks/useCommissionAccount';
+import { useNow } from '@/hooks/useNow';
 import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
 import { getDeclinedBookingIds, subscribeToOpenBookings } from '@/services/driverBookingService';
 import { OpenOutOfAreaRequest, subscribeToOpenOutOfAreaRequests } from '@/services/driverService';
 import { fetchFareConfig } from '@/services/fareService';
 import { Booking } from '@/types';
+import { isBookingExpired } from '@/utils/bookingExpiry';
 import { calculateDistanceKm } from '@/utils/distance';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -119,6 +121,10 @@ export default function DriverRequestsScreen() {
     );
   }, [canReceiveRequests, vehicleType]);
 
+  // Every 30 s: drops standard requests that expire while the list is open and keeps the
+  // request ages current.
+  const bookingsNow = useNow(30 * 1000, (bookings?.length ?? 0) > 0);
+
   // Re-read declined requests whenever the list regains focus (e.g. after declining).
   useFocusEffect(
     useCallback(() => {
@@ -137,7 +143,10 @@ export default function DriverRequestsScreen() {
     const location = driverRecord?.currentLocation ?? null;
 
     return (bookings ?? [])
-      .filter((booking) => !declinedIds.includes(booking.bookingId))
+      .filter(
+        (booking) =>
+          !declinedIds.includes(booking.bookingId) && !isBookingExpired(booking, bookingsNow),
+      )
       .map((booking) => ({
         booking,
         distanceToPickupKm: location
@@ -150,7 +159,7 @@ export default function DriverRequestsScreen() {
         }
         return b.booking.createdAt.getTime() - a.booking.createdAt.getTime();
       });
-  }, [bookings, declinedIds, driverRecord?.currentLocation]);
+  }, [bookings, declinedIds, driverRecord?.currentLocation, bookingsNow]);
 
   function renderGate(
     title: string,

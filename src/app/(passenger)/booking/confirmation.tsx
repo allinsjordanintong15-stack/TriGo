@@ -28,7 +28,7 @@ import {
   PassengerOfferState,
   UnavailableOfferReason,
 } from '@/utils/outOfAreaProposal';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -37,6 +37,8 @@ export default function BookingConfirmationScreen() {
   const insets = useSafeAreaInsets();
   const handleBack = useScreenBack();
   const { passenger } = useAuth();
+  // Set by "Try again" on an expired booking when the fare changed since (FareChangedError).
+  const { notice } = useLocalSearchParams<{ notice?: string }>();
   const {
     tripQuote,
     tripRoute,
@@ -50,7 +52,7 @@ export default function BookingConfirmationScreen() {
 
   const [outOfAreaRequest, setOutOfAreaRequest] = useState<OutOfAreaRequest | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(notice ?? '');
   // Set when Confirm Booking found the driver's offer gone (withdrawn, expired, closed) or
   // the driver no longer verified (the request is then back to searching).
   const [unavailable, setUnavailable] = useState<UnavailableOfferReason | null>(null);
@@ -112,8 +114,14 @@ export default function BookingConfirmationScreen() {
         bookingId = await acceptProposalAndCreateBooking(passenger.uid, outOfAreaRequest);
         setActiveOutOfAreaRequestId(null);
       } else {
-        bookingId = (await createStandardBooking(passenger.uid, tripQuote, fareConfig.fares))
-          .bookingId;
+        bookingId = (
+          await createStandardBooking(
+            passenger.uid,
+            tripQuote,
+            fareConfig.fares,
+            fareConfig.booking.requestExpiryMinutes,
+          )
+        ).bookingId;
       }
 
       setActiveBookingId(bookingId);
