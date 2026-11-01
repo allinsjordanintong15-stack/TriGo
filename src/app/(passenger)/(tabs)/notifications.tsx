@@ -13,15 +13,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-function formatTime(value: Date): string {
-  return value.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { formatDateTime } from '@/utils/dateTime';
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
@@ -93,7 +85,7 @@ export default function NotificationsScreen() {
                 <Text style={styles.itemBody2} numberOfLines={2}>
                   {item.body}
                 </Text>
-                <Text style={styles.itemTime}>{formatTime(item.createdAt)}</Text>
+                <Text style={styles.itemTime}>{formatDateTime(item.createdAt)}</Text>
               </View>
             </Pressable>
           ))}

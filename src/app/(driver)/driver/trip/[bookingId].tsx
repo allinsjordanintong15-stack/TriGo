@@ -28,6 +28,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatDateTime } from '@/utils/dateTime';
 
 // TEMP until Task 4: passenger selects method at booking
 const PAYMENT_OPTIONS: readonly TripChoiceOption<PaymentMethod>[] = [
@@ -54,10 +55,6 @@ function DetailRow({ label, value, highlight }: DetailRowProps) {
       <Text style={[styles.rowValue, highlight ? styles.rowValueHighlight : null]}>{value}</Text>
     </View>
   );
-}
-
-function formatTime(date: Date | null): string | null {
-  return date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null;
 }
 
 function goBack() {
@@ -159,11 +156,11 @@ export default function DriverTripScreen() {
   const isFinished = booking.status === 'completed' || booking.status === 'cancelled';
   const vehicleLabel = booking.vehicleType.charAt(0).toUpperCase() + booking.vehicleType.slice(1);
   const timeline = [
-    { label: 'Accepted', value: formatTime(booking.acceptedAt) },
-    { label: 'Arrived at pickup', value: formatTime(booking.arrivedAt) },
-    { label: 'Trip started', value: formatTime(booking.startedAt) },
-    { label: 'Completed', value: formatTime(booking.completedAt) },
-    { label: 'Cancelled', value: formatTime(booking.cancelledAt) },
+    { label: 'Accepted', value: booking.acceptedAt && formatDateTime(booking.acceptedAt) },
+    { label: 'Arrived at pickup', value: booking.arrivedAt && formatDateTime(booking.arrivedAt) },
+    { label: 'Trip started', value: booking.startedAt && formatDateTime(booking.startedAt) },
+    { label: 'Completed', value: booking.completedAt && formatDateTime(booking.completedAt) },
+    { label: 'Cancelled', value: booking.cancelledAt && formatDateTime(booking.cancelledAt) },
   ].filter((entry): entry is { label: string; value: string } => entry.value !== null);
 
   return (

@@ -3,6 +3,7 @@ import { CommissionPayment, CommissionPaymentStatus } from '@/services/commissio
 import { centavosToPesos } from '@/utils/commission';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { StyleSheet, Text, View } from 'react-native';
+import { formatDateTime } from '@/utils/dateTime';
 
 const STATUS_LABELS: Record<CommissionPaymentStatus, string> = {
   pending: 'Waiting for review',
@@ -15,18 +16,6 @@ const STATUS_COLORS: Record<CommissionPaymentStatus, { bg: string; text: string 
   confirmed: { bg: colors.primaryLight, text: colors.primary },
   rejected: { bg: colors.errorBackground, text: colors.error },
 };
-
-function formatDate(date: Date | null): string {
-  return date
-    ? date.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      })
-    : '—';
-}
 
 /** One reported GCash payment in the Earnings tab's payment history. */
 export function CommissionPaymentRow({ payment }: { payment: CommissionPayment }) {
@@ -42,7 +31,7 @@ export function CommissionPaymentRow({ payment }: { payment: CommissionPayment }
         </Text>
       </View>
       <Text style={styles.meta} selectable>
-        Ref. {payment.reference} · {formatDate(payment.submittedAt)}
+        Ref. {payment.reference} · {formatDateTime(payment.submittedAt)}
       </Text>
       {payment.status === 'rejected' && payment.rejectionReason ? (
         <Text style={styles.reason}>Reason: {payment.rejectionReason}</Text>

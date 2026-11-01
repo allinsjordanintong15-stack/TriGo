@@ -1,5 +1,6 @@
 import { Booking, BookingStatus, PaymentMethod } from '@/types';
 import { bookingSearchMinutes, isBookingExpired } from '@/utils/bookingExpiry';
+import { formatTime } from '@/utils/dateTime';
 
 interface StatusDisplay {
   title: string;
@@ -174,5 +175,5 @@ export function getBookingProgress(booking: Booking, now: number = Date.now()): 
 
 /** Short clock time for progress steps, e.g. "2:14 PM". */
 export function formatStepTime(date: Date | null): string | null {
-  return date ? date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : null;
+  return date ? formatTime(date) : null;
 }

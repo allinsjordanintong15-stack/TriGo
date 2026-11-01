@@ -24,14 +24,11 @@ import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { formatDate } from '@/utils/dateTime';
 
 const LOAD_ERROR_MESSAGE = 'Unable to load this booking. Check your connection and try again.';
 
 type LoadError = 'not_found' | 'failed' | null;
-
-function formatDate(value: Date): string {
-  return value.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
 
 /** Short, readable stand-in for the Firestore ID, e.g. "Ref: 7KQ2XA". */
 function formatBookingReference(bookingId: string): string {

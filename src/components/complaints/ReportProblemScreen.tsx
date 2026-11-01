@@ -24,6 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatDate } from '@/utils/dateTime';
 
 interface ReportProblemScreenProps {
   bookingId: string;
@@ -37,10 +38,6 @@ type Loaded =
   | { kind: 'error' }
   | { kind: 'not_found' }
   | { kind: 'ready'; booking: Booking; complaint: OwnComplaint | null };
-
-function formatDate(value: Date): string {
-  return value.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
 
 /** "Report a problem" for the signed-in passenger or driver on their own booking. */
 export function ReportProblemScreen({ bookingId, role, onBack }: ReportProblemScreenProps) {

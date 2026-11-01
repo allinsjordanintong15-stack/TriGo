@@ -27,23 +27,12 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatDateTime } from '@/utils/dateTime';
 
 function errorMessage(err: unknown): string {
   return err instanceof CommissionServiceError
     ? err.message
     : 'Unable to load your commission history. Please try again.';
-}
-
-function formatCompletedAt(date: Date | null): string {
-  return date
-    ? date.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      })
-    : '—';
 }
 
 /**
@@ -280,7 +269,7 @@ function CommissionRow({ item, onPress }: { item: CommissionRecord; onPress: () 
     >
       <View style={styles.rowMain}>
         <Text style={styles.rowDate}>
-          {formatCompletedAt(item.completedAt)}
+          {formatDateTime(item.completedAt)}
           {item.bookingType === 'out_of_area' ? ' · Out-of-area' : ''}
         </Text>
         <Text style={styles.rowFare}>

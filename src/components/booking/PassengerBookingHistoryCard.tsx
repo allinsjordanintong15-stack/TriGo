@@ -7,19 +7,11 @@ import { formatPhilippinePeso } from '@/utils/fare';
 import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { formatDateTime } from '@/utils/dateTime';
 
 interface PassengerBookingHistoryCardProps {
   booking: Booking;
   onPress?: () => void;
-}
-
-function formatDate(value: Date | null): string {
-  if (!value) return '—';
-  return value.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
 }
 
 export function PassengerBookingHistoryCard({
@@ -49,7 +41,7 @@ export function PassengerBookingHistoryCard({
       <View style={styles.metaRow}>
         <Text style={styles.meta}>{vehicleLabel}</Text>
         <Text style={styles.metaDot}>•</Text>
-        <Text style={styles.meta}>{formatDate(booking.createdAt)}</Text>
+        <Text style={styles.meta}>{formatDateTime(booking.createdAt)}</Text>
       </View>
 
       {fareBasis ? (

@@ -40,6 +40,7 @@ import { router } from 'expo-router';
 import { ReactNode, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatDateTime } from '@/utils/dateTime';
 
 const STEPS = ['Personal', 'Vehicle', 'Documents', 'Review'] as const;
 type Step = 0 | 1 | 2 | 3;
@@ -72,17 +73,6 @@ function validateVehicleDetails(details: VehicleDetails): Record<keyof VehicleDe
 
 function formatVehicleType(vehicleType: VehicleType | null): string {
   return vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) : '—';
-}
-
-function formatDate(value: Date | null): string {
-  if (!value) return '—';
-  return value.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 function documentUri(image: ApplicationDocumentImage): string {
@@ -703,8 +693,8 @@ function ApplicationStatusView({
           {application.vehicleBrand ? <Row label="Brand" value={application.vehicleBrand} /> : null}
           {application.vehicleModel ? <Row label="Model" value={application.vehicleModel} /> : null}
           {application.vehicleColor ? <Row label="Color" value={application.vehicleColor} /> : null}
-          <Row label="Submitted" value={formatDate(application.submittedAt)} />
-          <Row label="Reviewed" value={formatDate(application.reviewedAt)} last />
+          <Row label="Submitted" value={formatDateTime(application.submittedAt)} />
+          <Row label="Reviewed" value={formatDateTime(application.reviewedAt)} last />
         </View>
 
         <View style={styles.card}>

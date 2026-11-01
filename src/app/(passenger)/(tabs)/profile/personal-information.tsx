@@ -7,10 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { router } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-function formatMemberSince(value: Date): string {
-  return value.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-}
+import { formatDate } from '@/utils/dateTime';
 
 export default function PersonalInformationScreen() {
   const insets = useSafeAreaInsets();
@@ -52,7 +49,7 @@ export default function PersonalInformationScreen() {
           </View>
           <View style={[styles.field, styles.fieldLast]}>
             <Text style={styles.fieldLabel}>Member since</Text>
-            <Text style={styles.fieldValue}>{formatMemberSince(passenger.createdAt)}</Text>
+            <Text style={styles.fieldValue}>{formatDate(passenger.createdAt)}</Text>
           </View>
         </View>
 

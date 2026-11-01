@@ -4,23 +4,18 @@ import { Booking } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { getFareBasisLabel } from '@/utils/fareBasisLabel';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { formatTimeAgo } from '@/utils/dateTime';
 
 interface DriverRequestCardProps {
   booking: Booking;
   /** Straight-line distance from the driver to the pickup, when the driver's position is known. */
   distanceToPickupKm: number | null;
+  /** The current time from a ticking useNow, so the age stays current. */
+  now: number;
   onPress: () => void;
 }
 
-export function formatRequestAge(createdAt: Date): string {
-  const minutes = Math.max(0, Math.round((Date.now() - createdAt.getTime()) / 60000));
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  return hours < 24 ? `${hours} hr ago` : createdAt.toLocaleDateString();
-}
-
-export function DriverRequestCard({ booking, distanceToPickupKm, onPress }: DriverRequestCardProps) {
+export function DriverRequestCard({ booking, distanceToPickupKm, now, onPress }: DriverRequestCardProps) {
   const fareBasis = getFareBasisLabel(booking);
 
   return (
@@ -32,7 +27,7 @@ export function DriverRequestCard({ booking, distanceToPickupKm, onPress }: Driv
     >
       <View style={styles.topRow}>
         <Text style={styles.fare}>{formatPhilippinePeso(booking.estimatedFare)}</Text>
-        <Text style={styles.age}>{formatRequestAge(booking.createdAt)}</Text>
+        <Text style={styles.age}>{formatTimeAgo(booking.createdAt, now)}</Text>
       </View>
 
       {fareBasis ? (

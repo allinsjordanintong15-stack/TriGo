@@ -1,4 +1,3 @@
-import { formatRequestAge } from '@/components/driver/DriverRequestCard';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -24,6 +23,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatTimeAgo } from '@/utils/dateTime';
 
 interface DetailRowProps {
   label: string;
@@ -96,6 +96,7 @@ export default function DriverRequestDetailScreen() {
   // Re-checked every 10 s so Accept disappears soon after the request expires.
   const now = useNow(10 * 1000, isOpen);
   const isExpired = booking !== null && isOpen && isBookingExpired(booking, now);
+  const requestAge = booking ? formatTimeAgo(booking.createdAt, now) : '';
   const canAccept =
     isOpen &&
     !isExpired &&
@@ -203,7 +204,8 @@ export default function DriverRequestDetailScreen() {
           <Text style={styles.fareLabel}>Estimated fare</Text>
           <Text style={styles.fareValue}>{formatPhilippinePeso(booking.estimatedFare)}</Text>
           <Text style={styles.fareNote}>
-            Requested {formatRequestAge(booking.createdAt).toLowerCase()}
+            {/* "Requested just now", "Requested 5 min ago", "Requested Oct 21, 2026". */}
+            Requested {requestAge === 'Just now' ? 'just now' : requestAge}
           </Text>
         </View>
 

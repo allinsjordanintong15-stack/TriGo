@@ -283,6 +283,7 @@ export default function DriverRequestsScreen() {
               key={booking.bookingId}
               booking={booking}
               distanceToPickupKm={distanceToPickupKm}
+              now={bookingsNow}
               onPress={() =>
                 router.push({
                   pathname: '/driver/requests/[bookingId]',
