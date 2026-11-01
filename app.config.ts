@@ -25,7 +25,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     predictiveBackGestureEnabled: false,
     // VIBRATE: new-request alert for drivers (React Native Vibration).
-    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'CAMERA', 'VIBRATE'],
+    // POST_NOTIFICATIONS: Android 13+ local ride-request notifications (expo-notifications).
+    permissions: [
+      'ACCESS_COARSE_LOCATION',
+      'ACCESS_FINE_LOCATION',
+      'CAMERA',
+      'VIBRATE',
+      'POST_NOTIFICATIONS',
+    ],
   },
   web: {
     favicon: './assets/images/icon.png',
@@ -50,6 +57,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     '@maplibre/maplibre-react-native',
+    [
+      // Local notifications only (no push): status-bar icon is a white shape on transparent.
+      'expo-notifications',
+      {
+        icon: './assets/images/notification-icon.png',
+        color: '#1B5E3A',
+      },
+    ],
     [
       'expo-splash-screen',
       {

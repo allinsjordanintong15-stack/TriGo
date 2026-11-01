@@ -7,12 +7,14 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, radius, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
+import { useNotificationPermission } from '@/hooks/useNotificationPermission';
 import { logout } from '@/services/authService';
 import { goOffline } from '@/services/driverService';
 import { DriverRecord } from '@/types';
+import { notificationSettingAction } from '@/utils/notificationPermission';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function getInitials(fullName: string): string {
@@ -62,6 +64,7 @@ export default function DriverProfileScreen() {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState('');
+  const notifications = useNotificationPermission();
 
   if (!driver) {
     return (
@@ -169,6 +172,17 @@ export default function DriverProfileScreen() {
           vehicle or account information.
         </Text>
 
+        {notifications.state ? (
+          <>
+            <Text style={styles.sectionTitle}>Ride request alerts</Text>
+            <NotificationsCard
+              on={notifications.state.status === 'granted'}
+              action={notificationSettingAction(notifications.state)}
+              onRequest={() => void notifications.request()}
+            />
+          </>
+        ) : null}
+
         <Text style={styles.sectionTitle}>Contact TriGo support</Text>
         <View style={styles.supportContacts}>
           <SupportContactsList />
@@ -211,7 +225,48 @@ export default function DriverProfileScreen() {
   );
 }
 
+interface NotificationsCardProps {
+  on: boolean;
+  action: ReturnType<typeof notificationSettingAction>;
+  onRequest: () => void;
+}
+
+/** Whether ride-request notifications are allowed, with a way to turn them on. */
+function NotificationsCard({ on, action, onRequest }: NotificationsCardProps) {
+  return (
+    <View style={[styles.card, styles.notificationsCard]}>
+      <Text style={styles.fieldValue}>Notifications: {on ? 'On' : 'Off'}</Text>
+      <Text style={styles.notificationsHint}>
+        {on
+          ? 'You get a notification for new ride requests while TriGo is open but not on screen. Not when the app is closed.'
+          : 'Turn on notifications to hear about new ride requests while TriGo is open but not on screen.'}
+      </Text>
+      {action === 'request' ? (
+        <Button title="Turn on notifications" variant="secondary" onPress={onRequest} />
+      ) : null}
+      {action === 'open_settings' ? (
+        <Button
+          title="Open phone settings"
+          variant="secondary"
+          onPress={() => {
+            Linking.openSettings().catch(() => undefined);
+          }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  notificationsCard: {
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  notificationsHint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

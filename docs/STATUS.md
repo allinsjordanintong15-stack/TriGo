@@ -59,6 +59,10 @@ things stand.
 - An online/available toggle.
 - **Requests:** accept standard bookings (only unexpired ones are listed), and accept or
   claim out-of-area requests.
+- **New request alerts:** the phone vibrates once per new unexpired request while the
+  driver is online and available (not on first load, not for declined requests). Before
+  the first go-online, the app explains ride request notifications and asks for permission
+  (Android 13+); Profile shows whether they are on, with Turn on / Open phone settings.
 - Run the active trip and complete it. Completing records the payment method (Cash or
   GCash) and the final fare.
 - **Home:** fares collected, labelled "before commission", and a commission summary card.
@@ -180,10 +184,25 @@ things stand.
   pickup or destination is really inside that barangay (rules have no point-in-polygon
   check), and they do not check per-km fares. A server-side check needs Cloud
   Functions (Blaze).
-- **No push notifications.**
-  - The app does not use `expo-notifications`.
+- **No push notifications; ride request alerts are local only.**
+  - No server sends notifications (no Cloud Functions). True push, which would reach a
+    closed app, needs Cloud Functions and the Blaze plan.
+  - Drivers get alerts from the app's own Firestore listeners: a vibration while TriGo is
+    on screen, and (being added) a local notification through `expo-notifications` while
+    it is in the background.
+  - Background alerts work only while the app's process is still running. Android may
+    freeze a backgrounded app or cut its network in Doze (screen off) within minutes, and
+    some phones kill it sooner; iOS suspends it almost at once.
+  - Nothing arrives once the app is closed, swiped away or the phone restarts.
+  - Future option without Blaze: an Android foreground service ("TriGo: you're online")
+    to keep the listener running; it needs another native library and a Play Store
+    declaration.
   - The Notifications screen only lists `notifications` documents, and nothing in the app
     creates them (the rules allow no client writes).
+- **Drivers stay online after closing the app.** `drivers/{uid}.isOnline` stays true when
+  the app is closed or killed, so passengers can wait on a driver who sees nothing until
+  the request expires. Future fix: presence or a heartbeat (a `lastSeenAt` the app
+  refreshes, with stale drivers treated as offline).
 - **GCash is checked by hand.**
   - TriGo moves no money and has no payment gateway.
   - The admin checks each reported reference in TriGo's GCash account before confirming.

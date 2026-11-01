@@ -8,6 +8,7 @@ import { FaresCollectedCard } from '@/components/driver/FaresCollectedCard';
 import { SupportContactsList } from '@/components/support/SupportContactsList';
 import { formatExpiresIn } from '@/components/driver/OutOfAreaRequestCard';
 import { Avatar } from '@/components/ui/Avatar';
+import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
@@ -17,8 +18,15 @@ import { useCommissionAccount } from '@/hooks/useCommissionAccount';
 import { DRIVER_ACCESS_REVOKED, DriverAccessStatus, useDriverAccess } from '@/hooks/useDriverAccess';
 import { useFaresCollected } from '@/hooks/useFaresCollected';
 import { becomeAvailable, DriverServiceError, goOffline, goOnline } from '@/services/driverService';
+import {
+  getNotificationPermission,
+  hasSeenNotificationPrompt,
+  markNotificationPromptSeen,
+  requestNotificationPermission,
+} from '@/services/localNotificationService';
 import { getCurrentCoordinates, LocationServiceError } from '@/services/locationService';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { shouldExplainBeforeGoingOnline } from '@/utils/notificationPermission';
 import { isProposalOutcome, PROPOSAL_OUTCOME_TEXT, ProposalState } from '@/utils/outOfAreaProposal';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -98,6 +106,7 @@ export default function DriverHomeScreen() {
   } = useDriverActivity();
   const driverId = driverRecord?.driverId ?? null;
   const [now, setNow] = useState(() => Date.now());
+  const [explainNotifications, setExplainNotifications] = useState(false);
 
   // Ticks the request countdown while waiting for the passenger.
   const isWaitingForPassenger = proposalState === 'waiting';
@@ -110,6 +119,32 @@ export default function DriverHomeScreen() {
 
   const fares = useFaresCollected(driverId);
   const commission = useCommissionAccount(driverId);
+
+  /**
+   * Go online, first explaining ride-request notifications once per device while they are
+   * off and the system can still ask (Android 13+). The driver goes online either way.
+   */
+  async function handleGoOnlinePress() {
+    if (!driverRecord || !canPerformDriverActions) return;
+    const [permission, promptSeen] = await Promise.all([
+      getNotificationPermission(),
+      hasSeenNotificationPrompt(driverRecord.driverId),
+    ]);
+    if (shouldExplainBeforeGoingOnline(permission, promptSeen)) {
+      setExplainNotifications(true);
+      return;
+    }
+    await handleGoOnline();
+  }
+
+  async function answerNotificationPrompt(allow: boolean) {
+    setExplainNotifications(false);
+    if (!driverRecord) return;
+    await markNotificationPromptSeen(driverRecord.driverId);
+    // A denial here is fine: the in-app vibration and Requests list keep working.
+    if (allow) await requestNotificationPermission();
+    await handleGoOnline();
+  }
 
   async function handleGoOnline() {
     if (!driverRecord || !canPerformDriverActions) return;
@@ -279,7 +314,7 @@ export default function DriverHomeScreen() {
         message="Go online to receive ride requests in Trinidad, Bohol."
         actionTitle="Go online"
         actionLoading={updatingDuty}
-        onAction={handleGoOnline}
+        onAction={handleGoOnlinePress}
       />
     );
   } else if (driverRecord?.isAvailable) {
@@ -333,7 +368,7 @@ export default function DriverHomeScreen() {
             caption={dutyCaption}
             loading={updatingDuty}
             disabled={!isOnline && !canPerformDriverActions}
-            onChange={(online) => (online ? handleGoOnline() : handleGoOffline())}
+            onChange={(online) => (online ? handleGoOnlinePress() : handleGoOffline())}
           />
         ) : null}
 
@@ -364,6 +399,16 @@ export default function DriverHomeScreen() {
           />
         ) : null}
       </ScrollView>
+
+      <ConfirmationDialog
+        visible={explainNotifications}
+        title="Get ride request alerts?"
+        message="TriGo can show a notification when a new ride request comes in while TriGo is open but not on screen. It cannot alert you when the app is closed."
+        confirmLabel="Allow"
+        cancelLabel="Not now"
+        onConfirm={() => void answerNotificationPrompt(true)}
+        onCancel={() => void answerNotificationPrompt(false)}
+      />
     </View>
   );
 }
