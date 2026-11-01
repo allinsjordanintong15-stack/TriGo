@@ -428,9 +428,13 @@ export function accountDoc(state: Account, driverId = DRIVER): DocumentData {
   return { driverId, ...state, lastBookingId: 'olderBooking', updatedAt: Timestamp.now() };
 }
 
-/** An open standard booking (T1 accept starts from it). */
+/** An open, unexpired standard booking (T1 accept starts from it). */
 export function openBooking(): DocumentData {
-  return inProgressBooking(DRIVER, { driverId: null, status: 'pending' });
+  return inProgressBooking(DRIVER, {
+    driverId: null,
+    status: 'pending',
+    expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
+  });
 }
 
 export function commitAccept(firestore: Firestore, driverId = DRIVER): Promise<void> {

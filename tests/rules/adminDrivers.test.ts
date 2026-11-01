@@ -308,7 +308,14 @@ describe('admin drivers: the revoked driver in the app', () => {
   });
 
   it('cannot accept an open booking (the same write works for a verified driver)', async () => {
-    await seed({ 'bookings/open1': booking({ driverId: null, status: 'pending', finalFare: null }) });
+    await seed({
+      'bookings/open1': booking({
+        driverId: null,
+        status: 'pending',
+        finalFare: null,
+        expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
+      }),
+    });
     function accept(uid: string) {
       const firestore = db(uid);
       const batch = writeBatch(firestore);

@@ -393,6 +393,9 @@ service cloud.firestore {
 
       // Passengers create standard bookings with driverId == null. Driver assignment is a
       // separate, authorized operation (driver app) and must never be set by the passenger.
+      // Standard bookings expire (2026-11-01): the app writes expiresAt from the admin
+      // setting (fareSettings/active.booking, 1-30 min); the 35-minute cap leaves 5 minutes
+      // of client clock-skew grace, as for out-of-area requests.
       allow create: if isSignedIn()
         && isPassenger()
         && request.resource.data.passengerId == request.auth.uid
@@ -404,6 +407,9 @@ service cloud.firestore {
         && isValidLocation(request.resource.data.destination)
         && request.resource.data.distanceKm is number
         && request.resource.data.estimatedFare is number
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')
         && isValidFareBasis();
 
       allow create: if isSignedIn()
@@ -412,13 +418,16 @@ service cloud.firestore {
 
       // T1 accept: a verified driver who is online, available, not on another trip, not
       // reserved by an out-of-area proposal, not suspended for overdue commission and has
-      // the requested vehicle type claims an open standard booking. The same commit must
-      // mark the driver unavailable and link drivers/{uid}.currentBookingId to this booking.
+      // the requested vehicle type claims an open, unexpired standard booking (bookings
+      // without expiresAt, created before expiry existed, count as expired). The same
+      // commit must mark the driver unavailable and link drivers/{uid}.currentBookingId.
       allow update: if isVerifiedDriver()
         && resource.data.get('bookingType', 'standard') == 'standard'
         && resource.data.status == 'pending'
         && resource.data.get('driverId', null) == null
         && resource.data.passengerId != request.auth.uid
+        && resource.data.get('expiresAt', null) is timestamp
+        && request.time < resource.data.expiresAt
         && driverDoc().data.isOnline == true
         && driverDoc().data.isAvailable == true
         && driverDoc().data.get('currentBookingId', null) == null
@@ -1035,11 +1044,12 @@ service cloud.firestore {
     }
 
     // ─── Fare settings ─────────────────────────────────────────────────────
-    // fareSettings/active: { fares, outOfArea, updatedAt, updatedBy }. The app reads it
-    // (falling back to in-code defaults when missing). Only admins write `fares`, always as
+    // fareSettings/active: { fares, outOfArea, booking, updatedAt, updatedBy }. The app reads
+    // it (falling back to in-code defaults when missing). Only admins write `fares`, always as
     // a complete object: both vehicle types, each with exactly baseFare and perKm.
-    // `outOfArea` is written separately (System settings page), also only by admins and
-    // always as a complete object; each write changes either `fares` or `outOfArea`.
+    // `outOfArea` and `booking` (standard booking expiry) are written separately (System
+    // settings page), also only by admins and always as complete objects; each write
+    // changes exactly one of `fares`, `outOfArea` or `booking`.
 
     match /fareSettings/{document=**} {
       allow read: if isSignedIn();
@@ -1097,15 +1107,37 @@ service cloud.firestore {
           && request.resource.data.updatedBy == request.auth.uid;
       }
 
+      // Standard booking expiry in whole minutes. Same 1-30 range as out-of-area, so the
+      // bookings create rule's 35-minute cap covers it.
+      function isValidBookingSettings(value) {
+        return value is map
+          && value.keys().hasAll(['requestExpiryMinutes'])
+          && value.keys().hasOnly(['requestExpiryMinutes'])
+          && value.requestExpiryMinutes is int
+          && value.requestExpiryMinutes >= 1
+          && value.requestExpiryMinutes <= 30;
+      }
+
+      function isValidBookingSettingsWrite() {
+        return isAdmin()
+          && isValidBookingSettings(request.resource.data.booking)
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.updatedBy == request.auth.uid;
+      }
+
       allow create: if (isValidFareWrite()
           && request.resource.data.keys().hasOnly(['fares', 'updatedAt', 'updatedBy']))
         || (isValidOutOfAreaWrite()
-          && request.resource.data.keys().hasOnly(['outOfArea', 'updatedAt', 'updatedBy']));
+          && request.resource.data.keys().hasOnly(['outOfArea', 'updatedAt', 'updatedBy']))
+        || (isValidBookingSettingsWrite()
+          && request.resource.data.keys().hasOnly(['booking', 'updatedAt', 'updatedBy']));
 
       allow update: if (isValidFareWrite()
           && onlyChanged(['fares', 'updatedAt', 'updatedBy']))
         || (isValidOutOfAreaWrite()
-          && onlyChanged(['outOfArea', 'updatedAt', 'updatedBy']));
+          && onlyChanged(['outOfArea', 'updatedAt', 'updatedBy']))
+        || (isValidBookingSettingsWrite()
+          && onlyChanged(['booking', 'updatedAt', 'updatedBy']));
     }
 
     // ─── Barangay tariffs ──────────────────────────────────────────────────

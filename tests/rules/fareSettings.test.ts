@@ -3,7 +3,8 @@
 // Firestore rules tests for fareSettings/active: signed-in users read it; only admins
 // (custom claim `admin: true`) write it, with updatedAt = server time and updatedBy = their
 // uid. Each write changes either the complete `fares` object or the complete `outOfArea`
-// object (enabled, requestExpiryMinutes 1-30, driverSearchRadiusKm 1-50), never both.
+// object (enabled, requestExpiryMinutes 1-30, driverSearchRadiusKm 1-50) or the complete
+// `booking` object (standard booking requestExpiryMinutes 1-30), one per write.
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
@@ -316,6 +317,92 @@ describe('fareSettings: outOfArea update', () => {
   it('denies removing outOfArea with a field delete', async () => {
     await assertFails(
       updateDoc(doc(adminDb(), FARE_PATH), { outOfArea: deleteField(), updatedAt: serverTimestamp(), updatedBy: ADMIN }),
+    );
+  });
+});
+
+const BOOKING_SETTINGS = { requestExpiryMinutes: 10 };
+
+/** The write the System settings page sends for standard booking expiry. */
+function bookingWrite(value: DocumentData = BOOKING_SETTINGS, uid = ADMIN): DocumentData {
+  return { booking: value, updatedAt: serverTimestamp(), updatedBy: uid };
+}
+
+function updateBooking(firestore: Firestore, value: DocumentData, extra: DocumentData = {}) {
+  return updateDoc(doc(firestore, FARE_PATH), { ...bookingWrite(value), ...extra });
+}
+
+describe('fareSettings: booking create (no document yet)', () => {
+  it('lets an admin create the document with only booking', async () => {
+    await assertSucceeds(setDoc(doc(adminDb(), FARE_PATH), bookingWrite()));
+  });
+
+  it('denies non-admins', async () => {
+    await assertFails(setDoc(doc(db(PASSENGER), FARE_PATH), bookingWrite(BOOKING_SETTINGS, PASSENGER)));
+    await assertFails(setDoc(doc(db(DRIVER), FARE_PATH), bookingWrite(BOOKING_SETTINGS, DRIVER)));
+  });
+
+  it('denies an invalid booking, extra fields, or booking together with outOfArea', async () => {
+    await assertFails(setDoc(doc(adminDb(), FARE_PATH), bookingWrite({ requestExpiryMinutes: 0 })));
+    await assertFails(setDoc(doc(adminDb(), FARE_PATH), { ...bookingWrite(), note: 'x' }));
+    await assertFails(setDoc(doc(adminDb(), FARE_PATH), { ...bookingWrite(), outOfArea: OUT_OF_AREA }));
+  });
+});
+
+describe('fareSettings: booking update', () => {
+  beforeEach(seedExisting);
+
+  it('lets an admin add booking and keeps fares and outOfArea', async () => {
+    await assertSucceeds(updateBooking(adminDb(), { requestExpiryMinutes: 15 }));
+    const data = (await getDoc(doc(adminDb(), FARE_PATH))).data()!;
+    if (data.booking?.requestExpiryMinutes !== 15) throw new Error('booking not updated');
+    if (JSON.stringify(data.outOfArea) !== JSON.stringify(OUT_OF_AREA)) throw new Error('outOfArea changed');
+    if (JSON.stringify(data.fares) !== JSON.stringify(fares())) throw new Error('fares changed');
+  });
+
+  it('allows the range limits', async () => {
+    await assertSucceeds(updateBooking(adminDb(), { requestExpiryMinutes: 1 }));
+    await assertSucceeds(updateBooking(adminDb(), { requestExpiryMinutes: 30 }));
+  });
+
+  it('denies non-admins', async () => {
+    await assertFails(updateDoc(doc(db(PASSENGER), FARE_PATH), bookingWrite(BOOKING_SETTINGS, PASSENGER)));
+    await assertFails(updateDoc(doc(db(DRIVER), FARE_PATH), bookingWrite(BOOKING_SETTINGS, DRIVER)));
+    await assertFails(updateDoc(doc(db(ADMIN, { admin: false }), FARE_PATH), bookingWrite()));
+  });
+
+  const invalid: [string, DocumentData][] = [
+    ['an expiry of 0 minutes', { requestExpiryMinutes: 0 }],
+    ['an expiry over 30 minutes', { requestExpiryMinutes: 31 }],
+    ['a fractional expiry', { requestExpiryMinutes: 10.5 }],
+    ['a string expiry', { requestExpiryMinutes: '10' }],
+    ['a missing field', {}],
+    ['an extra field', { requestExpiryMinutes: 10, enabled: true }],
+    ['a non-map value', 10 as unknown as DocumentData],
+  ];
+
+  for (const [label, value] of invalid) {
+    it(`denies ${label}`, async () => {
+      await assertFails(updateBooking(adminDb(), value));
+    });
+  }
+
+  it('denies changing booking together with outOfArea or fares', async () => {
+    await assertFails(updateBooking(adminDb(), BOOKING_SETTINGS, { outOfArea: { ...OUT_OF_AREA, enabled: false } }));
+    await assertFails(
+      updateBooking(adminDb(), BOOKING_SETTINGS, { fares: fares({ tricycle: { baseFare: 20, perKm: 9 } }) }),
+    );
+  });
+
+  it('denies a client-chosen updatedAt or another updatedBy', async () => {
+    await assertFails(updateBooking(adminDb(), BOOKING_SETTINGS, { updatedAt: Timestamp.now() }));
+    await assertFails(updateBooking(adminDb(), BOOKING_SETTINGS, { updatedBy: 'someoneElse' }));
+  });
+
+  it('denies removing booking with a field delete', async () => {
+    await updateBooking(adminDb(), BOOKING_SETTINGS);
+    await assertFails(
+      updateDoc(doc(adminDb(), FARE_PATH), { booking: deleteField(), updatedAt: serverTimestamp(), updatedBy: ADMIN }),
     );
   });
 });

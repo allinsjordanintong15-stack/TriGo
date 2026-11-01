@@ -4,6 +4,7 @@
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, describe, it } from 'node:test';
 
@@ -23,6 +24,7 @@ import {
   serverTimestamp,
   setDoc,
   setLogLevel,
+  Timestamp,
   updateDoc,
   where,
   writeBatch,
@@ -43,6 +45,13 @@ const UNVERIFIED_DRIVER = 'driver3';
 const BOOKING = 'booking1';
 
 const ESTIMATED_FARE = 45;
+
+const MINUTE_MS = 60 * 1000;
+
+/** expiresAt the given number of minutes from now (negative = already expired). */
+function expiresIn(minutes: number): Timestamp {
+  return Timestamp.fromMillis(Date.now() + minutes * MINUTE_MS);
+}
 
 let testEnv: RulesTestEnvironment;
 
@@ -71,6 +80,8 @@ function newBooking(overrides: DocumentData = {}): DocumentData {
     status: 'pending',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    // Default admin expiry (10 minutes).
+    expiresAt: expiresIn(10),
     ...overrides,
   };
 }
@@ -218,6 +229,41 @@ describe('standard booking: create', () => {
 
   it('denies a non-numeric estimated fare', async () => {
     await assertFails(setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ estimatedFare: '45' })));
+  });
+
+  it('allows expiresAt at the 30-minute maximum setting', async () => {
+    await assertSucceeds(
+      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ expiresAt: expiresIn(30) })),
+    );
+  });
+
+  it('denies a booking without expiresAt', async () => {
+    const { expiresAt: _omitted, ...withoutExpiry } = newBooking();
+    await assertFails(setDoc(doc(db(PASSENGER), 'bookings', BOOKING), withoutExpiry));
+  });
+
+  it('denies a null or non-timestamp expiresAt', async () => {
+    await assertFails(
+      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ expiresAt: null })),
+    );
+    await assertFails(
+      setDoc(
+        doc(db(PASSENGER), 'bookings', BOOKING),
+        newBooking({ expiresAt: Date.now() + 10 * MINUTE_MS }),
+      ),
+    );
+  });
+
+  it('denies expiresAt in the past', async () => {
+    await assertFails(
+      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ expiresAt: expiresIn(-1) })),
+    );
+  });
+
+  it('denies expiresAt more than 35 minutes ahead', async () => {
+    await assertFails(
+      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ expiresAt: expiresIn(36) })),
+    );
   });
 
   it('denies a driver-role account', async () => {
@@ -416,6 +462,26 @@ describe('standard booking: read', () => {
     await assertSucceeds(getDocs(openRequests));
   });
 
+  it('allows a verified driver to list unexpired open bookings (driver app query)', async () => {
+    await seed({
+      'bookings/expired': newBooking({ expiresAt: expiresIn(-1) }),
+      'bookings/legacy': newBooking({ expiresAt: null }),
+    });
+    const openRequests = query(
+      collection(db(DRIVER), 'bookings'),
+      where('status', '==', 'pending'),
+      where('driverId', '==', null),
+      where('bookingType', '==', 'standard'),
+      where('vehicleType', '==', 'tricycle'),
+      where('expiresAt', '>', Timestamp.now()),
+    );
+    const snapshot = await assertSucceeds(getDocs(openRequests));
+    assert.deepEqual(
+      snapshot.docs.map((d) => d.id),
+      [BOOKING],
+    );
+  });
+
   it('denies an unverified driver reading an open booking', async () => {
     await assertFails(getDoc(doc(db(UNVERIFIED_DRIVER), 'bookings', BOOKING)));
   });
@@ -488,6 +554,45 @@ describe('standard booking: T1 accept', () => {
   it('denies accepting a booking another driver already accepted', async () => {
     await seed({ [`bookings/${BOOKING}`]: newBooking({ status: 'accepted', driverId: OTHER_DRIVER }) });
     await assertFails(acceptBatch(DRIVER));
+  });
+
+  it('denies accepting an expired booking', async () => {
+    await seed({ [`bookings/${BOOKING}`]: newBooking({ expiresAt: expiresIn(-1) }) });
+    await assertFails(acceptBatch(DRIVER));
+  });
+
+  it('denies accepting an older booking without expiresAt', async () => {
+    const { expiresAt: _omitted, ...legacy } = newBooking();
+    await seed({ [`bookings/${BOOKING}`]: legacy });
+    await assertFails(acceptBatch(DRIVER));
+  });
+
+  it('denies extending expiresAt while accepting', async () => {
+    const firestore = db(DRIVER);
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'bookings', BOOKING), {
+      driverId: DRIVER,
+      status: 'accepted',
+      acceptedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      expiresAt: expiresIn(30),
+    });
+    batch.update(doc(firestore, 'drivers', DRIVER), {
+      isAvailable: false,
+      currentBookingId: BOOKING,
+      updatedAt: serverTimestamp(),
+    });
+    await assertFails(batch.commit());
+  });
+
+  it('allows the passenger to cancel an expired booking', async () => {
+    await seed({ [`bookings/${BOOKING}`]: newBooking({ expiresAt: expiresIn(-1) }) });
+    await assertSucceeds(
+      updateDoc(
+        doc(db(PASSENGER), 'bookings', BOOKING),
+        cancelUpdate('passenger', { cancellationReason: 'No driver accepted' }),
+      ),
+    );
   });
 
   it('denies accepting an out-of-area booking', async () => {

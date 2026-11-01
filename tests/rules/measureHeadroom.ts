@@ -190,8 +190,8 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
     '        && isValidVehicleDetails(request.resource.data)\n        && pad()\n        && request.resource.data.updatedAt == request.time',
   ],
   'standard create': [
-    '        && request.resource.data.estimatedFare is number\n        && isValidFareBasis();',
-    '        && request.resource.data.estimatedFare is number\n        && isValidFareBasis()\n        && pad();',
+    "        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')\n        && isValidFareBasis();",
+    "        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')\n        && isValidFareBasis()\n        && pad();",
   ],
   'reference free': [
     '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
@@ -424,6 +424,8 @@ function standardCreate(label: string, fareFields: DocumentData): Scenario {
         paymentMethod: null,
         cancelledBy: null,
         cancellationReason: null,
+        // Standard bookings expire (2026-11-01): default 10-minute setting.
+        expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
         ...fareFields,
       });
     },
