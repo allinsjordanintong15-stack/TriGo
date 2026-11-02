@@ -1,11 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/constants/theme';
 import { useNewRequestAlert } from '@/hooks/useNewRequestAlert';
+import { useNotificationTapRouting } from '@/hooks/useNotificationTapRouting';
 import { Tabs } from 'expo-router';
 
 export default function DriverTabsLayout() {
-  // Vibrates for new requests on every driver tab, not only on Requests.
+  // Alerts for new requests on every driver tab, not only on Requests.
   useNewRequestAlert();
+  // Here, not in the root layout: the driver account has loaded (also on a cold start).
+  useNotificationTapRouting();
 
   return (
     <Tabs

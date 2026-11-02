@@ -4,6 +4,7 @@ import {
   NotificationPermissionState,
   toPermissionStatus,
 } from '@/utils/notificationPermission';
+import { isRideRequestNotificationId } from '@/utils/requestNotification';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -107,6 +108,18 @@ export async function dismissRideRequestNotification(identifier: string): Promis
   await Notifications.dismissNotificationAsync(identifier).catch(() => undefined);
 }
 
+/** Removes every ride-request notification on the phone, including ones posted before
+ * the app was restarted (found by their "ride-request:" IDs). */
 export async function dismissAllRideRequestNotifications(): Promise<void> {
-  await Notifications.dismissAllNotificationsAsync().catch(() => undefined);
+  try {
+    const presented = await Notifications.getPresentedNotificationsAsync();
+    await Promise.all(
+      presented
+        .map((notification) => notification.request.identifier)
+        .filter(isRideRequestNotificationId)
+        .map(dismissRideRequestNotification),
+    );
+  } catch {
+    // Nothing more to do; stale ones leave when tapped or swiped away.
+  }
 }

@@ -10,14 +10,19 @@ import {
   decideAlert,
   formatRequestNotification,
   formatSummaryNotification,
+  isRideRequestNotificationId,
   MAX_PLACE_LABEL_LENGTH,
+  NO_SHOWN_NOTIFICATIONS,
   parseNotificationData,
   placeLabel,
+  planGoneRequests,
+  planNewRequests,
   REQUEST_NOTIFICATION_TITLE,
   requestNotificationId,
   SUMMARY_NOTIFICATION_ID,
   truncate,
   type NotificationTarget,
+  type ShownNotifications,
 } from '../../src/utils/requestNotification.ts';
 
 describe('decideAlert', () => {
@@ -153,5 +158,106 @@ describe('tap data', () => {
       parseNotificationData({ type: 'ride-request', kind: 'out_of_area', id: 42, driverId }, driverId),
       null,
     );
+  });
+});
+
+describe('isRideRequestNotificationId', () => {
+  it('matches singles and the summary only', () => {
+    assert.equal(isRideRequestNotificationId(requestNotificationId('standard', 'b1')), true);
+    assert.equal(isRideRequestNotificationId(requestNotificationId('out_of_area', 'r1')), true);
+    assert.equal(isRideRequestNotificationId(SUMMARY_NOTIFICATION_ID), true);
+    assert.equal(isRideRequestNotificationId('chat:message:1'), false);
+    assert.equal(isRideRequestNotificationId(''), false);
+  });
+});
+
+describe('planNewRequests', () => {
+  const a = requestNotificationId('standard', 'a');
+  const b = requestNotificationId('out_of_area', 'b');
+  const c = requestNotificationId('standard', 'c');
+
+  it('on screen: vibrates once and remembers nothing', () => {
+    const plan = planNewRequests(NO_SHOWN_NOTIFICATIONS, [a, b], 'active');
+    assert.deepEqual(plan, { vibrate: true, actions: [], next: NO_SHOWN_NOTIFICATIONS });
+  });
+
+  it('on screen with nothing new: does nothing', () => {
+    assert.equal(planNewRequests(NO_SHOWN_NOTIFICATIONS, [], 'active').vibrate, false);
+  });
+
+  it('in the background: one request gets its own notification', () => {
+    const plan = planNewRequests(NO_SHOWN_NOTIFICATIONS, [a], 'background');
+    assert.deepEqual(plan, {
+      vibrate: false,
+      actions: [{ type: 'post-single', id: a }],
+      next: { ids: [a], summaryShown: false },
+    });
+  });
+
+  it('several at once: one summary', () => {
+    const plan = planNewRequests(NO_SHOWN_NOTIFICATIONS, [a, b, a], 'background');
+    assert.deepEqual(plan, {
+      vibrate: false,
+      actions: [{ type: 'post-summary', count: 2 }],
+      next: { ids: [a, b], summaryShown: true },
+    });
+  });
+
+  it('a second request replaces the single with a summary of both', () => {
+    const shown: ShownNotifications = { ids: [a], summaryShown: false };
+    const plan = planNewRequests(shown, [b], 'inactive');
+    assert.deepEqual(plan.actions, [
+      { type: 'dismiss', id: a },
+      { type: 'post-summary', count: 2 },
+    ]);
+    assert.deepEqual(plan.next, { ids: [a, b], summaryShown: true });
+  });
+
+  it('more requests update the summary count', () => {
+    const shown: ShownNotifications = { ids: [a, b], summaryShown: true };
+    const plan = planNewRequests(shown, [c], 'background');
+    assert.deepEqual(plan.actions, [{ type: 'post-summary', count: 3 }]);
+    assert.deepEqual(plan.next, { ids: [a, b, c], summaryShown: true });
+  });
+
+  it('ignores requests already notified', () => {
+    const shown: ShownNotifications = { ids: [a], summaryShown: false };
+    assert.deepEqual(planNewRequests(shown, [a], 'background'), {
+      vibrate: false,
+      actions: [],
+      next: shown,
+    });
+  });
+});
+
+describe('planGoneRequests', () => {
+  const a = requestNotificationId('standard', 'a');
+  const b = requestNotificationId('out_of_area', 'b');
+  const c = requestNotificationId('standard', 'c');
+
+  it('removes the single of a request that is gone', () => {
+    const plan = planGoneRequests({ ids: [a], summaryShown: false }, [a]);
+    assert.deepEqual(plan, {
+      actions: [{ type: 'dismiss', id: a }],
+      next: { ids: [], summaryShown: false },
+    });
+  });
+
+  it('ignores requests that were never notified', () => {
+    const shown: ShownNotifications = { ids: [a], summaryShown: false };
+    assert.deepEqual(planGoneRequests(shown, [b]), { actions: [], next: shown });
+  });
+
+  it('keeps the summary while one of its requests is still open', () => {
+    const plan = planGoneRequests({ ids: [a, b, c], summaryShown: true }, [a, c]);
+    assert.deepEqual(plan, { actions: [], next: { ids: [b], summaryShown: true } });
+  });
+
+  it('removes the summary once all of its requests are gone', () => {
+    const plan = planGoneRequests({ ids: [a, b], summaryShown: true }, [b, a]);
+    assert.deepEqual(plan, {
+      actions: [{ type: 'dismiss', id: SUMMARY_NOTIFICATION_ID }],
+      next: NO_SHOWN_NOTIFICATIONS,
+    });
   });
 });

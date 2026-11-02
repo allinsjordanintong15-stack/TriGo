@@ -1,4 +1,5 @@
-import { OutOfAreaRequest } from '@/types';
+// Type-only import, so plain Node tests can load this file.
+import type { OutOfAreaRequest } from '../types';
 
 /**
  * Where a driver's fare proposal stands:
@@ -58,6 +59,25 @@ export const PROPOSAL_OUTCOME_TEXT: Record<ProposalOutcome, { title: string; mes
     message: 'This request was taken or closed.',
   },
 };
+
+/**
+ * True when an open out-of-area request (one no driver holds) ran out of time: marked
+ * expired, or still searching past its expiry (or with none, on old requests). A driver
+ * opening it, e.g. from a notification, sees "expired" rather than "no longer available".
+ */
+export function isExpiredOpenRequest(request: OutOfAreaRequest, now: number): boolean {
+  if (request.driverId !== null) return false;
+  if (request.status === 'expired') return true;
+  return (
+    request.status === 'searching' &&
+    (request.expiresAt === null || request.expiresAt.getTime() <= now)
+  );
+}
+
+export const OPEN_REQUEST_EXPIRED_TEXT = {
+  title: 'Request expired',
+  message: 'No driver accepted this request in time. You can take other requests.',
+} as const;
 
 /**
  * Where the driver's offer stands for the passenger:

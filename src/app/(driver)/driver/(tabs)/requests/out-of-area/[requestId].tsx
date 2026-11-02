@@ -21,7 +21,9 @@ import { OutOfAreaRequest } from '@/types';
 import { formatPhilippinePeso } from '@/utils/fare';
 import {
   getProposalState,
+  isExpiredOpenRequest,
   isProposalOutcome,
+  OPEN_REQUEST_EXPIRED_TEXT,
   PROPOSAL_OUTCOME_TEXT,
   ProposalState,
 } from '@/utils/outOfAreaProposal';
@@ -198,13 +200,25 @@ export default function OutOfAreaProposalScreen() {
   }
 
   const outcome = state !== 'open' && isProposalOutcome(state) ? state : null;
+  // An open request (never this driver's) that timed out, e.g. opened from a notification.
+  const expiredOpen =
+    outcome !== null &&
+    !isMine &&
+    !finished &&
+    visibleRequest !== null &&
+    isExpiredOpenRequest(visibleRequest, now);
+  const outcomeText = expiredOpen
+    ? OPEN_REQUEST_EXPIRED_TEXT
+    : outcome
+      ? PROPOSAL_OUTCOME_TEXT[outcome]
+      : null;
   const badge =
     state === 'waiting'
       ? 'Accepted · waiting for passenger'
       : state === 'accepted'
         ? 'Passenger accepted · starting trip'
-        : outcome
-          ? PROPOSAL_OUTCOME_TEXT[outcome].title
+        : outcomeText
+          ? outcomeText.title
           : 'Out-of-area trip';
   const expiresLabel =
     state === 'open' || state === 'waiting' ? formatExpiresIn(shown.expiresAt, now) : '';
@@ -213,14 +227,16 @@ export default function OutOfAreaProposalScreen() {
     <View style={styles.container}>
       {header}
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {outcome ? (
+        {outcomeText ? (
           <View style={[styles.card, styles.outcomeCard]}>
-            <Text style={styles.outcomeTitle}>{PROPOSAL_OUTCOME_TEXT[outcome].title}</Text>
+            <Text style={styles.outcomeTitle}>{outcomeText.title}</Text>
             <Text style={styles.outcomeMessage}>
-              {PROPOSAL_OUTCOME_TEXT[outcome].message}
-              {driverRecord?.currentRequestId === requestId
-                ? ' Releasing you for other requests…'
-                : ' You can take other requests again.'}
+              {outcomeText.message}
+              {expiredOpen
+                ? ''
+                : driverRecord?.currentRequestId === requestId
+                  ? ' Releasing you for other requests…'
+                  : ' You can take other requests again.'}
             </Text>
           </View>
         ) : null}

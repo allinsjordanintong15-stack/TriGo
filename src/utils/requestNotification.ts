@@ -149,3 +149,90 @@ export function parseNotificationData(
       return null;
   }
 }
+
+/** True for every notification ID this file makes (singles and the summary). */
+export function isRideRequestNotificationId(identifier: string): boolean {
+  return identifier.startsWith('ride-request:');
+}
+
+// ─── Which notifications are on screen ───────────────────────────────────────
+
+/** Ride-request notifications this app has posted and not yet removed. */
+export interface ShownNotifications {
+  /** Notification IDs (requestNotificationId) of the requests notified, oldest first. */
+  ids: readonly string[];
+  /** True when one summary stands for all of `ids` (their singles were removed). */
+  summaryShown: boolean;
+}
+
+export const NO_SHOWN_NOTIFICATIONS: ShownNotifications = { ids: [], summaryShown: false };
+
+export type NotificationAction =
+  | { type: 'post-single'; id: string }
+  | { type: 'post-summary'; count: number }
+  | { type: 'dismiss'; id: string };
+
+export interface AlertPlan {
+  vibrate: boolean;
+  /** Run in order: removals come before the post that replaces them. */
+  actions: NotificationAction[];
+  next: ShownNotifications;
+}
+
+/**
+ * New requests arrived (`newIds`, notification IDs). On screen: vibrate only and nothing is
+ * remembered. Otherwise the requests join those already notified: one in total gets its
+ * own notification; two or more share one summary, which replaces the singles.
+ */
+export function planNewRequests(
+  shown: ShownNotifications,
+  newIds: readonly string[],
+  appState: AppStateName,
+): AlertPlan {
+  const fresh = newIds.filter((id, index) => newIds.indexOf(id) === index && !shown.ids.includes(id));
+  if (appState === 'active') {
+    return { vibrate: decideAlert(appState, fresh.length).vibrate, actions: [], next: shown };
+  }
+
+  const ids = [...shown.ids, ...fresh];
+  const decision = decideAlert(appState, fresh.length === 0 ? 0 : ids.length);
+  if (decision.notify === 'none') return { vibrate: false, actions: [], next: shown };
+  if (decision.notify === 'single') {
+    return {
+      vibrate: false,
+      actions: [{ type: 'post-single', id: ids[0] }],
+      next: { ids, summaryShown: false },
+    };
+  }
+
+  const actions: NotificationAction[] = shown.summaryShown
+    ? []
+    : shown.ids.map((id) => ({ type: 'dismiss', id }));
+  actions.push({ type: 'post-summary', count: ids.length });
+  return { vibrate: false, actions, next: { ids, summaryShown: true } };
+}
+
+/**
+ * Requests no longer open (taken, cancelled, expired, hidden): their singles are removed.
+ * A summary is removed once none of its requests is open; until then it stays as posted,
+ * because posting it again with a lower count would ring the phone again.
+ */
+export function planGoneRequests(
+  shown: ShownNotifications,
+  goneIds: readonly string[],
+): { actions: NotificationAction[]; next: ShownNotifications } {
+  const gone = shown.ids.filter((id) => goneIds.includes(id));
+  if (gone.length === 0) return { actions: [], next: shown };
+
+  const ids = shown.ids.filter((id) => !gone.includes(id));
+  if (!shown.summaryShown) {
+    return {
+      actions: gone.map((id) => ({ type: 'dismiss', id })),
+      next: { ids, summaryShown: false },
+    };
+  }
+  if (ids.length === 0) {
+    return { actions: [{ type: 'dismiss', id: SUMMARY_NOTIFICATION_ID }], next: NO_SHOWN_NOTIFICATIONS };
+  }
+  return { actions: [], next: { ids, summaryShown: true } };
+}
