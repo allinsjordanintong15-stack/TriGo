@@ -275,7 +275,13 @@ describe('driver verification: approve', () => {
 
   it('lets the approved passenger use driver access (go online)', async () => {
     await assertSucceeds(approve(adminDb()));
-    await assertSucceeds(updateDoc(doc(db(APPLICANT), 'drivers', APPLICANT), { isOnline: true }));
+    // As driverService.goOnline writes it: going online records the position.
+    await assertSucceeds(
+      updateDoc(doc(db(APPLICANT), 'drivers', APPLICANT), {
+        isOnline: true,
+        currentLocation: { latitude: 9.97, longitude: 124.48 },
+      }),
+    );
   });
 
   it('denies non-admins', async () => {

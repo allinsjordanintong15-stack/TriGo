@@ -6,6 +6,7 @@ import { DailyQuotaCard } from '@/components/driver/DailyQuotaCard';
 import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
 import { DutyToggle } from '@/components/driver/DutyToggle';
 import { FaresCollectedCard } from '@/components/driver/FaresCollectedCard';
+import { GoOnlineLocationCard } from '@/components/driver/GoOnlineLocationCard';
 import { SupportContactsList } from '@/components/support/SupportContactsList';
 import { formatExpiresIn } from '@/components/driver/OutOfAreaRequestCard';
 import { Avatar } from '@/components/ui/Avatar';
@@ -25,8 +26,14 @@ import {
   markNotificationPromptSeen,
   requestNotificationPermission,
 } from '@/services/localNotificationService';
-import { getCurrentCoordinates, LocationServiceError } from '@/services/locationService';
+import {
+  enableLocationServices,
+  getGoOnlineCoordinates,
+  GoOnlineLocationError,
+  openAppSettings,
+} from '@/services/locationService';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { LocationProblem, locationProblemMessage } from '@/utils/goOnlineLocation';
 import { shouldExplainBeforeGoingOnline } from '@/utils/notificationPermission';
 import { isProposalOutcome, PROPOSAL_OUTCOME_TEXT, ProposalState } from '@/utils/outOfAreaProposal';
 import { Ionicons } from '@expo/vector-icons';
@@ -96,6 +103,8 @@ export default function DriverHomeScreen() {
   const { status, driverRecord, canPerformDriverActions } = useDriverAccess();
   const [updatingDuty, setUpdatingDuty] = useState(false);
   const [error, setError] = useState('');
+  // Why going online failed for lack of a position; the driver stays offline meanwhile.
+  const [locationProblem, setLocationProblem] = useState<LocationProblem | null>(null);
   const {
     activeBookings,
     loaded,
@@ -155,17 +164,41 @@ export default function DriverHomeScreen() {
     setError('');
 
     try {
-      const coordinates = await getCurrentCoordinates();
+      // Going online must record a position; without one nothing is written.
+      const coordinates = await getGoOnlineCoordinates();
       await goOnline(driverRecord, coordinates, hasActiveTrip);
+      setLocationProblem(null);
     } catch (err) {
-      setError(
-        err instanceof LocationServiceError || err instanceof DriverServiceError
-          ? err.message
-          : 'Unable to go online. Please try again.',
-      );
+      if (err instanceof GoOnlineLocationError) {
+        setLocationProblem(err.problem);
+      } else {
+        setLocationProblem(null);
+        setError(err instanceof DriverServiceError ? err.message : 'Unable to go online. Please try again.');
+      }
     } finally {
       setUpdatingDuty(false);
     }
+  }
+
+  /** The location card's button: fix what stopped the driver, then try going online again. */
+  async function handleLocationAction() {
+    if (!locationProblem) return;
+    switch (locationProblemMessage(locationProblem).action) {
+      case 'open-app-settings':
+        // The driver comes back and taps Go online again.
+        await openAppSettings();
+        return;
+      case 'enable-location-services':
+        try {
+          if ((await enableLocationServices()) === 'opened-settings') return;
+        } catch {
+          return; // Declined in the system dialog: the card stays.
+        }
+        break;
+      default:
+        break;
+    }
+    await handleGoOnline();
   }
 
   async function handleBecomeAvailable() {
@@ -194,6 +227,7 @@ export default function DriverHomeScreen() {
     setError('');
 
     try {
+      setLocationProblem(null);
       // A pending out-of-area request is withdrawn in the same commit.
       await goOffline(driverRecord.driverId, driverRecord.currentRequestId);
     } catch (err) {
@@ -375,6 +409,14 @@ export default function DriverHomeScreen() {
         ) : null}
 
         <ErrorBanner message={error} />
+
+        {locationProblem && !isOnline ? (
+          <GoOnlineLocationCard
+            problem={locationProblem}
+            busy={updatingDuty}
+            onAction={() => void handleLocationAction()}
+          />
+        ) : null}
 
         {driverRecord ? (
           <CommissionBanner state={commission} onOpen={() => router.navigate('/driver/earnings')} />

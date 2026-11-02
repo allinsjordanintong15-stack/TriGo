@@ -929,7 +929,9 @@ service cloud.firestore {
       // Admin-managed fields (isVerified, name, vehicle, rating) cannot be changed from the
       // app. Being available requires being online, an unverified driver can only be
       // offline, and a driver linked to a booking or reserved by a proposal is never
-      // available.
+      // available. The position is cleared (null) when going offline, so a verified
+      // driver's record never shows where they were after their shift; it can be null only
+      // while offline, and going online must record one (passenger search needs it).
       allow update: if isOwner(driverId)
         && isDriver()
         && onlyChanged([
@@ -946,9 +948,20 @@ service cloud.firestore {
         && (
           !('currentLocation' in request.resource.data.diff(resource.data).affectedKeys())
           || (
-            request.resource.data.currentLocation.latitude is number
+            request.resource.data.currentLocation == null
+            && !request.resource.data.isOnline
+          )
+          || (
+            request.resource.data.currentLocation != null
+            && request.resource.data.currentLocation.latitude is number
             && request.resource.data.currentLocation.longitude is number
           )
+        )
+        // Going online (offline → online) records a position.
+        && (
+          resource.data.get('isOnline', false) == true
+          || !request.resource.data.isOnline
+          || request.resource.data.get('currentLocation', null) != null
         )
         && (
           request.resource.data.get('currentBookingId', null) == null

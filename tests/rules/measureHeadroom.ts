@@ -536,6 +536,45 @@ function quotaRelease(label: string, refund: boolean): Scenario {
   };
 }
 
+// Duty (driverDuty.test.ts): going online records the position; going offline clears it,
+// here together with releasing a proposal the request no longer holds (longest path).
+const goOnlineScenario: Scenario = {
+  label: 'duty: go online (position recorded)',
+  targets: ['driver record'],
+  run: async () => {
+    await seed({ [`drivers/${DRIVER}`]: { ...availableDriverRecord(), isOnline: false, isAvailable: false, currentLocation: null } });
+    await updateDoc(doc(db(DRIVER), 'drivers', DRIVER), {
+      isOnline: true,
+      isAvailable: true,
+      currentLocation: { latitude: 9.97, longitude: 124.48 },
+      updatedAt: serverTimestamp(),
+    });
+  },
+};
+
+const goOfflineScenario: Scenario = {
+  label: 'duty: go offline (position cleared, released request)',
+  targets: ['driver record'],
+  run: async () => {
+    await seed({
+      [`drivers/${DRIVER}`]: {
+        ...availableDriverRecord(),
+        isAvailable: false,
+        currentRequestId: OPEN_REQUEST,
+        currentLocation: { latitude: 9.97, longitude: 124.48 },
+      },
+      [`outOfAreaRequests/${OPEN_REQUEST}`]: openRequest({ status: 'cancelled', driverId: DRIVER }),
+    });
+    await updateDoc(doc(db(DRIVER), 'drivers', DRIVER), {
+      isOnline: false,
+      isAvailable: false,
+      currentLocation: null,
+      currentRequestId: null,
+      updatedAt: serverTimestamp(),
+    });
+  },
+};
+
 const claim: Scenario = {
   label: 'out-of-area claim (rules unchanged), account inside grace',
   targets: ['claim', 'driver record'],
@@ -789,6 +828,8 @@ const SCENARIOS: Scenario[] = [
   quotaClaim,
   quotaRelease('release: passenger cancelled, slot given back', true),
   quotaRelease('release: passenger cancelled, no refund', false),
+  goOnlineScenario,
+  goOfflineScenario,
   confirm,
   standardCreate('standard booking create: older shape (no fareBasis)', {}),
   standardCreate('standard booking create: per-km', {
@@ -818,7 +859,7 @@ const SCENARIOS: Scenario[] = [
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
 const ONLY_PAYMENTS = process.env.TRIGO_HEADROOM === 'payments';
 const ONLY_ENFORCEMENT = process.env.TRIGO_HEADROOM === 'enforcement';
-const ENFORCEMENT_LABELS = /^(T1 accept|propose|out-of-area claim|out-of-area confirm|release)/;
+const ENFORCEMENT_LABELS = /^(T1 accept|propose|out-of-area claim|out-of-area confirm|release|duty)/;
 const ONLY_VEHICLE = process.env.TRIGO_HEADROOM === 'vehicle';
 const VEHICLE_LABELS = /^(driver application|driver verification|admin drivers)/;
 const ONLY_BOOKING = process.env.TRIGO_HEADROOM === 'booking';

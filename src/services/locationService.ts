@@ -15,8 +15,17 @@ import {
   getPlaceParts,
   PlaceParts,
 } from '@/utils/formatLocationLabel';
+import {
+  classifyLocationProblem,
+  GO_ONLINE_FIX_TIMEOUT_MS,
+  LAST_KNOWN_MAX_ACCURACY_M,
+  LAST_KNOWN_MAX_AGE_MS,
+  LocationProblem,
+  locationProblemMessage,
+} from '@/utils/goOnlineLocation';
 import { PlaceCandidate, rankPlaceResults } from '@/utils/placeResults';
 import * as Location from 'expo-location';
+import { Linking, Platform } from 'react-native';
 
 export class LocationServiceError extends Error {
   constructor(message: string) {
@@ -36,6 +45,7 @@ export async function requestLocationPermission(): Promise<boolean> {
   return status === Location.PermissionStatus.GRANTED;
 }
 
+/** The phone's position for passenger screens (pickup point). Drivers use getGoOnlineCoordinates. */
 export async function getCurrentCoordinates(): Promise<{
   latitude: number;
   longitude: number;
@@ -55,6 +65,100 @@ export async function getCurrentCoordinates(): Promise<{
     latitude: position.coords.latitude,
     longitude: position.coords.longitude,
   };
+}
+
+/** Why the driver's position could not be read for going online (see goOnlineLocation.ts). */
+export class GoOnlineLocationError extends Error {
+  readonly problem: LocationProblem;
+
+  constructor(problem: LocationProblem) {
+    super(locationProblemMessage(problem).message);
+    this.name = 'GoOnlineLocationError';
+    this.problem = problem;
+  }
+}
+
+/** The promise's value, or null if it takes longer than `ms` (the promise is left to settle). */
+function withinTime<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * The driver's position for going online (going online must record one). Asks for
+ * permission when the system still can, checks that location services are on, then waits
+ * up to GO_ONLINE_FIX_TIMEOUT_MS for a fix, falling back to a recent, accurate enough
+ * last-known position. Throws GoOnlineLocationError with the problem otherwise; nothing is
+ * written, so the driver stays offline.
+ */
+export async function getGoOnlineCoordinates(): Promise<{ latitude: number; longitude: number }> {
+  let permission = await Location.getForegroundPermissionsAsync();
+  if (permission.status !== Location.PermissionStatus.GRANTED && permission.canAskAgain) {
+    permission = await Location.requestForegroundPermissionsAsync();
+  }
+  const granted = permission.status === Location.PermissionStatus.GRANTED;
+  const servicesOn = () => Location.hasServicesEnabledAsync().catch(() => true);
+  const fail = (servicesEnabled: boolean) => {
+    const problem = classifyLocationProblem({
+      granted,
+      canAskAgain: permission.canAskAgain,
+      servicesEnabled,
+      gotPosition: false,
+    });
+    return new GoOnlineLocationError(problem ?? 'no-fix');
+  };
+
+  if (!granted) throw fail(true);
+  if (!(await servicesOn())) throw fail(false);
+
+  let position: Location.LocationObject | null = null;
+  try {
+    position = await withinTime(
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      GO_ONLINE_FIX_TIMEOUT_MS,
+    );
+  } catch {
+    // Services switched off meanwhile, or no provider: checked below.
+  }
+  if (!position) {
+    position = await Location.getLastKnownPositionAsync({
+      maxAge: LAST_KNOWN_MAX_AGE_MS,
+      requiredAccuracy: LAST_KNOWN_MAX_ACCURACY_M,
+    }).catch(() => null);
+  }
+  if (!position) throw fail(await servicesOn());
+
+  return { latitude: position.coords.latitude, longitude: position.coords.longitude };
+}
+
+/**
+ * Turns location services on. Android shows the system "turn on location" dialog and
+ * resolves 'enabled' (rejects if the driver declines). iOS cannot, so it opens the phone's
+ * settings and resolves 'opened-settings' (the driver comes back and tries again).
+ */
+export async function enableLocationServices(): Promise<'enabled' | 'opened-settings'> {
+  if (Platform.OS === 'android') {
+    await Location.enableNetworkProviderAsync();
+    return 'enabled';
+  }
+  await Linking.openSettings().catch(() => undefined);
+  return 'opened-settings';
+}
+
+/** TriGo's page in the phone's settings (location permission no longer asked by the system). */
+export async function openAppSettings(): Promise<void> {
+  await Linking.openSettings().catch(() => undefined);
 }
 
 /**

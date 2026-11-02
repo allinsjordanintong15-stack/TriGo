@@ -120,7 +120,9 @@ export async function goOnline(
 }
 
 /**
- * Take the driver off duty; they will no longer appear in passenger driver searches.
+ * Take the driver off duty; they will no longer appear in passenger driver searches. The
+ * last position is cleared (currentLocation: null), so the record no longer shows where
+ * the driver was; going online records it again.
  * A driver with a pending fare proposal (`currentRequestId`) withdraws it in the same
  * batch. If the request no longer holds them it is just released; if the passenger
  * already accepted, the reservation stays and only the duty status changes.
@@ -130,7 +132,12 @@ export async function goOffline(
   currentRequestId: string | null = null,
 ): Promise<void> {
   const driverRef = doc(firestore, COLLECTIONS.drivers, driverId);
-  const offline = { isOnline: false, isAvailable: false, updatedAt: serverTimestamp() };
+  const offline = {
+    isOnline: false,
+    isAvailable: false,
+    currentLocation: null,
+    updatedAt: serverTimestamp(),
+  };
 
   if (currentRequestId) {
     try {
