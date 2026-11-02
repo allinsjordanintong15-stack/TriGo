@@ -1,6 +1,6 @@
 # TriGo — Project Status
 
-_Last updated: 2026-10-30 (after location search step 6)._
+_Last updated: 2026-11-02 (after ride request notifications step 5)._
 
 TriGo is a transport booking app for tricycle and motorcycle rides in Trinidad, Bohol. It
 has two parts:
@@ -59,10 +59,21 @@ things stand.
 - An online/available toggle.
 - **Requests:** accept standard bookings (only unexpired ones are listed), and accept or
   claim out-of-area requests.
-- **New request alerts:** the phone vibrates once per new unexpired request while the
-  driver is online and available (not on first load, not for declined requests). Before
-  the first go-online, the app explains ride request notifications and asks for permission
-  (Android 13+); Profile shows whether they are on, with Turn on / Open phone settings.
+- **New request alerts:** for each new unexpired request while the driver is online and
+  available, with no trip and no out-of-area offer waiting (not on first load, not for
+  declined requests). Before the first go-online, the app explains ride request
+  notifications and asks for permission (Android 13+); Profile shows whether they are on,
+  with Turn on / Open phone settings.
+  - TriGo on screen: the phone vibrates once.
+  - TriGo in the background: a local notification instead (Android channel "Ride
+    requests"). One request shows its fare, pickup → destination and km to pickup;
+    several show one summary ("3 new ride requests").
+  - A notification is removed when its request is taken, cancelled, expired or declined.
+    All are removed when the driver goes offline or unavailable, accepts a trip or an
+    out-of-area request, or signs out.
+  - Tapping opens the request (standard or out-of-area), or the Requests list for a
+    summary, also when the tap starts the app. Taps for another driver account are
+    ignored. An out-of-area request that timed out shows "Request expired".
 - Run the active trip and complete it. Completing records the payment method (Cash or
   GCash) and the final fare.
 - **Home:** fares collected, labelled "before commission", and a commission summary card.
@@ -188,12 +199,19 @@ things stand.
   - No server sends notifications (no Cloud Functions). True push, which would reach a
     closed app, needs Cloud Functions and the Blaze plan.
   - Drivers get alerts from the app's own Firestore listeners: a vibration while TriGo is
-    on screen, and (being added) a local notification through `expo-notifications` while
-    it is in the background.
-  - Background alerts work only while the app's process is still running. Android may
-    freeze a backgrounded app or cut its network in Doze (screen off) within minutes, and
-    some phones kill it sooner; iOS suspends it almost at once.
-  - Nothing arrives once the app is closed, swiped away or the phone restarts.
+    on screen, and a local notification through `expo-notifications` while it is in the
+    background.
+  - Background alerts work only while the app's process is still alive. Android may
+    freeze a backgrounded app or cut its network in Doze (screen off) within minutes.
+  - Nothing arrives once the app is closed, swiped away or killed, or the phone restarts.
+  - iOS: practically no background alerts, because iOS suspends a backgrounded app almost
+    at once.
+  - Battery-saver settings on some Android phones (e.g. "optimised" or "restricted" app
+    battery use) stop or kill backgrounded apps sooner, so alerts can stop earlier there.
+  - Tapping a ride request notification while the app is in passenger mode does nothing;
+    the driver has to switch to driver mode and open Requests.
+  - A summary notification keeps its posted count until all of its requests are gone
+    (posting it again with a lower count would ring the phone again).
   - Future option without Blaze: an Android foreground service ("TriGo: you're online")
     to keep the listener running; it needs another native library and a Play Store
     declaration.
