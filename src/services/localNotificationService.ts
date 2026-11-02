@@ -1,5 +1,6 @@
 import { colors } from '@/constants/theme';
 import { NEW_REQUEST_VIBRATION_PATTERN } from '@/utils/newRequestAlert';
+import { legacyChannelsToDelete, RIDE_REQUEST_CHANNEL_ID } from '@/utils/notificationChannels';
 import {
   NotificationPermissionState,
   toPermissionStatus,
@@ -12,12 +13,21 @@ import { Platform } from 'react-native';
 // Local notifications only (no push, no server): the app posts them itself from its own
 // Firestore listeners, so they appear only while the app is running (docs/STATUS.md).
 
-/** Android channel for new ride requests. Its settings are fixed once created on a phone:
- * to change sound, vibration or importance later, use a new channel ID. */
-export const RIDE_REQUEST_CHANNEL_ID = 'ride-requests';
+/** Android channel for new ride requests (IDs and history: utils/notificationChannels.ts). */
+export { RIDE_REQUEST_CHANNEL_ID };
 
-/** Creates (or keeps) the ride-request channel. Android 13+ shows the permission prompt
- * only once a channel exists, so this runs before every permission request. */
+/**
+ * Creates (or keeps) the ride-request channel, then deletes the earlier ride-request
+ * channels still on the phone (deleting one also removes its notifications). Android 13+
+ * shows the permission prompt only once a channel exists, so this runs before every
+ * permission request.
+ *
+ * Lock screen: PRIVATE visibility. On a phone with a secure lock screen (PIN, pattern,
+ * fingerprint) Android shows only that TriGo has a notification, with its own "contents
+ * hidden" text; the fare and places appear after unlocking. (A custom lock-screen text such
+ * as "New ride request" would need Android's notification public version, which
+ * expo-notifications does not expose.)
+ */
 export async function ensureRideRequestChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
   await Notifications.setNotificationChannelAsync(RIDE_REQUEST_CHANNEL_ID, {
@@ -28,10 +38,23 @@ export async function ensureRideRequestChannel(): Promise<void> {
     enableVibrate: true,
     vibrationPattern: NEW_REQUEST_VIBRATION_PATTERN,
     lightColor: colors.primary,
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
     showBadge: true,
   });
+  if (legacyChannelsChecked) return;
+  try {
+    const existing = await Notifications.getNotificationChannelsAsync();
+    for (const id of legacyChannelsToDelete(existing.map((channel) => channel.id))) {
+      await Notifications.deleteNotificationChannelAsync(id);
+    }
+    legacyChannelsChecked = true;
+  } catch {
+    // Tried again the next time the channel is set up.
+  }
 }
+
+/** The old channels need deleting only once per app run. */
+let legacyChannelsChecked = false;
 
 function toState(result: Notifications.NotificationPermissionsStatus): NotificationPermissionState {
   return { status: toPermissionStatus(result.status), canAskAgain: result.canAskAgain };
