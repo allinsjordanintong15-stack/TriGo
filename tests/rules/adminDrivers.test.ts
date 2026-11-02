@@ -37,6 +37,8 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 
+import { quotaAfterAccept } from './commissionFixtures.ts';
+
 const PROJECT_ID = 'demo-trigo-rules';
 
 // Denied reads and writes are expected; keep the SDK's PERMISSION_DENIED warnings quiet.
@@ -328,6 +330,7 @@ describe('admin drivers: the revoked driver in the app', () => {
       batch.update(doc(firestore, 'drivers', uid), {
         currentBookingId: 'open1',
         isAvailable: false,
+        ...quotaAfterAccept(),
         updatedAt: serverTimestamp(),
       });
       return batch.commit();

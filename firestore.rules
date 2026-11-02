@@ -164,6 +164,28 @@ service cloud.firestore {
         );
     }
 
+    // ─── Daily acceptance quota ────────────────────────────────────────────
+    // Each driver may accept at most dailyLimit passengers per Manila day (resets at
+    // 12:00 AM Manila). The admin sets one limit for every driver (quotaSettings/active);
+    // each driver has their own count on drivers/{uid}: acceptedCount trips on acceptedDay.
+
+    // Used while quotaSettings/active does not exist. Keep in sync with
+    // DEFAULT_DAILY_LIMIT in src/utils/dailyQuota.ts (tests/booking/dailyQuotaSync.test.ts).
+    function defaultDailyLimit() {
+      return 20;
+    }
+
+    function dailyLimit() {
+      let path = /databases/$(database)/documents/quotaSettings/active;
+      return exists(path) ? get(path).data.dailyLimit : defaultDailyLimit();
+    }
+
+    // Days since 1 Jan 1970 in Manila time (UTC+8, no daylight saving), as
+    // src/utils/dailyQuota.ts manilaDay computes it.
+    function manilaDayOf(time) {
+      return math.floor((time.toMillis() + 28800000) / 86400000);
+    }
+
     // At most 2 decimal places (centavos). Compared with a tolerance because e.g.
     // 8.15 * 100 is not exactly 815 in floating point.
     function hasAtMostTwoDecimals(value) {
@@ -802,6 +824,52 @@ service cloud.firestore {
           );
       }
 
+      // Daily acceptance quota (acceptedCount on acceptedDay, see dailyLimit()). Today's
+      // count is the stored one when acceptedDay is today, else 0, so a new day starts at
+      // 0 with no scheduled job; drivers without the fields count 0.
+      // - Standard accept (T1): count + 1, refused when today's count is at the limit.
+      // - Out-of-area propose: refused at the limit, count unchanged (a passenger choosing
+      //   another driver costs no slot).
+      // - Out-of-area claim: count + 1, never refused (the passenger already confirmed).
+      // - Release of a booking (currentBookingId cleared): count unchanged, or − 1 when the
+      //   passenger cancelled it before the trip started and it was accepted today.
+      // - Every other write leaves both fields unchanged.
+      function isValidQuotaChange() {
+        let before = resource.data;
+        let after = request.resource.data;
+        let today = manilaDayOf(request.time);
+        let todayCount = before.get('acceptedDay', -1) == today ? before.get('acceptedCount', 0) : 0;
+        let changed = after.diff(before).affectedKeys().hasAny(['acceptedCount', 'acceptedDay']);
+        let bookingBefore = before.get('currentBookingId', null);
+        let bookingAfter = after.get('currentBookingId', null);
+        return bookingBefore == null && bookingAfter != null
+          ? (
+            after.get('acceptedDay', null) == today
+            && after.get('acceptedCount', null) == todayCount + 1
+            && (
+              getAfter(bookingPath(bookingAfter)).data.get('bookingType', 'standard') == 'out_of_area'
+              || todayCount < dailyLimit()
+            )
+          )
+          : before.get('currentRequestId', null) == null && after.get('currentRequestId', null) != null
+            ? !changed && todayCount < dailyLimit()
+            : !changed || (bookingBefore != null && bookingAfter == null && isSlotRefund(bookingBefore, today, todayCount));
+      }
+
+      // The release gives back the slot of a booking the passenger cancelled before the
+      // trip started, accepted today (Manila).
+      function isSlotRefund(bookingId, today, todayCount) {
+        let booking = getAfter(bookingPath(bookingId)).data;
+        return todayCount > 0
+          && request.resource.data.get('acceptedDay', null) == today
+          && request.resource.data.get('acceptedCount', null) == todayCount - 1
+          && booking.status == 'cancelled'
+          && booking.get('cancelledBy', null) == 'passenger'
+          && booking.get('startedAt', null) == null
+          && booking.get('acceptedAt', null) is timestamp
+          && manilaDayOf(booking.acceptedAt) == today;
+      }
+
       allow read: if isSignedIn()
         && resource.data.isVerified == true;
 
@@ -857,15 +925,16 @@ service cloud.firestore {
         && resource.data.get('currentRequestId', null) == null;
 
       // A driver controls only their own duty status, position, current-trip link and
-      // proposal reservation. Admin-managed fields (isVerified, name, vehicle, rating)
-      // cannot be changed from the app. Being available requires being online, an
-      // unverified driver can only be offline, and a driver linked to a booking or
-      // reserved by a proposal is never available.
+      // proposal reservation, and their quota count only as isValidQuotaChange allows.
+      // Admin-managed fields (isVerified, name, vehicle, rating) cannot be changed from the
+      // app. Being available requires being online, an unverified driver can only be
+      // offline, and a driver linked to a booking or reserved by a proposal is never
+      // available.
       allow update: if isOwner(driverId)
         && isDriver()
         && onlyChanged([
           'isOnline', 'isAvailable', 'currentLocation', 'currentBookingId', 'currentRequestId',
-          'updatedAt'
+          'acceptedCount', 'acceptedDay', 'updatedAt'
         ])
         && request.resource.data.isOnline is bool
         && request.resource.data.isAvailable is bool
@@ -890,7 +959,8 @@ service cloud.firestore {
           || request.resource.data.isAvailable == false
         )
         && isValidCurrentBookingChange()
-        && isValidCurrentRequestChange();
+        && isValidCurrentRequestChange()
+        && isValidQuotaChange();
 
       // An admin creates the record only in the commit that approves this driver's
       // pending application (driver verification on the Admin Website), with exactly
@@ -1230,6 +1300,33 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (isSignedIn() && exists(driverPath(request.auth.uid)));
       allow create, update: if isValidCommissionWrite();
+      allow delete: if false;
+    }
+
+    // ─── Quota settings ────────────────────────────────────────────────────
+    // quotaSettings/active: { dailyLimit, updatedAt, updatedBy }. One daily acceptance
+    // limit (whole number 1-100) for every driver, each counted separately (drivers rules,
+    // isValidQuotaChange). Always active; while the document is missing the limit is
+    // defaultDailyLimit(). Admins write the complete object (Quota page); every signed-in
+    // user reads it (drivers for their gate, passengers to leave drivers at their limit
+    // out of the out-of-area driver search).
+
+    match /quotaSettings/active {
+      function isValidQuotaWrite() {
+        let data = request.resource.data;
+        let keys = ['dailyLimit', 'updatedAt', 'updatedBy'];
+        return isAdmin()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.dailyLimit is int
+          && data.dailyLimit >= 1
+          && data.dailyLimit <= 100
+          && data.updatedAt == request.time
+          && data.updatedBy == request.auth.uid;
+      }
+
+      allow read: if isSignedIn();
+      allow create, update: if isValidQuotaWrite();
       allow delete: if false;
     }
 

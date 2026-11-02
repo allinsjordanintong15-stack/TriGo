@@ -68,6 +68,7 @@ import {
   type Period,
   type Writes,
 } from './commissionFixtures.ts';
+import { manilaDay } from '../../src/utils/dailyQuota.ts';
 
 const PROJECT_ID = 'demo-trigo-rules';
 const HOST = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
@@ -116,8 +117,8 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
     '            && (!exists(commissionSettingsPath()) || existsAfter(commissionPath(bookingId)))\n            && pad()\n',
   ],
   'driver record': [
-    '        && isValidCurrentBookingChange()\n        && isValidCurrentRequestChange();',
-    '        && isValidCurrentBookingChange()\n        && isValidCurrentRequestChange()\n        && pad();',
+    '        && isValidCurrentRequestChange()\n        && isValidQuotaChange();',
+    '        && isValidCurrentRequestChange()\n        && isValidQuotaChange()\n        && pad();',
   ],
   commission: ['      allow create: if isValidCommissionCreate();', '      allow create: if isValidCommissionCreate() && pad();'],
   'account create': [
@@ -459,6 +460,82 @@ function newWork(
   };
 }
 
+// Daily quota (driverQuota.test.ts): a saved limit (so dailyLimit() reads the document) and
+// a count from today (so today's count is the stored one), with an account inside grace.
+const QUOTA_LIMIT = 20;
+const quotaToday = (count: number) => ({ acceptedCount: count, acceptedDay: manilaDay(Date.now()) });
+const quotaSettingsDoc = () => ({
+  'quotaSettings/active': { dailyLimit: QUOTA_LIMIT, updatedAt: Timestamp.now(), updatedBy: ADMIN },
+});
+
+function quotaWork(label: string, target: 'T1 accept' | 'propose', driverId = DRIVER): Scenario {
+  return {
+    label,
+    targets: [target, 'driver record'],
+    run: async () => {
+      await seed({
+        [`drivers/${driverId}`]: { ...availableDriverRecord(), ...quotaToday(QUOTA_LIMIT - 1) },
+        [`bookings/${BOOKING}`]: openBooking(),
+        [`outOfAreaRequests/${OPEN_REQUEST}`]: openRequest(),
+        [`commissionAccounts/${driverId}`]: accountDoc(inGrace, driverId),
+        ...quotaSettingsDoc(),
+      });
+      if (target === 'T1 accept') await commitAccept(db(driverId), driverId, quotaToday(QUOTA_LIMIT));
+      else await commitPropose(db(driverId), driverId);
+    },
+  };
+}
+
+const quotaClaim: Scenario = {
+  label: 'out-of-area claim: quota saved, count at the limit, account inside grace',
+  targets: ['claim', 'driver record'],
+  run: async () => {
+    const docs = claimDocs();
+    await seed({
+      ...docs,
+      [`drivers/${DRIVER}`]: { ...docs[`drivers/${DRIVER}`], ...quotaToday(QUOTA_LIMIT) },
+      [`commissionAccounts/${DRIVER}`]: accountDoc(inGrace),
+      ...quotaSettingsDoc(),
+    });
+    await commitClaim(db(DRIVER), DRIVER, quotaToday(QUOTA_LIMIT + 1));
+  },
+};
+
+// releaseCancelledBooking after the passenger cancelled an accepted booking (driver record only).
+function quotaRelease(label: string, refund: boolean): Scenario {
+  return {
+    label,
+    targets: ['driver record'],
+    run: async () => {
+      await seed({
+        [`drivers/${DRIVER}`]: {
+          ...availableDriverRecord(),
+          isAvailable: false,
+          currentBookingId: BOOKING,
+          ...quotaToday(3),
+        },
+        [`bookings/${BOOKING}`]: {
+          ...openBooking(),
+          driverId: DRIVER,
+          status: 'cancelled',
+          cancelledBy: 'passenger',
+          cancellationReason: 'Changed plans',
+          cancelledAt: Timestamp.now(),
+          acceptedAt: Timestamp.now(),
+        },
+        ...quotaSettingsDoc(),
+      });
+      await updateDoc(doc(db(DRIVER), 'drivers', DRIVER), {
+        currentBookingId: null,
+        isOnline: true,
+        isAvailable: true,
+        ...(refund ? quotaToday(2) : {}),
+        updatedAt: serverTimestamp(),
+      });
+    },
+  };
+}
+
 const claim: Scenario = {
   label: 'out-of-area claim (rules unchanged), account inside grace',
   targets: ['claim', 'driver record'],
@@ -697,6 +774,21 @@ const SCENARIOS: Scenario[] = [
   newWork('propose: account inside grace', 'propose', true),
   newWork('propose: account inside grace, approved-applicant driver', 'propose', true, APPLICANT_DRIVER),
   claim,
+  quotaWork('T1 accept: quota saved, count today, account inside grace', 'T1 accept'),
+  quotaWork(
+    'T1 accept: quota saved, count today, account inside grace, approved-applicant driver',
+    'T1 accept',
+    APPLICANT_DRIVER,
+  ),
+  quotaWork('propose: quota saved, count today, account inside grace', 'propose'),
+  quotaWork(
+    'propose: quota saved, count today, account inside grace, approved-applicant driver',
+    'propose',
+    APPLICANT_DRIVER,
+  ),
+  quotaClaim,
+  quotaRelease('release: passenger cancelled, slot given back', true),
+  quotaRelease('release: passenger cancelled, no refund', false),
   confirm,
   standardCreate('standard booking create: older shape (no fareBasis)', {}),
   standardCreate('standard booking create: per-km', {
@@ -726,7 +818,7 @@ const SCENARIOS: Scenario[] = [
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
 const ONLY_PAYMENTS = process.env.TRIGO_HEADROOM === 'payments';
 const ONLY_ENFORCEMENT = process.env.TRIGO_HEADROOM === 'enforcement';
-const ENFORCEMENT_LABELS = /^(T1 accept|propose|out-of-area claim|out-of-area confirm)/;
+const ENFORCEMENT_LABELS = /^(T1 accept|propose|out-of-area claim|out-of-area confirm|release)/;
 const ONLY_VEHICLE = process.env.TRIGO_HEADROOM === 'vehicle';
 const VEHICLE_LABELS = /^(driver application|driver verification|admin drivers)/;
 const ONLY_BOOKING = process.env.TRIGO_HEADROOM === 'booking';

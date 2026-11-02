@@ -32,6 +32,8 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 
+import { quotaAfterAccept } from './commissionFixtures.ts';
+
 const PROJECT_ID = 'demo-trigo-rules';
 
 // Denied writes are expected; keep the SDK's PERMISSION_DENIED warnings out of the output.
@@ -128,6 +130,7 @@ function acceptBatch(uid: string, bookingId = BOOKING) {
   batch.update(doc(firestore, 'drivers', uid), {
     isAvailable: false,
     currentBookingId: bookingId,
+    ...quotaAfterAccept(),
     updatedAt: serverTimestamp(),
   });
   return batch.commit();

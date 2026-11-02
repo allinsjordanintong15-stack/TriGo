@@ -7,6 +7,8 @@
 
 import { doc, serverTimestamp, Timestamp, writeBatch, type DocumentData, type Firestore } from 'firebase/firestore';
 
+import { manilaDay } from '../../src/utils/dailyQuota.ts';
+
 export const ADMIN = 'admin1';
 export const PASSENGER = 'passenger1';
 export const DRIVER = 'driver1';
@@ -437,7 +439,15 @@ export function openBooking(): DocumentData {
   });
 }
 
-export function commitAccept(firestore: Firestore, driverId = DRIVER): Promise<void> {
+/**
+ * The quota fields an accept or claim writes (drivers rules, isValidQuotaChange): `count`
+ * trips today, 1 for a driver with no count today. The day is the phone's (Manila).
+ */
+export function quotaAfterAccept(count = 1): { acceptedCount: number; acceptedDay: number } {
+  return { acceptedCount: count, acceptedDay: manilaDay(Date.now()) };
+}
+
+export function commitAccept(firestore: Firestore, driverId = DRIVER, quota = quotaAfterAccept()): Promise<void> {
   const batch = writeBatch(firestore);
   batch.update(doc(firestore, 'bookings', BOOKING), {
     driverId,
@@ -448,6 +458,7 @@ export function commitAccept(firestore: Firestore, driverId = DRIVER): Promise<v
   batch.update(doc(firestore, 'drivers', driverId), {
     isAvailable: false,
     currentBookingId: BOOKING,
+    ...quota,
     updatedAt: serverTimestamp(),
   });
   return batch.commit();
@@ -536,7 +547,7 @@ export function claimDocs(driverId = DRIVER): Record<string, DocumentData> {
   };
 }
 
-export function commitClaim(firestore: Firestore, driverId = DRIVER): Promise<void> {
+export function commitClaim(firestore: Firestore, driverId = DRIVER, quota = quotaAfterAccept()): Promise<void> {
   const batch = writeBatch(firestore);
   batch.update(doc(firestore, 'bookings', REQUEST), {
     driverId,
@@ -548,6 +559,7 @@ export function commitClaim(firestore: Firestore, driverId = DRIVER): Promise<vo
     currentBookingId: REQUEST,
     currentRequestId: null,
     isAvailable: false,
+    ...quota,
     updatedAt: serverTimestamp(),
   });
   return batch.commit();

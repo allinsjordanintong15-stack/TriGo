@@ -33,6 +33,8 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 
+import { quotaAfterAccept } from './commissionFixtures.ts';
+
 const PROJECT_ID = 'demo-trigo-rules';
 
 // Denied writes are expected; keep the SDK's PERMISSION_DENIED warnings out of the output.
@@ -1025,6 +1027,7 @@ function claimBatch(
     currentBookingId: REQUEST,
     currentRequestId: null,
     isAvailable: false,
+    ...quotaAfterAccept(),
   },
 ) {
   const firestore = db(uid);
