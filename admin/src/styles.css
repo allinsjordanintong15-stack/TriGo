@@ -1632,22 +1632,91 @@ button.btn-link:disabled {
 
 .attention-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-md);
 }
 
-/* 2 × 2 rather than 3 + 1 on narrower windows. */
-@media (max-width: 1100px) {
+/* Below 1280px: 3 + 2 on a 6-column grid (three cards of 2 columns, then two of 3), so
+   no card is left alone on a row. */
+@media (max-width: 1279px) {
   .attention-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .attention-grid > * {
+    grid-column: span 2;
+  }
+
+  .attention-grid > :nth-child(3n + 4),
+  .attention-grid > :nth-child(3n + 5) {
+    grid-column: span 3;
   }
 }
 
+/* Phones (no sidebar): 2 + 2 + 1, the last card full width. */
+@media (max-width: 767px) {
+  .attention-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attention-grid > *,
+  .attention-grid > :nth-child(3n + 4),
+  .attention-grid > :nth-child(3n + 5) {
+    grid-column: auto;
+  }
+
+  .attention-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Narrow phones: one card per row. */
+@media (max-width: 479px) {
+  .attention-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The whole card is a link (keyboard focusable), also when all is clear. */
 .attention-card {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 12px var(--card-padding-compact);
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.attention-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.attention-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-color: var(--color-primary);
+}
+
+.attention-card:hover .attention-link,
+.attention-card:focus-visible .attention-link {
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-card {
+    transition: none;
+  }
+
+  .attention-card:hover {
+    transform: none;
+  }
 }
 
 .attention-waiting {
@@ -1688,8 +1757,9 @@ button.btn-link:disabled {
   text-decoration: none;
 }
 
-.attention-link:hover {
-  text-decoration: underline;
+.attention-link-quiet {
+  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 .attention-clear {

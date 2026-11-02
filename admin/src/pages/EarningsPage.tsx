@@ -127,11 +127,14 @@ export function EarningsPage() {
     void reload();
   }, [reload]);
 
-  // Dashboard links (/earnings?balances=behind#balances) scroll to the balances once loaded.
+  // Dashboard links scroll to their section once it has loaded: #pending-payments, or
+  // #balances (with ?balances=behind etc. setting the filter).
   const { hash } = useLocation();
   useEffect(() => {
-    if (balances && hash === '#balances') document.getElementById('balances')?.scrollIntoView({ block: 'start' });
-  }, [balances, hash]);
+    const target =
+      hash === '#balances' && balances ? 'balances' : hash === '#pending-payments' && payments ? 'pending-payments' : null;
+    if (target) document.getElementById(target)?.scrollIntoView({ block: 'start' });
+  }, [balances, payments, hash]);
 
   function open(kind: Review['kind'], payment: PendingPayment) {
     setReview({ kind, payment });
@@ -380,7 +383,7 @@ export function EarningsPage() {
         </div>
       )}
 
-      <div className="card">
+      <div className="card" id="pending-payments">
         <div className="card-header">
           <h3>Pending commission payments</h3>
           <button type="button" className="btn-outline" onClick={() => void exportPayments()} disabled={exporting}>

@@ -132,7 +132,7 @@ export function DashboardPage() {
           <AttentionCard
             label="Pending payments"
             count={counts?.pendingPayments ?? null}
-            to="/earnings"
+            to="/earnings#pending-payments"
           />
           <AttentionCard
             label="Driver applications"
@@ -301,6 +301,8 @@ export function DashboardPage() {
   );
 }
 
+/** One "Needs your attention" card. The whole card links to where the item is handled,
+ * also when all is clear ("View →" instead of "Review →"). */
 function AttentionCard({
   label,
   count,
@@ -315,8 +317,20 @@ function AttentionCard({
   error?: boolean;
 }) {
   const waiting = count !== null && count > 0;
+  // The link's accessible name: the label, what it shows, and where it goes.
+  const state = error
+    ? 'could not load'
+    : count === null
+      ? 'loading'
+      : waiting
+        ? `${formatCount(count)}${detail ? ` (${detail})` : ''}`
+        : 'all clear';
   return (
-    <div className={`card attention-card${waiting ? ' attention-waiting' : ''}`}>
+    <Link
+      to={to}
+      className={`card attention-card${waiting ? ' attention-waiting' : ''}`}
+      aria-label={`${label}: ${state}. ${waiting ? 'Review' : 'View'}`}
+    >
       <div className="attention-label">{label}</div>
       {error ? (
         <SectionError />
@@ -326,16 +340,21 @@ function AttentionCard({
         <>
           <div className="attention-row">
             <span className="attention-count">{formatCount(count)}</span>
-            <Link to={to} className="attention-link" aria-label={`Review ${label.toLowerCase()}`}>
+            <span className="attention-link" aria-hidden="true">
               Review →
-            </Link>
+            </span>
           </div>
           {detail && <div className="attention-detail">{detail}</div>}
         </>
       ) : (
-        <div className="attention-clear">All clear</div>
+        <div className="attention-row">
+          <span className="attention-clear">All clear</span>
+          <span className="attention-link attention-link-quiet" aria-hidden="true">
+            View →
+          </span>
+        </div>
       )}
-    </div>
+    </Link>
   );
 }
 
