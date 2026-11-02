@@ -67,6 +67,20 @@ export function isNearManilaMidnight(
   return sinceMidnight <= windowMs || msUntilManilaMidnight(epochMs) <= windowMs;
 }
 
+/**
+ * The day to try once more when a write carrying `manilaDay(epochMs)` was refused near
+ * midnight: the server may already be on the next day (or still on the previous one).
+ * Null away from midnight, where the day cannot be the reason.
+ */
+export function alternateDayNearMidnight(
+  epochMs: number,
+  windowMs: number = MIDNIGHT_RETRY_WINDOW_MS,
+): number | null {
+  if (msUntilManilaMidnight(epochMs) <= windowMs) return manilaDay(epochMs) + 1;
+  const sinceMidnight = epochMs - (nextManilaMidnight(epochMs) - DAY_MS);
+  return sinceMidnight <= windowMs ? manilaDay(epochMs) - 1 : null;
+}
+
 // ─── Server clock ────────────────────────────────────────────────────────────
 
 /**

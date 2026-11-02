@@ -4,7 +4,9 @@ import {
   CommissionServiceError,
   isCommissionSuspended,
 } from '@/services/commissionService';
+import { isDriverAtDailyLimit } from '@/services/quotaService';
 import { DriverRecord, FareAgreement } from '@/types';
+import { DAILY_LIMIT_REACHED_MESSAGE } from '@/utils/dailyQuota';
 import { doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export class FareAgreementServiceError extends Error {
@@ -27,7 +29,8 @@ export interface FareProposalInput {
  * the proposal fields) and reserves the driver (currentRequestId, not available);
  * Firestore rules require both in the same commit and the fare to equal
  * standardEstimatedFare. The passenger still has to confirm. A driver suspended for overdue
- * commission is refused first (the rules refuse the commit too).
+ * commission, or at today's daily acceptance limit, is refused first (the rules refuse the
+ * commit too). The propose does not count toward the limit; the claim does.
  */
 export async function createProposal(input: FareProposalInput): Promise<FareAgreement> {
   const fare = input.standardEstimatedFare;
@@ -59,11 +62,18 @@ export async function createProposal(input: FareProposalInput): Promise<FareAgre
     if (await isCommissionSuspended(input.driverId)) {
       throw new FareAgreementServiceError(COMMISSION_SUSPENDED_MESSAGE);
     }
+    if (await isDriverAtDailyLimit(input.driverId)) {
+      throw new FareAgreementServiceError(DAILY_LIMIT_REACHED_MESSAGE);
+    }
     await batch.commit();
   } catch (error) {
     if (error instanceof FareAgreementServiceError) throw error;
     if (error instanceof CommissionServiceError) throw new FareAgreementServiceError(error.message);
     if ((error as { code?: string }).code === 'permission-denied') {
+      // The limit may have been lowered (or the count raised) since the check above.
+      if (await isDriverAtDailyLimit(input.driverId)) {
+        throw new FareAgreementServiceError(DAILY_LIMIT_REACHED_MESSAGE);
+      }
       // Taken by another driver, cancelled or expired, or this driver is no longer
       // online, available and free.
       throw new FareAgreementServiceError(

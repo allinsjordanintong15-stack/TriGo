@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { docToOutOfAreaRequest } from '@/services/bookingService';
-import { DriverRecord, OutOfAreaRequest, VehicleType } from '@/types';
+import { calibrateServerClock, serverNow } from '@/services/quotaService';
+import { Booking, DriverRecord, OutOfAreaRequest, VehicleType } from '@/types';
+import { canRefundSlot, fieldsAfterRefund, manilaDay } from '@/utils/dailyQuota';
 import { calculateDistanceKmFromCoords } from '@/utils/distance';
 import {
   collection,
@@ -22,6 +24,11 @@ export class DriverServiceError extends Error {
     super(message);
     this.name = 'DriverServiceError';
   }
+}
+
+/** A stored whole number (quota fields), else null. */
+function readWholeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) ? value : null;
 }
 
 /** A stored brand, model or color; null when missing (records from before they existed). */
@@ -52,6 +59,8 @@ export function docToDriverRecord(driverId: string, data: DocumentData): DriverR
         : null,
     currentBookingId: typeof data.currentBookingId === 'string' ? data.currentBookingId : null,
     currentRequestId: typeof data.currentRequestId === 'string' ? data.currentRequestId : null,
+    acceptedCount: readWholeNumber(data.acceptedCount),
+    acceptedDay: readWholeNumber(data.acceptedDay),
   };
 }
 
@@ -90,6 +99,7 @@ export async function goOnline(
   }
 
   try {
+    const sentAt = Date.now();
     await updateDoc(doc(firestore, COLLECTIONS.drivers, driverRecord.driverId), {
       isOnline: true,
       // A driver with a trip in progress or a pending fare proposal comes back online but
@@ -99,6 +109,9 @@ export async function goOnline(
       currentLocation: { latitude: location.latitude, longitude: location.longitude },
       updatedAt: serverTimestamp(),
     });
+    // The server stamped updatedAt during this write: estimate the server clock for the
+    // daily quota's Manila day (in the background; going online does not wait for it).
+    void calibrateServerClock(driverRecord.driverId, sentAt, Date.now());
   } catch {
     throw new DriverServiceError(
       'Unable to go online. Please check your internet connection and try again.',
@@ -186,16 +199,36 @@ export async function becomeAvailable(driverRecord: DriverRecord): Promise<void>
  * Release the driver from a booking the passenger cancelled: clear `currentBookingId`
  * and become available again if still online. Firestore rules only allow clearing
  * `currentBookingId` once that booking is cancelled or completed.
+ *
+ * Daily quota: when the passenger cancelled `booking` before the trip started and it was
+ * accepted today (canRefundSlot), the same write gives the slot back (count − 1). If the
+ * rules refuse that (e.g. midnight passed meanwhile), the plain release is written instead.
  */
-export async function releaseCancelledBooking(driverRecord: DriverRecord): Promise<void> {
+export async function releaseCancelledBooking(
+  driverRecord: DriverRecord,
+  booking: Booking | null = null,
+): Promise<void> {
   const canBeAvailable = driverRecord.isOnline && driverRecord.isVerified;
-
-  await updateDoc(doc(firestore, COLLECTIONS.drivers, driverRecord.driverId), {
+  const driverRef = doc(firestore, COLLECTIONS.drivers, driverRecord.driverId);
+  const release = {
     currentBookingId: null,
     isOnline: canBeAvailable,
     isAvailable: canBeAvailable,
     updatedAt: serverTimestamp(),
-  });
+  };
+
+  const today = manilaDay(serverNow());
+  if (booking && booking.bookingId === driverRecord.currentBookingId && canRefundSlot(booking, driverRecord, today)) {
+    try {
+      await updateDoc(driverRef, { ...release, ...fieldsAfterRefund(driverRecord, today) });
+      return;
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'permission-denied') throw error;
+      // Refund refused: release without it below.
+    }
+  }
+
+  await updateDoc(driverRef, release);
 }
 
 /**

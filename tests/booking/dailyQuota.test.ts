@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 
 import {
   acceptedOn,
+  alternateDayNearMidnight,
   acceptedTodayText,
   canRefundSlot,
   clockOffsetMs,
@@ -96,6 +97,24 @@ describe('Manila midnight', () => {
     assert.equal(isNearManilaMidnight(MIDNIGHT - MIDNIGHT_RETRY_WINDOW_MS - 1), false);
     assert.equal(isNearManilaMidnight(MIDNIGHT + MIDNIGHT_RETRY_WINDOW_MS + 1), false);
     assert.equal(isNearManilaMidnight(NOON_MANILA), false);
+  });
+});
+
+describe('alternateDayNearMidnight', () => {
+  it('just before midnight: try the next day', () => {
+    assert.equal(alternateDayNearMidnight(MIDNIGHT - 1), TODAY + 1);
+    assert.equal(alternateDayNearMidnight(MIDNIGHT - MIDNIGHT_RETRY_WINDOW_MS), TODAY + 1);
+  });
+
+  it('just after midnight: try the previous day', () => {
+    assert.equal(alternateDayNearMidnight(MIDNIGHT), TODAY);
+    assert.equal(alternateDayNearMidnight(MIDNIGHT + MIDNIGHT_RETRY_WINDOW_MS), TODAY);
+  });
+
+  it('away from midnight: no retry', () => {
+    assert.equal(alternateDayNearMidnight(MIDNIGHT - MIDNIGHT_RETRY_WINDOW_MS - 1), null);
+    assert.equal(alternateDayNearMidnight(MIDNIGHT + MIDNIGHT_RETRY_WINDOW_MS + 1), null);
+    assert.equal(alternateDayNearMidnight(NOON_MANILA), null);
   });
 });
 

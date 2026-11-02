@@ -128,7 +128,8 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
         }
 
         releasingFor.current = booking.bookingId;
-        releaseCancelledBooking(record).catch(() => {
+        // Gives the daily-quota slot back when the passenger cancelled before the trip started.
+        releaseCancelledBooking(record, booking).catch(() => {
           // Allow a retry on the next snapshot or app start.
           releasingFor.current = null;
         });

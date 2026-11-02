@@ -211,6 +211,12 @@ export interface DriverRecord {
    * driver is unavailable for other bookings and requests.
    */
   currentRequestId: string | null;
+  /**
+   * Daily acceptance quota: trips accepted on acceptedDay (a Manila day number, see
+   * src/utils/dailyQuota.ts). Null on drivers who have not accepted since the quota existed.
+   */
+  acceptedCount: number | null;
+  acceptedDay: number | null;
 }
 
 export interface Booking {

@@ -10,9 +10,11 @@ import {
   writeCommission,
 } from '@/services/commissionService';
 import { docToDriverRecord } from '@/services/driverService';
+import { isDriverAtDailyLimit, readDailyLimit, withMidnightRetry } from '@/services/quotaService';
 import { Booking, BookingStatus, PaymentMethod, VehicleType } from '@/types';
 import { canDriverCancelBooking, getDisplayFare } from '@/utils/booking';
 import { isBookingExpired } from '@/utils/bookingExpiry';
+import { DAILY_LIMIT_REACHED_MESSAGE, fieldsAfterAccept, isAtDailyLimit } from '@/utils/dailyQuota';
 import {
   collection,
   count,
@@ -136,64 +138,71 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
       throw new DriverBookingServiceError(COMMISSION_SUSPENDED_MESSAGE);
     }
 
-    await runTransaction(firestore, async (transaction) => {
-      const driverSnapshot = await transaction.get(driverRef);
-      const driverData = driverSnapshot.data();
-      if (!driverSnapshot.exists() || !driverData) {
-        throw new DriverBookingServiceError('Your driver record could not be found.');
-      }
+    // Daily quota: the day is the server's Manila day; retried once near midnight.
+    await withMidnightRetry((today) =>
+      runTransaction(firestore, async (transaction) => {
+        const driverSnapshot = await transaction.get(driverRef);
+        const driverData = driverSnapshot.data();
+        if (!driverSnapshot.exists() || !driverData) {
+          throw new DriverBookingServiceError('Your driver record could not be found.');
+        }
 
-      const driver = docToDriverRecord(driverSnapshot.id, driverData);
-      if (!driver.isVerified) {
-        throw new DriverBookingServiceError(
-          'Your account must be verified by a TriGo administrator before you can accept rides.',
-        );
-      }
-      if (driver.currentBookingId) {
-        throw new DriverBookingServiceError('You already have an active trip.');
-      }
-      if (driver.currentRequestId) {
-        throw new DriverBookingServiceError(
-          'You have a pending out-of-area fare proposal. Withdraw it first.',
-        );
-      }
-      if (!driver.isOnline || !driver.isAvailable) {
-        throw new DriverBookingServiceError('Go online and be available to accept rides.');
-      }
+        const driver = docToDriverRecord(driverSnapshot.id, driverData);
+        if (!driver.isVerified) {
+          throw new DriverBookingServiceError(
+            'Your account must be verified by a TriGo administrator before you can accept rides.',
+          );
+        }
+        if (driver.currentBookingId) {
+          throw new DriverBookingServiceError('You already have an active trip.');
+        }
+        if (driver.currentRequestId) {
+          throw new DriverBookingServiceError(
+            'You have a pending out-of-area fare proposal. Withdraw it first.',
+          );
+        }
+        if (!driver.isOnline || !driver.isAvailable) {
+          throw new DriverBookingServiceError('Go online and be available to accept rides.');
+        }
 
-      const snapshot = await transaction.get(bookingRef);
-      if (!snapshot.exists()) {
-        throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
-      }
+        const snapshot = await transaction.get(bookingRef);
+        if (!snapshot.exists()) {
+          throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
+        }
 
-      const booking = docToBooking(snapshot.id, snapshot.data());
-      if (
-        booking.status !== 'pending' ||
-        booking.driverId !== null ||
-        booking.bookingType !== 'standard'
-      ) {
-        throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
-      }
-      readExpiresAt = booking.expiresAt;
-      if (isBookingExpired(booking)) {
-        throw new DriverBookingServiceError(REQUEST_EXPIRED_MESSAGE);
-      }
-      if (booking.vehicleType !== driver.vehicleType) {
-        throw new DriverBookingServiceError('This request is for a different vehicle type.');
-      }
+        const booking = docToBooking(snapshot.id, snapshot.data());
+        if (
+          booking.status !== 'pending' ||
+          booking.driverId !== null ||
+          booking.bookingType !== 'standard'
+        ) {
+          throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
+        }
+        readExpiresAt = booking.expiresAt;
+        if (isBookingExpired(booking)) {
+          throw new DriverBookingServiceError(REQUEST_EXPIRED_MESSAGE);
+        }
+        if (booking.vehicleType !== driver.vehicleType) {
+          throw new DriverBookingServiceError('This request is for a different vehicle type.');
+        }
+        if (isAtDailyLimit(driverData, await readDailyLimit(transaction), today)) {
+          throw new DriverBookingServiceError(DAILY_LIMIT_REACHED_MESSAGE);
+        }
 
-      transaction.update(bookingRef, {
-        driverId,
-        status: 'accepted',
-        acceptedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      transaction.update(driverRef, {
-        isAvailable: false,
-        currentBookingId: bookingId,
-        updatedAt: serverTimestamp(),
-      });
-    });
+        transaction.update(bookingRef, {
+          driverId,
+          status: 'accepted',
+          acceptedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        transaction.update(driverRef, {
+          isAvailable: false,
+          currentBookingId: bookingId,
+          ...fieldsAfterAccept(driverData, today),
+          updatedAt: serverTimestamp(),
+        });
+      }),
+    );
   } catch (error) {
     if (error instanceof DriverBookingServiceError) {
       throw error;
@@ -203,6 +212,10 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
     }
 
     const code = (error as { code?: string }).code;
+    // The limit may have been lowered (or the count raised) since this phone read it.
+    if (code === 'permission-denied' && (await isDriverAtDailyLimit(driverId))) {
+      throw new DriverBookingServiceError(DAILY_LIMIT_REACHED_MESSAGE);
+    }
     if (
       code === 'permission-denied' &&
       readExpiresAt !== undefined &&
@@ -237,53 +250,58 @@ export async function claimOutOfAreaBooking(requestId: string, driverId: string)
   const requestRef = doc(firestore, COLLECTIONS.outOfAreaRequests, requestId);
 
   try {
-    await runTransaction(firestore, async (transaction) => {
-      const driverSnapshot = await transaction.get(driverRef);
-      const driverData = driverSnapshot.data();
-      if (!driverSnapshot.exists() || !driverData) {
-        throw new DriverBookingServiceError('Your driver record could not be found.');
-      }
-      const driver = docToDriverRecord(driverSnapshot.id, driverData);
-      if (driver.currentRequestId !== requestId || driver.currentBookingId) {
-        throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
-      }
+    // Daily quota: counted (never refused; the passenger already confirmed this driver).
+    // The day is the server's Manila day; retried once near midnight.
+    await withMidnightRetry((today) =>
+      runTransaction(firestore, async (transaction) => {
+        const driverSnapshot = await transaction.get(driverRef);
+        const driverData = driverSnapshot.data();
+        if (!driverSnapshot.exists() || !driverData) {
+          throw new DriverBookingServiceError('Your driver record could not be found.');
+        }
+        const driver = docToDriverRecord(driverSnapshot.id, driverData);
+        if (driver.currentRequestId !== requestId || driver.currentBookingId) {
+          throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
+        }
 
-      const requestSnapshot = await transaction.get(requestRef);
-      const requestData = requestSnapshot.data();
-      if (
-        !requestData ||
-        requestData.status !== 'accepted' ||
-        requestData.driverId !== driverId
-      ) {
-        throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
-      }
+        const requestSnapshot = await transaction.get(requestRef);
+        const requestData = requestSnapshot.data();
+        if (
+          !requestData ||
+          requestData.status !== 'accepted' ||
+          requestData.driverId !== driverId
+        ) {
+          throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
+        }
 
-      const bookingSnapshot = await transaction.get(bookingRef);
-      if (!bookingSnapshot.exists()) {
-        throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
-      }
-      const booking = docToBooking(bookingSnapshot.id, bookingSnapshot.data());
-      if (
-        booking.bookingType !== 'out_of_area' ||
-        booking.status !== 'pending' ||
-        booking.driverId !== null
-      ) {
-        throw new DriverBookingServiceError(OUT_OF_AREA_BOOKING_CLOSED_MESSAGE);
-      }
+        const bookingSnapshot = await transaction.get(bookingRef);
+        if (!bookingSnapshot.exists()) {
+          throw new DriverBookingServiceError(REQUEST_UNAVAILABLE_MESSAGE);
+        }
+        const booking = docToBooking(bookingSnapshot.id, bookingSnapshot.data());
+        if (
+          booking.bookingType !== 'out_of_area' ||
+          booking.status !== 'pending' ||
+          booking.driverId !== null
+        ) {
+          throw new DriverBookingServiceError(OUT_OF_AREA_BOOKING_CLOSED_MESSAGE);
+        }
 
-      transaction.update(bookingRef, {
-        driverId,
-        status: 'accepted',
-        acceptedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      transaction.update(driverRef, {
-        currentBookingId: requestId,
-        currentRequestId: null,
-        isAvailable: false,
-        updatedAt: serverTimestamp(),
-      });
-    });
+        transaction.update(bookingRef, {
+          driverId,
+          status: 'accepted',
+          acceptedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        transaction.update(driverRef, {
+          currentBookingId: requestId,
+          currentRequestId: null,
+          isAvailable: false,
+          ...fieldsAfterAccept(driverData, today),
+          updatedAt: serverTimestamp(),
+        });
+      }),
+    );
   } catch (error) {
     if (error instanceof DriverBookingServiceError) {
       throw error;
