@@ -1,6 +1,6 @@
 # TriGo — Project Status
 
-_Last updated: 2026-11-02 (after ride request notifications step 5)._
+_Last updated: 2026-11-02 (after daily acceptance quota step 6)._
 
 TriGo is a transport booking app for tricycle and motorcycle rides in Trinidad, Bohol. It
 has two parts:
@@ -85,6 +85,17 @@ things stand.
 - **Commission warnings:** an overdue or suspended banner on Home and Requests.
 - **Suspension:** a suspended driver cannot accept standard bookings or out-of-area
   requests. They can still finish current trips, log in and pay.
+- **Daily acceptance quota:** each driver may accept at most the admin's daily limit of
+  passengers per day (resets at 12:00 AM Manila time; default 20).
+  - Home always shows "Accepted today: X of N".
+  - A standard accept counts one; an out-of-area request counts when the driver claims the
+    booking the passenger confirmed (never at the propose). The claim is never blocked.
+  - If the passenger cancels before the trip starts, the slot is given back the same day.
+  - At the limit: "Daily limit reached. You can accept again after 12:00 AM." on Home and
+    Requests, Accept disabled on standard and out-of-area requests, no new-request alerts
+    (shown notifications are removed), and the driver is left out of the passenger's
+    out-of-area driver search. The current trip can still be finished.
+  - A limit change from the admin applies at once.
 - A driver whose verification an admin revoked sees "Driver access revoked".
 
 ### Admin (website)
@@ -92,10 +103,17 @@ things stand.
   `scripts/setAdminClaim.mjs`).
 - **Dashboard** and **Reports**: per-day or per-month charts built with Firestore
   count/sum aggregates, with CSV export.
+  - "Needs your attention": pending payments, driver applications, open complaints,
+    drivers behind on commission and drivers at the daily limit. Each card links to where
+    the item is handled, also when all is clear ("Review →" / "View →").
 - **Complaints:** list and detail, status (open / in review / resolved) and admin notes.
 - **Driver verification:** review applications, then approve or reject them with remarks.
 - **Driver accounts:** revoke or restore verification. Revoking needs a reason. The vehicle
   can be edited.
+- **Quota** (Drivers group): the daily acceptance limit (1–100, default 20 until saved),
+  edited with an old → new confirmation and shown live; a live table of verified drivers'
+  accepted count today against the limit, fewest slots left first, linking to each
+  driver.
 - **Passengers:** list and detail.
 - **Out-of-Area Trips:** read-only monitor. Expired requests are shown as Expired.
 - **Booking lists** (Dashboard, passenger and driver detail, complaint detail): standard
@@ -138,14 +156,21 @@ things stand.
 
 - **Firestore rules tests:** `npm run test:rules` runs the Firestore emulator under the
   demo project `demo-trigo-rules`.
-  - **602 tests in 19 files, all passing** (2026-10-21).
+  - **711 tests in 21 files, all passing** (2026-11-02).
   - Every rule branch has tests for both allowed and denied writes. This covers bookings,
     out-of-area requests, driver verification, fares, barangay tariffs, complaints, support
-    contacts, admin reads, commission accrual, payments, enforcement and cash-outs.
+    contacts, admin reads, commission accrual, payments, enforcement, cash-outs and the
+    daily acceptance quota.
+- **Unit tests:** `npm run test:unit` (plain Node, no emulator): **206 tests in 16 files,
+  all passing** (2026-11-02). `tests/booking/dailyQuotaSync.test.ts` checks that the
+  default daily limit (20) and its range (1–100) are the same in the app, `firestore.rules`
+  and the admin website.
 - **Rules cost headroom:** `tests/rules/measureHeadroom.ts` measures how much of
   Firestore's 1000-expression limit each heavy valid commit uses (2026-10-21).
   - Tightest path: an out-of-area propose by an approved-applicant driver, with about 46%
-    of the budget left.
+    of the budget left (re-measured 2026-11-02 with the quota).
+  - Quota paths (driver record, 2026-11-02): out-of-area claim about 50% left, release
+    giving a slot back about 53%, T1 accept by an approved-applicant driver about 51%.
   - Payment confirm: at least 72% left. Cash-out: about 86% left.
   - Limit messages are also checked in `firestore-debug.log`.
 - **Type and lint checks:** `npx tsc --noEmit` and `npx eslint src tests` for the app;
@@ -231,11 +256,29 @@ things stand.
   that updates it.
 - **No Cloud Functions.** Expired standard bookings and out-of-area requests are never
   rewritten (a booking stays `pending`); they are shown as expired from `expiresAt`. Every balance change is a client write checked by the rules.
+- **Daily acceptance quota.**
+  - The rules and the app must be deployed together: after the quota rules go live, an
+    older app build can no longer accept or claim, and the new app cannot before them.
+  - The Manila day written with an accept comes from the phone, corrected by a server-clock
+    estimate taken when the driver goes online. An accept refused within 2 minutes of
+    midnight is retried once with the other day. If the app restarts while online it uses
+    the phone clock until the next go-online, so a phone with a badly wrong date cannot
+    accept until then.
+  - A slot is given back only by the driver's app when it releases the cancelled booking.
+    If that happens after midnight, nothing is given back (the new day starts at 0 anyway).
+  - A driver at the limit stays "available": standard requests still reach them (Accept is
+    disabled), and the Dashboard Online/Available counts include them. Only the
+    passenger's out-of-area driver search leaves them out, using the passenger phone's
+    clock for the day.
+  - There are no per-driver or per-vehicle limits, and an admin cannot reset one driver's
+    count.
+  - The Dashboard "Drivers at daily limit" card needs the `drivers (isVerified,
+    acceptedDay, acceptedCount)` index; the emulator seed has no quota data.
 
 ## Pending decisions
 
-- **Quota (open decision #1 in `docs/CLAUDE.md`):** what "quota" means is undecided, and
-  nothing is built for it.
+- **Quota (#1):** decided 2026-11-02 and built: a daily acceptance limit per driver
+  (`docs/DECISIONS.md`, Drivers). Still to carry into the SRS and the SPMP.
 - **Admin platform (#3):** built as a separate web app (`admin/`). The decision still has
   to be recorded in `docs/CLAUDE.md`, the SRS and the SPMP.
 - **Map/location provider (#4):** in use are MapLibre with OpenFreeMap tiles, plus

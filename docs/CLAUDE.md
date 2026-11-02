@@ -29,7 +29,10 @@ Source documents (read these before planning any feature):
   payment monitoring, out-of-area trip monitoring, reports, system monitoring.
 
 ## Open decisions — DO NOT guess; ask me before implementing anything that depends on these
-1. What "quota" means (e.g., trips per driver per day? drivers per area?).
+1. ~~What "quota" means (e.g., trips per driver per day? drivers per area?).~~ DECIDED
+   2026-11-02 (docs/DECISIONS.md): a daily acceptance limit. Each driver may accept at most
+   N passengers per Manila day (resets 12:00 AM); one admin-set N (1–100, default 20) for
+   every driver. A passenger cancel before the trip starts gives the slot back.
 2. ~~GCash method: payment gateway (e.g., PayMongo/Xendit), manual reference-number
    recording, or record-only.~~ DECIDED 2026-10-19 (docs/DECISIONS.md): no gateway, TriGo
    moves no money. Drivers pay commission by GCash only and submit amount + reference
