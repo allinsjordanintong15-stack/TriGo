@@ -19,14 +19,18 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import {
+  collection,
   deleteDoc,
   doc,
+  getCountFromServer,
   getDoc,
+  query,
   serverTimestamp,
   setDoc,
   setLogLevel,
   Timestamp,
   updateDoc,
+  where,
   writeBatch,
   type DocumentData,
   type Firestore,
@@ -463,5 +467,33 @@ describe('quota: the count changes only through accept, claim and release', () =
     await seed({ [`drivers/${DRIVER}`]: { ...availableDriverRecord(), ...today(5) } });
     await assertFails(updateDoc(doc(db(PASSENGER), 'drivers', DRIVER), { acceptedCount: 0 }));
     await assertFails(updateDoc(doc(db('driver2'), 'drivers', DRIVER), { acceptedCount: 0 }));
+  });
+});
+
+// ─── Admin reads (Quota page and Dashboard) ────────────────────────────────
+
+describe('quota: admin reads', () => {
+  it('an admin can count verified drivers at the limit today (Dashboard)', async () => {
+    await seed({
+      [`drivers/${DRIVER}`]: { ...availableDriverRecord(), ...today(DEFAULT_LIMIT) },
+      'drivers/driver2': { ...availableDriverRecord(), ...today(3) },
+    });
+    const atLimit = query(
+      collection(adminDb(), 'drivers'),
+      where('isVerified', '==', true),
+      where('acceptedDay', '==', TODAY),
+      where('acceptedCount', '>=', DEFAULT_LIMIT),
+    );
+    const snapshot = await assertSucceeds(getCountFromServer(atLimit));
+    if (snapshot.data().count !== 1) throw new Error(`expected 1 driver at the limit, got ${snapshot.data().count}`);
+  });
+
+  it('a driver cannot run that query over all drivers', async () => {
+    const atLimit = query(
+      collection(db(DRIVER), 'drivers'),
+      where('acceptedDay', '==', TODAY),
+      where('acceptedCount', '>=', DEFAULT_LIMIT),
+    );
+    await assertFails(getCountFromServer(atLimit));
   });
 });

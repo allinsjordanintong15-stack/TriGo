@@ -18,6 +18,7 @@ import {
 } from '../dashboard/dashboard';
 import { useAdminCounts } from '../lib/adminCounts';
 import { formatCentavos, formatCount, formatDateTime, formatPeso, formatTime, plural } from '../lib/format';
+import { countDriversAtLimit } from '../quota/quotaSettings';
 import { ColumnChart, type ColumnDatum } from '../reports/ColumnChart';
 
 // Admin home: what needs attention, what is happening now, today's numbers, the last
@@ -84,6 +85,7 @@ export function DashboardPage() {
   const days = useSection(loadRecentDays, refreshKey);
   const recent = useSection(loadRecentBookings, refreshKey);
   const money = useSection(loadMoneySummary, refreshKey);
+  const atLimit = useSection(countDriversAtLimit, refreshKey);
 
   function refresh() {
     setNow(new Date());
@@ -152,6 +154,12 @@ export function DashboardPage() {
                 : undefined
             }
             to="/earnings?balances=behind#balances"
+          />
+          <AttentionCard
+            label="Drivers at daily limit"
+            count={atLimit.data}
+            error={atLimit.error}
+            to="/quota"
           />
         </div>
       </section>

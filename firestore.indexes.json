@@ -1,6 +1,15 @@
 {
   "indexes": [
     {
+      "collectionGroup": "drivers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isVerified", "order": "ASCENDING" },
+        { "fieldPath": "acceptedDay", "order": "ASCENDING" },
+        { "fieldPath": "acceptedCount", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "bookings",
       "queryScope": "COLLECTION",
       "fields": [

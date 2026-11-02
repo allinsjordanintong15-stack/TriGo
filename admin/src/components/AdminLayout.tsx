@@ -40,6 +40,7 @@ const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
         badge: { count: 'pendingApplications', noun: ['pending application', 'pending applications'] },
       },
       { to: '/driver-accounts', label: 'Drivers', icon: 'drivers' },
+      { to: '/quota', label: 'Quota', icon: 'quota' },
     ],
   },
   {

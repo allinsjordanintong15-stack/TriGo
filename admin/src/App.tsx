@@ -16,6 +16,7 @@ import { EarningsPage } from './pages/EarningsPage';
 import { FareSettingsPage } from './pages/FareSettingsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
 import { PassengersPage } from './pages/PassengersPage';
+import { QuotaPage } from './pages/QuotaPage';
 import { ReportsLayout } from './pages/ReportsLayout';
 import { ReportsPage } from './pages/ReportsPage';
 import { SystemSettingsPage } from './pages/SystemSettingsPage';
@@ -55,6 +56,7 @@ export function App() {
             <Route path="/driver-accounts/:uid" element={<DriverDetailPage />} />
             <Route path="/drivers" element={<DriverVerificationPage />} />
             <Route path="/drivers/:uid" element={<DriverApplicationPage />} />
+            <Route path="/quota" element={<QuotaPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -8,6 +8,7 @@ export type NavIconName =
   | 'earnings'
   | 'verification'
   | 'drivers'
+  | 'quota'
   | 'passengers'
   | 'outOfArea'
   | 'reports'
@@ -73,6 +74,13 @@ const PATHS: Record<NavIconName, ReactNode> = {
     <>
       <path d="M9 4L3.5 6v14L9 18l6 2 5.5-2V4L15 6 9 4z" />
       <path d="M9 4v14M15 6v14" />
+    </>
+  ),
+  quota: (
+    <>
+      <path d="M4 17a8 8 0 0 1 16 0" />
+      <path d="M12 17l4-5" />
+      <circle cx="12" cy="17" r="1.5" />
     </>
   ),
   commission: (
