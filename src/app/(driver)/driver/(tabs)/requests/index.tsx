@@ -1,4 +1,5 @@
 import { CommissionBanner } from '@/components/driver/CommissionBanner';
+import { DailyQuotaCard } from '@/components/driver/DailyQuotaCard';
 import { DriverRequestCard } from '@/components/driver/DriverRequestCard';
 import { OutOfAreaRequestCard } from '@/components/driver/OutOfAreaRequestCard';
 import { Button } from '@/components/ui/Button';
@@ -24,7 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function DriverRequestsScreen() {
   const insets = useSafeAreaInsets();
   const { status, driverRecord, canPerformDriverActions } = useDriverAccess();
-  const { hasActiveTrip, hiddenRequestIds } = useDriverActivity();
+  const { hasActiveTrip, hiddenRequestIds, dailyQuota } = useDriverActivity();
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [declinedIds, setDeclinedIds] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -306,6 +307,10 @@ export default function DriverRequestsScreen() {
           onOpen={() => router.navigate('/driver/earnings')}
           style={styles.commissionBanner}
         />
+      ) : null}
+      {/* At the daily limit: requests stay visible, but Accept is disabled on each request. */}
+      {status === 'verified' && dailyQuota ? (
+        <DailyQuotaCard status={dailyQuota} onlyWhenReached style={styles.commissionBanner} />
       ) : null}
       {body}
     </View>

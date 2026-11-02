@@ -1,6 +1,8 @@
 import { OUT_OF_AREA_FARE_SETTINGS } from '@/constants/outOfAreaFareSettings';
 import { COLLECTIONS, firestore } from '@/firebase';
+import { fetchDailyLimit, serverNow } from '@/services/quotaService';
 import { AvailableDriver, Location, VehicleType } from '@/types';
+import { isAtDailyLimit, manilaDay } from '@/utils/dailyQuota';
 import { calculateDistanceKmFromCoords } from '@/utils/distance';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 
@@ -21,6 +23,9 @@ interface DriverDocument {
   isOnline: boolean;
   isVerified: boolean;
   isAvailable: boolean;
+  /** Daily acceptance quota (see src/utils/dailyQuota.ts); missing until a first accept. */
+  acceptedCount?: unknown;
+  acceptedDay?: unknown;
   currentLocation?: {
     latitude: number;
     longitude: number;
@@ -29,7 +34,9 @@ interface DriverDocument {
 
 /**
  * Search for nearby available drivers for an out-of-area request.
- * Returns only online, verified, available drivers matching the vehicle type.
+ * Returns only online, verified, available drivers matching the vehicle type, leaving out
+ * drivers at today's daily acceptance limit (they cannot take the request). When the limit
+ * cannot be read, nobody is left out for it.
  * Driver-side registration will populate the `drivers` collection later.
  */
 export async function findNearbyAvailableDrivers(
@@ -46,13 +53,17 @@ export async function findNearbyAvailableDrivers(
       where('vehicleType', '==', vehicleType),
     );
 
-    const snapshot = await getDocs(driversQuery);
+    const [snapshot, dailyLimit] = await Promise.all([getDocs(driversQuery), fetchDailyLimit()]);
+    const today = manilaDay(serverNow());
     const drivers: AvailableDriver[] = [];
 
     snapshot.forEach((docSnap) => {
       const data = docSnap.data() as DriverDocument;
 
       if (!data.currentLocation) {
+        return;
+      }
+      if (dailyLimit !== null && isAtDailyLimit(data, dailyLimit, today)) {
         return;
       }
 

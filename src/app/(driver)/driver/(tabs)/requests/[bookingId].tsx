@@ -16,6 +16,7 @@ import {
 } from '@/services/driverBookingService';
 import { Booking } from '@/types';
 import { isBookingExpired } from '@/utils/bookingExpiry';
+import { DAILY_LIMIT_REACHED_MESSAGE } from '@/utils/dailyQuota';
 import { calculateDistanceKm } from '@/utils/distance';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { getFareBasisLabel } from '@/utils/fareBasisLabel';
@@ -54,7 +55,8 @@ export default function DriverRequestDetailScreen() {
   const params = useLocalSearchParams<{ bookingId?: string }>();
   const bookingId = params.bookingId ?? '';
   const { driverRecord, canPerformDriverActions } = useDriverAccess();
-  const { hasActiveTrip } = useDriverActivity();
+  const { hasActiveTrip, dailyQuota } = useDriverActivity();
+  const atDailyLimit = dailyQuota?.reached === true;
 
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,7 +105,8 @@ export default function DriverRequestDetailScreen() {
     canPerformDriverActions &&
     driverRecord?.isOnline === true &&
     driverRecord.isAvailable &&
-    !hasActiveTrip;
+    !hasActiveTrip &&
+    !atDailyLimit;
 
   async function handleAccept() {
     if (!booking || !driverId || !canAccept) return;
@@ -239,7 +242,9 @@ export default function DriverRequestDetailScreen() {
           <Text style={styles.cannotAccept}>
             {hasActiveTrip
               ? 'You already have an active trip.'
-              : 'You must be verified, online and available to accept requests.'}
+              : atDailyLimit
+                ? DAILY_LIMIT_REACHED_MESSAGE
+                : 'You must be verified, online and available to accept requests.'}
           </Text>
         ) : null}
         <Button

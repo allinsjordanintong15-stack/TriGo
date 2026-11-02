@@ -18,6 +18,7 @@ import {
   withdrawProposal,
 } from '@/services/fareAgreementService';
 import { OutOfAreaRequest } from '@/types';
+import { DAILY_LIMIT_REACHED_MESSAGE } from '@/utils/dailyQuota';
 import { formatPhilippinePeso } from '@/utils/fare';
 import {
   getProposalState,
@@ -43,7 +44,8 @@ export default function OutOfAreaProposalScreen() {
   const params = useLocalSearchParams<{ requestId?: string }>();
   const requestId = params.requestId ?? '';
   const { status, driverRecord, canPerformDriverActions } = useDriverAccess();
-  const { hasActiveTrip, finishedProposal, dismissFinishedProposal } = useDriverActivity();
+  const { hasActiveTrip, finishedProposal, dismissFinishedProposal, dailyQuota } =
+    useDriverActivity();
 
   const [request, setRequest] = useState<OutOfAreaRequest | null>(null);
   const [loading, setLoading] = useState(true);
@@ -149,6 +151,8 @@ export default function OutOfAreaProposalScreen() {
     blockedReason = 'Finish your current trip before accepting a request.';
   } else if (driverRecord?.currentRequestId) {
     blockedReason = 'You are already waiting on another passenger. Withdraw first.';
+  } else if (dailyQuota?.reached) {
+    blockedReason = DAILY_LIMIT_REACHED_MESSAGE;
   } else if (!driverRecord?.isOnline || !driverRecord.isAvailable) {
     blockedReason = 'Go online and be available on the Home tab to accept requests.';
   } else if (driverRecord.vehicleType !== shown.vehicleType) {

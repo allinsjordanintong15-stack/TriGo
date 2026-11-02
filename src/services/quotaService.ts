@@ -39,6 +39,15 @@ export function subscribeToDailyLimit(
   );
 }
 
+/** The current limit, or null when it cannot be read (e.g. offline). */
+export async function fetchDailyLimit(): Promise<number | null> {
+  try {
+    return dailyLimitFrom((await getDoc(quotaSettingsRef())).data());
+  } catch {
+    return null;
+  }
+}
+
 /** The limit read inside a transaction (accept), so the check uses the current value. */
 export async function readDailyLimit(transaction: Transaction): Promise<number> {
   const snapshot = await transaction.get(quotaSettingsRef());

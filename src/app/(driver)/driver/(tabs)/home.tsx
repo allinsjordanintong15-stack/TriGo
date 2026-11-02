@@ -2,6 +2,7 @@ import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { ActiveTripBanner } from '@/components/driver/ActiveTripBanner';
 import { CommissionBanner } from '@/components/driver/CommissionBanner';
 import { CommissionCard } from '@/components/driver/CommissionCard';
+import { DailyQuotaCard } from '@/components/driver/DailyQuotaCard';
 import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
 import { DutyToggle } from '@/components/driver/DutyToggle';
 import { FaresCollectedCard } from '@/components/driver/FaresCollectedCard';
@@ -103,6 +104,7 @@ export default function DriverHomeScreen() {
     proposalState,
     finishedProposal,
     dismissFinishedProposal,
+    dailyQuota,
   } = useDriverActivity();
   const driverId = driverRecord?.driverId ?? null;
   const [now, setNow] = useState(() => Date.now());
@@ -377,6 +379,9 @@ export default function DriverHomeScreen() {
         {driverRecord ? (
           <CommissionBanner state={commission} onOpen={() => router.navigate('/driver/earnings')} />
         ) : null}
+
+        {/* Daily acceptance quota: always shown to verified drivers once the limit is read. */}
+        {status === 'verified' && dailyQuota ? <DailyQuotaCard status={dailyQuota} /> : null}
 
         {statusCard}
 

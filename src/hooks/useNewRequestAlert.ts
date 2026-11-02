@@ -115,7 +115,8 @@ function outOfAreaDetails(
  * instead (decideAlert): one for a single request, one summary for several. A request's
  * notification is removed when it is taken, cancelled, expires or is hidden, and all
  * ride-request notifications are removed when the driver can no longer take requests
- * (offline, unavailable, on a trip, or an out-of-area offer waiting) or signs out.
+ * (offline, unavailable, on a trip, an out-of-area offer waiting, or at the daily
+ * acceptance limit) or signs out.
  *
  * Only while the driver can take requests: verified, online, available, no active trip and
  * no out-of-area offer waiting for the passenger (drivers/{uid}.currentRequestId). Covers
@@ -127,7 +128,7 @@ function outOfAreaDetails(
  */
 export function useNewRequestAlert(): void {
   const { driverRecord, canPerformDriverActions } = useDriverAccess();
-  const { hasActiveTrip, hiddenRequestIds } = useDriverActivity();
+  const { hasActiveTrip, hiddenRequestIds, dailyQuota } = useDriverActivity();
 
   const driverId = driverRecord?.driverId ?? null;
   const vehicleType = driverRecord?.vehicleType ?? null;
@@ -138,7 +139,10 @@ export function useNewRequestAlert(): void {
     driverRecord?.isOnline === true &&
     driverRecord.isAvailable &&
     !hasActiveTrip &&
-    (driverRecord.currentRequestId ?? null) === null;
+    (driverRecord.currentRequestId ?? null) === null &&
+    // At the daily acceptance limit nothing can be accepted, so nothing alerts (and the
+    // "not enabled" path below removes the ride-request notifications).
+    dailyQuota?.reached !== true;
 
   const [searchRadiusKm, setSearchRadiusKm] = useState<number | null>(null);
   useEffect(() => {

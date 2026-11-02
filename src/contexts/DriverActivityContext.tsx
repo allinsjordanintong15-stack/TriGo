@@ -14,7 +14,9 @@ import {
   releaseCancelledBooking,
 } from '@/services/driverService';
 import { releaseOutOfAreaRequest } from '@/services/fareAgreementService';
+import { serverNow, subscribeToDailyLimit } from '@/services/quotaService';
 import { Booking, OutOfAreaRequest } from '@/types';
+import { acceptedOn, manilaDay, quotaStatus, QuotaStatus } from '@/utils/dailyQuota';
 import {
   getProposalState,
   isProposalOutcome,
@@ -62,7 +64,15 @@ export interface DriverActivityContextValue {
   dismissFinishedProposal: () => void;
   /** Requests whose fare the passenger declined, hidden from this driver on this device. */
   hiddenRequestIds: string[];
+  /**
+   * Daily acceptance quota: today's count (Manila day) against the admin's live limit.
+   * Null until the limit is read, or when it cannot be (the rules still enforce it).
+   */
+  dailyQuota: QuotaStatus | null;
 }
+
+/** How often the Manila day is re-checked, so the count resets on screen at midnight. */
+const DAY_CHECK_MS = 60 * 1000;
 
 const DriverActivityContext = createContext<DriverActivityContextValue | undefined>(undefined);
 
@@ -80,6 +90,28 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
 
   // Firestore rules only let verified drivers read bookings and requests.
   const subscriptionKey = driverId && canPerformDriverActions ? driverId : null;
+
+  // Daily acceptance quota: the admin's limit, live, and today's Manila day.
+  const [dailyLimit, setDailyLimit] = useState<number | null>(null);
+  useEffect(() => {
+    setDailyLimit(null);
+    if (!driverId) return;
+    return subscribeToDailyLimit(setDailyLimit, () => setDailyLimit(null));
+  }, [driverId]);
+
+  const [today, setToday] = useState(() => manilaDay(serverNow()));
+  useEffect(() => {
+    const timer = setInterval(() => setToday(manilaDay(serverNow())), DAY_CHECK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const dailyQuota = useMemo(
+    () =>
+      driverRecord && dailyLimit !== null
+        ? quotaStatus(acceptedOn(driverRecord, today), dailyLimit)
+        : null,
+    [driverRecord, dailyLimit, today],
+  );
 
   useEffect(() => {
     setActiveBookings([]);
@@ -316,6 +348,7 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
       finishedProposal,
       dismissFinishedProposal,
       hiddenRequestIds,
+      dailyQuota,
     }),
     [
       activeBookings,
@@ -326,6 +359,7 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
       finishedProposal,
       dismissFinishedProposal,
       hiddenRequestIds,
+      dailyQuota,
     ],
   );
 
