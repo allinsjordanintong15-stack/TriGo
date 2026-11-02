@@ -278,8 +278,8 @@ h2 {
 }
 
 /* Compact sidebar: every group fits a 1366×768 laptop window without scrolling (brand 53px,
-   11 links × 36px, 4 group labels, one account row ≈ 595px). Windows up to 640px tall get a
-   tighter layout (≈ 505px, see the max-height query below). The sidebar never shows its own
+   12 links × 36px, 4 group labels, one account row ≈ 631px). Windows up to 640px tall get a
+   tighter layout (12 links × 30px ≈ 535px, see the max-height query below). The sidebar never shows its own
    scrollbar; on an even shorter window it still scrolls with the wheel or keyboard. */
 .sidebar {
   position: fixed;
