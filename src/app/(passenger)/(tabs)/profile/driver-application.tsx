@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { VehicleSelector } from '@/components/home/VehicleSelector';
+import { DriverApplicationPrivacyNotice } from '@/components/legal/DriverApplicationPrivacyNotice';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { DocumentImageField } from '@/components/profile/DocumentImageField';
 import { VehicleColorField } from '@/components/profile/VehicleColorField';
@@ -165,6 +166,9 @@ export default function DriverApplicationScreen() {
   const [documentErrors, setDocumentErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // "I've read this" under the privacy notice: unticked for every submit and resubmit.
+  const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
+  const [privacyError, setPrivacyError] = useState('');
 
   if (!passenger) {
     return (
@@ -220,6 +224,8 @@ export default function DriverApplicationScreen() {
           });
           setStep(0);
           setError('');
+          setPrivacyAcknowledged(false);
+          setPrivacyError('');
           setResubmitting(true);
         }}
       />
@@ -316,6 +322,10 @@ export default function DriverApplicationScreen() {
   async function handleSubmit() {
     // Guard against repeated taps while documents upload.
     if (!passenger || !vehicleType || !canSubmit) return;
+    if (!privacyAcknowledged) {
+      setPrivacyError("Please read the note about your data and tick \"I've read this\".");
+      return;
+    }
 
     setSubmitting(true);
     setError('');
@@ -327,6 +337,7 @@ export default function DriverApplicationScreen() {
         vehiclePlate,
         ...vehicleDetails,
         documents,
+        privacyNoticeAcknowledged: privacyAcknowledged,
       });
       // The live application listener switches this screen to the Pending status view.
       setResubmitting(false);
@@ -588,6 +599,16 @@ export default function DriverApplicationScreen() {
               Submitting does not make you a verified driver. Your application stays pending until
               a TriGo administrator reviews and approves it.
             </Text>
+
+            <DriverApplicationPrivacyNotice
+              acknowledged={privacyAcknowledged}
+              onChange={(acknowledged) => {
+                setPrivacyAcknowledged(acknowledged);
+                if (acknowledged) setPrivacyError('');
+              }}
+              error={privacyError}
+              disabled={submitting}
+            />
 
             <Button
               title={

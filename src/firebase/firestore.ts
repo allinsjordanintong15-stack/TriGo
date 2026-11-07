@@ -24,4 +24,5 @@ export const COLLECTIONS = {
   commissionPayments: 'commissionPayments',
   paymentReferences: 'paymentReferences',
   quotaSettings: 'quotaSettings',
+  deletionRequests: 'deletionRequests',
 } as const;

@@ -21,7 +21,6 @@ import {
   legalVersionLine,
   PRIVACY_CONTACT,
   PRIVACY_NOTICE,
-  TERMS,
 } from '../../shared/legal/index.ts';
 
 const docsLegal = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'legal');
@@ -92,12 +91,29 @@ describe('legal text shown to users', () => {
     assert.match(JSON.stringify(notifications), /lock screen shows only Android's own message that the contents are hidden/);
   });
 
-  it('lists the values still to fill in (minimum age, Firestore region)', () => {
-    // When these are filled in, update this list (and raise the version if already published).
-    assert.deepEqual(findPlaceholders(PRIVACY_NOTICE), [
-      '⟦TO FILL: Firestore location / region⟧',
-      '⟦TO FILL: minimum age⟧',
-    ]);
-    assert.deepEqual(findPlaceholders(TERMS), ['⟦TO FILL: minimum age⟧']);
+  it('has no ⟦TO FILL⟧ values left (minimum age and Firestore region are filled in)', () => {
+    for (const doc of LEGAL_DOCUMENTS) assert.deepEqual(findPlaceholders(doc), [], doc.id);
+    for (const file of Object.values(LEGAL_MARKDOWN_FILES)) {
+      assert.doesNotMatch(readFileSync(join(docsLegal, file), 'utf8'), /TO FILL/, file);
+    }
+  });
+
+  it('minimum age is 18 for passengers and drivers, and under-18s ride only when an adult books', () => {
+    for (const doc of LEGAL_DOCUMENTS) {
+      const text = allText(doc);
+      assert.match(text, /at least 18 years old to have (a TriGo account|an account), as a passenger or as a driver/, doc.id);
+      assert.match(text, /under 18 may ride only when an adult books the trip/, doc.id);
+    }
+  });
+
+  it('says data is stored and processed outside the Philippines, by Google as processor, in nam5', () => {
+    const text = allText(PRIVACY_NOTICE);
+    assert.match(text, /stored and processed outside the Philippines/);
+    assert.match(text, /as our processor/);
+    assert.match(text, /the United States \(Google Cloud multi-region nam5\)/);
+  });
+
+  it('section 11 gives the in-app menu path to request deletion', () => {
+    assert.match(allText(PRIVACY_NOTICE), /Profile → Privacy Policy & Terms → Request account deletion/);
   });
 });

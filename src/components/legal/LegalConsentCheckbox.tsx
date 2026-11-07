@@ -1,5 +1,5 @@
-import { colors, radius, spacing, typography } from '@/constants/theme';
-import { Ionicons } from '@expo/vector-icons';
+import { Checkbox, CHECKBOX_INDENT } from '@/components/ui/Checkbox';
+import { colors, spacing, typography } from '@/constants/theme';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -17,37 +17,23 @@ interface LegalConsentCheckboxProps {
 export function LegalConsentCheckbox({ checked, onChange, error, disabled }: LegalConsentCheckboxProps) {
   return (
     <View style={styles.container}>
-      <Pressable
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked, disabled }}
-        accessibilityLabel="I have read and agree to the Privacy Notice and Terms"
-        accessibilityHint={error}
+      <Checkbox
+        label="I have read and agree to the Privacy Notice and Terms"
+        checked={checked}
+        onChange={onChange}
+        error={error}
         disabled={disabled}
-        style={styles.row}
-        hitSlop={4}
-        onPress={() => onChange(!checked)}
-      >
-        <View style={[styles.box, checked ? styles.boxChecked : null, error ? styles.boxError : null]}>
-          {checked ? <Ionicons name="checkmark" size={18} color={colors.white} /> : null}
-        </View>
-        <Text style={styles.label}>I have read and agree to the Privacy Notice and Terms</Text>
-      </Pressable>
-
+      />
       <View style={styles.links}>
         <ReadLink label="Read the Privacy Notice" onPress={() => router.push('/legal/privacy-notice')} />
         <ReadLink label="Read the Terms of Use" onPress={() => router.push('/legal/terms')} />
       </View>
-
-      {error ? (
-        <Text style={styles.error} accessibilityRole="alert">
-          {error}
-        </Text>
-      ) : null}
     </View>
   );
 }
 
-function ReadLink({ label, onPress }: { label: string; onPress: () => void }) {
+/** An underlined link to a legal document (also used under the driver application notice). */
+export function ReadLink({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="link" style={styles.link} hitSlop={4} onPress={onPress}>
       <Text style={styles.linkText}>{label}</Text>
@@ -60,40 +46,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.sm,
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 48,
-    gap: spacing.md,
-  },
-  box: {
-    width: 26,
-    height: 26,
-    borderRadius: radius.sm / 2,
-    borderWidth: 2,
-    borderColor: colors.textSecondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.white,
-  },
-  boxChecked: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  boxError: {
-    borderColor: colors.error,
-  },
-  label: {
-    ...typography.body,
-    color: colors.text,
-    flex: 1,
-    lineHeight: 22,
-  },
   links: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     columnGap: spacing.lg,
-    paddingLeft: 26 + spacing.md,
+    paddingLeft: CHECKBOX_INDENT,
   },
   link: {
     minHeight: 44,
@@ -103,10 +60,5 @@ const styles = StyleSheet.create({
     ...typography.label,
     color: colors.primary,
     textDecorationLine: 'underline',
-  },
-  error: {
-    ...typography.caption,
-    color: colors.error,
-    marginTop: spacing.xs,
   },
 });

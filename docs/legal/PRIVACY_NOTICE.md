@@ -12,6 +12,8 @@ Your mobile number is shared only with the other person on an active trip. A dri
 
 We do not sell your data, we do not use advertising or analytics tools, and we never track your location in the background.
 
+Your data is stored and processed outside the Philippines, by Google in the United States (Google Cloud multi-region nam5), on our behalf.
+
 Questions or requests: TriGo Management, allinsjordanintong15@gmail.com.
 
 ## 1. Who we are
@@ -83,13 +85,13 @@ We do not sell or rent your personal data, and we do not share it with advertise
 
 ## 7. Services we use
 
-- Google Firebase (Authentication, Cloud Firestore and Hosting) stores your account and the data in section 2, and keeps technical logs such as IP addresses and device or browser details. TriGo's data is stored in ⟦TO FILL: Firestore location / region⟧.
+- Google Firebase (Authentication, Cloud Firestore and Hosting) stores your account and the data in section 2, and keeps technical logs such as IP addresses and device or browser details. TriGo's data is stored in the United States (Google Cloud multi-region nam5).
 - OpenRouteService (HeiGIT, Germany) receives pickup and destination map positions and the place names you type in the search, to find places, road routes and distances. It does not receive your name or number.
 - OpenFreeMap provides the map images and receives your phone's IP address and the area of the map being shown.
 - Your phone's own map services (Google on Android, Apple on iPhone) may receive a map position or search text when OpenRouteService is not available.
 - GCash: drivers pay commission and passengers may pay fares in the GCash app, outside TriGo. TriGo sends nothing to GCash; drivers type the GCash reference number into TriGo.
 
-Some of these services process data outside the Philippines. They are used only for the purposes above.
+Your personal data is stored and processed outside the Philippines. Google stores and processes it in the United States (Google Cloud multi-region nam5) as our processor: only on our instructions and only to provide the services above, not for its own purposes. The other services listed may also process data outside the Philippines, only for the purposes above.
 
 ## 8. Phone permissions
 
@@ -111,7 +113,7 @@ The app keeps your sign-in session so you stay signed in, and, for drivers, the 
 
 ## 11. Deleting your account
 
-You can ask us to delete your account in the app (Profile → Request account deletion) or by email to allinsjordanintong15@gmail.com. When we do it:
+You can ask us to delete your account in the app (Profile → Privacy Policy & Terms → Request account deletion) or by email to allinsjordanintong15@gmail.com. When we do it:
 
 - Your name, mobile number and other personal details are removed from your profile and contact details.
 - For drivers, your name, plate and vehicle details are removed from your driver record and driver application, and you are taken offline and can no longer accept trips.
@@ -139,7 +141,9 @@ All data is sent over encrypted connections. Access is limited by sign-in and by
 
 ## 14. Age
 
-You must be at least ⟦TO FILL: minimum age⟧ years old to use TriGo. Drivers must also hold a valid driver's license.
+You must be at least 18 years old to have a TriGo account, as a passenger or as a driver. Drivers must also hold a valid driver's license.
+
+Children and teenagers under 18 may ride only when an adult books the trip with the adult's own account. The adult is responsible for them during the trip. Do not create an account for anyone under 18. We do not knowingly collect personal data from anyone under 18.
 
 ## 15. Changes to this notice
 

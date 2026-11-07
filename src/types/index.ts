@@ -111,6 +111,14 @@ export interface LegalConsent {
   acceptedAt: Date;
 }
 
+/** deletionRequests/{uid}: the user's request to have their account deleted. */
+export interface DeletionRequest {
+  status: 'pending' | 'completed';
+  requestedAt: Date;
+  reason: string | null;
+  completedAt: Date | null;
+}
+
 export interface User {
   uid: string;
   fullName: string;

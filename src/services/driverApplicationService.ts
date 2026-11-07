@@ -1,3 +1,4 @@
+import { LEGAL_VERSION } from '@/constants/legal';
 import { COLLECTIONS, firestore, storage, STORAGE_PATHS } from '@/firebase';
 import {
   DriverApplication,
@@ -64,6 +65,8 @@ export interface DriverApplicationInput {
   vehicleModel: string;
   vehicleColor: string;
   documents: Record<DriverApplicationDocumentType, ApplicationDocumentImage | null>;
+  /** The "I've read this" checkbox under the short privacy notice above Submit. */
+  privacyNoticeAcknowledged: boolean;
 }
 
 export const DOCUMENT_LABELS: Record<DriverApplicationDocumentType, string> = {
@@ -211,7 +214,10 @@ function validateInput(user: User, email: string, input: DriverApplicationInput)
     validateVehicleModel(input.vehicleModel) ??
     validateVehicleColor(input.vehicleColor) ??
     (input.documents.orCr ? null : 'Please add a photo of your OR/CR.') ??
-    (input.documents.ltoLicense ? null : "Please add a photo of your LTO-verified driver's license.")
+    (input.documents.ltoLicense ? null : "Please add a photo of your LTO-verified driver's license.") ??
+    (input.privacyNoticeAcknowledged
+      ? null
+      : "Please read the note about your data and tick \"I've read this\" before submitting.")
   );
 }
 
@@ -293,6 +299,9 @@ export async function submitDriverApplication(
     status: 'pending' as const,
     submittedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    // Required by the rules on every submit and resubmit: the current legal version, now.
+    privacyNoticeVersion: LEGAL_VERSION,
+    privacyNoticeAcknowledgedAt: serverTimestamp(),
   };
 
   try {

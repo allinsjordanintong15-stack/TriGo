@@ -5,11 +5,13 @@
 // Editing this text changes what users agreed to: raise LEGAL_VERSION in meta.ts and run
 // `npm run legal:export`.
 
-import { PRIVACY_CONTACT, toFill } from './meta.ts';
+import { PRIVACY_CONTACT } from './meta.ts';
 import type { LegalDocument } from './types.ts';
 
-const MIN_AGE = toFill('minimum age');
-const FIRESTORE_REGION = toFill('Firestore location / region');
+/** Minimum age for an account, passengers and drivers alike. */
+const MIN_AGE = 18;
+/** Where Cloud Firestore keeps TriGo's data (Firebase project trigo-2eaf6, location nam5). */
+const FIRESTORE_REGION = 'the United States (Google Cloud multi-region nam5)';
 
 export const PRIVACY_NOTICE: LegalDocument = {
   id: 'privacy-notice',
@@ -18,6 +20,7 @@ export const PRIVACY_NOTICE: LegalDocument = {
     'TriGo connects passengers with tricycle and motorcycle drivers in Trinidad, Bohol. To do that we need your name, mobile number, email, trip details and, at certain moments, your location.',
     'Your mobile number is shared only with the other person on an active trip. A driver\'s location is shared only while the driver is online.',
     'We do not sell your data, we do not use advertising or analytics tools, and we never track your location in the background.',
+    `Your data is stored and processed outside the Philippines, by Google in ${FIRESTORE_REGION}, on our behalf.`,
     `Questions or requests: ${PRIVACY_CONTACT.name}, ${PRIVACY_CONTACT.email}.`,
   ],
   sections: [
@@ -165,7 +168,7 @@ export const PRIVACY_NOTICE: LegalDocument = {
         },
         {
           kind: 'paragraph',
-          text: 'Some of these services process data outside the Philippines. They are used only for the purposes above.',
+          text: `Your personal data is stored and processed outside the Philippines. Google stores and processes it in ${FIRESTORE_REGION} as our processor: only on our instructions and only to provide the services above, not for its own purposes. The other services listed may also process data outside the Philippines, only for the purposes above.`,
         },
       ],
     },
@@ -215,7 +218,7 @@ export const PRIVACY_NOTICE: LegalDocument = {
       blocks: [
         {
           kind: 'paragraph',
-          text: `You can ask us to delete your account in the app (Profile → Request account deletion) or by email to ${PRIVACY_CONTACT.email}. When we do it:`,
+          text: `You can ask us to delete your account in the app (Profile → Privacy Policy & Terms → Request account deletion) or by email to ${PRIVACY_CONTACT.email}. When we do it:`,
         },
         {
           kind: 'list',
@@ -268,7 +271,11 @@ export const PRIVACY_NOTICE: LegalDocument = {
       blocks: [
         {
           kind: 'paragraph',
-          text: `You must be at least ${MIN_AGE} years old to use TriGo. Drivers must also hold a valid driver's license.`,
+          text: `You must be at least ${MIN_AGE} years old to have a TriGo account, as a passenger or as a driver. Drivers must also hold a valid driver's license.`,
+        },
+        {
+          kind: 'paragraph',
+          text: `Children and teenagers under ${MIN_AGE} may ride only when an adult books the trip with the adult's own account. The adult is responsible for them during the trip. Do not create an account for anyone under ${MIN_AGE}. We do not knowingly collect personal data from anyone under ${MIN_AGE}.`,
         },
       ],
     },

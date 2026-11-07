@@ -12,6 +12,8 @@ export {
   PRIVACY_CONTACT,
   privacyContactLine,
 } from './meta.ts';
+export { DRIVER_APPLICATION_NOTICE } from './driverApplicationNotice.ts';
+export type { DriverApplicationNotice } from './driverApplicationNotice.ts';
 export { LEGAL_MARKDOWN_FILES, legalDocumentToMarkdown } from './markdown.ts';
 export { findPlaceholders } from './placeholders.ts';
 export { PRIVACY_NOTICE } from './privacyNotice.ts';

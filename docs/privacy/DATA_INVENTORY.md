@@ -13,8 +13,8 @@ Placeholders to fill in are marked **⟦TO FILL: …⟧**.
 | Controller | TriGo Management (capstone project team) | Privacy contact: see `shared/legal` (added in step 2 of the privacy plan). |
 | Data subjects | Passengers, drivers, driver applicants, admins | Admins are team members using the admin website. |
 | Processors / third parties | Google (Firebase), HeiGIT (OpenRouteService), OpenFreeMap, the phone's OS map services | See section 5. |
-| Minimum age | ⟦TO FILL: minimum age for passengers and drivers⟧ | The app does not ask for a date of birth today. |
-| Where Firestore data is stored | ⟦TO FILL: Firestore location / region (Firebase Console → Firestore → Settings)⟧ | Firebase project `trigo-2eaf6`. |
+| Minimum age | 18 for passengers and drivers; under-18s ride only when an adult books with their own account | The app does not ask for a date of birth today. |
+| Where Firestore data is stored | United States, Google Cloud multi-region `nam5` (outside the Philippines; Google as processor) | Firebase project `trigo-2eaf6` (`firebase firestore:databases:get`, 2026-11-07). |
 
 ## 2. Data stored in the cloud (Firebase)
 

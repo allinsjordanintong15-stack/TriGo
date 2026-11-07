@@ -18,7 +18,8 @@ These terms apply to the TriGo mobile app and are offered by TriGo Management. B
 
 ## 2. Your account
 
-- You must be at least ⟦TO FILL: minimum age⟧ years old.
+- You must be at least 18 years old to have an account, as a passenger or as a driver.
+- Someone under 18 may ride only when an adult books the trip with the adult's own account. The adult is responsible for them during the trip.
 - Give your real name and a mobile number where you can be reached, and keep them up to date.
 - Keep your password to yourself. You are responsible for what is done with your account.
 - One account per person. Do not use someone else's account.

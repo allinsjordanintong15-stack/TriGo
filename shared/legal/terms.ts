@@ -4,10 +4,11 @@
 // Editing this text changes what users agreed to: raise LEGAL_VERSION in meta.ts and run
 // `npm run legal:export`.
 
-import { PRIVACY_CONTACT, toFill } from './meta.ts';
+import { PRIVACY_CONTACT } from './meta.ts';
 import type { LegalDocument } from './types.ts';
 
-const MIN_AGE = toFill('minimum age');
+/** Minimum age for an account, passengers and drivers alike (same as the Privacy Notice). */
+const MIN_AGE = 18;
 
 export const TERMS: LegalDocument = {
   id: 'terms',
@@ -35,7 +36,8 @@ export const TERMS: LegalDocument = {
         {
           kind: 'list',
           items: [
-            `You must be at least ${MIN_AGE} years old.`,
+            `You must be at least ${MIN_AGE} years old to have an account, as a passenger or as a driver.`,
+            `Someone under ${MIN_AGE} may ride only when an adult books the trip with the adult's own account. The adult is responsible for them during the trip.`,
             'Give your real name and a mobile number where you can be reached, and keep them up to date.',
             'Keep your password to yourself. You are responsible for what is done with your account.',
             'One account per person. Do not use someone else\'s account.',
