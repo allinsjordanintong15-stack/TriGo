@@ -1,11 +1,18 @@
 // Account deletion requests (deletionRequests/{uid}, see firestore.rules). The user asks
 // (status pending, optional reason) and may withdraw while pending; the TriGo team
-// completes it on the admin website in the same commit that anonymizes the account.
+// completes it on the admin website in the same commit that anonymizes the account, or
+// declines it with a note. The user may remove a declined request and ask again.
 
 import { getCommissionAccount } from '@/services/commissionService';
 import { COLLECTIONS, firestore } from '@/firebase';
 import { DeletionRequest, DriverRecord } from '@/types';
-import { ACTIVE_TRIP_STATUSES, DeletionContext, normalizeDeletionReason } from '@/utils/accountDeletion';
+import {
+  ACTIVE_TRIP_STATUSES,
+  DeletionContext,
+  normalizeDeletionReason,
+  parseDeclineNote,
+  parseDeletionStatus,
+} from '@/utils/accountDeletion';
 import {
   collection,
   deleteDoc,
@@ -48,10 +55,12 @@ export function subscribeToDeletionRequest(
         return;
       }
       onUpdate({
-        status: data.status === 'completed' ? 'completed' : 'pending',
+        status: parseDeletionStatus(data.status),
         requestedAt: toDate(data.requestedAt) ?? new Date(),
         reason: typeof data.reason === 'string' ? data.reason : null,
         completedAt: toDate(data.completedAt),
+        declineNote: parseDeclineNote(data.declineNote),
+        declinedAt: toDate(data.declinedAt),
       });
     },
     (error) => onError(error as Error),
@@ -84,6 +93,17 @@ export async function withdrawDeletionRequest(uid: string): Promise<void> {
   } catch {
     throw new DeletionRequestError(
       'Unable to withdraw your request. Please check your internet connection and try again.',
+    );
+  }
+}
+
+/** Remove a declined request so a new one can be made (the rules allow pending or declined). */
+export async function clearDeclinedDeletionRequest(uid: string): Promise<void> {
+  try {
+    await deleteDoc(doc(firestore, COLLECTIONS.deletionRequests, uid));
+  } catch {
+    throw new DeletionRequestError(
+      'Unable to clear the declined request. Please check your internet connection and try again.',
     );
   }
 }

@@ -61,7 +61,26 @@ TriGo moves no money. These records hold amounts and references, linked to the d
 | `cashOuts/{id}` | Amount, method (GCash/Maya/bank), reference, date, note, `createdBy` (admin uid) | Record of TriGo's own cash-outs (not about passengers or drivers) | Admins | Admins |
 | `earningsLedger/totals` | Totals only, last payment ID | Bookkeeping | Admins | Admin confirmations and cash-outs |
 
-### 2.5 Settings (no personal data about app users)
+### 2.5 Account deletion requests
+
+One document per user, `deletionRequests/{uid}` (Profile → Privacy Policy & Terms → Request
+account deletion; handled on the admin website, Account deletion page).
+
+| Field | Personal data | Written by | Notes |
+|---|---|---|---|
+| `uid` | The user's uid | The user, on request | Equal to the document ID |
+| `status` | — | User (`pending`); admin (`completed` or `declined`) | `pending` → `completed` (only in the same commit that anonymizes `users/{uid}`) or `pending` → `declined` |
+| `reason` | Optional free text, up to 500 characters | The user, on request | May contain anything the user types |
+| `requestedAt` | Time of the request | The user (server time) | |
+| `completedAt`, `completedBy` | Time; admin uid | Admin, when completing | |
+| `declineNote`, `declinedAt`, `declinedBy` | Note to the user (1–500 characters); time; admin uid | Admin, when declining | The user sees the note and date in the app |
+| `authDeletedAt`, `authDeletedBy` | Time; admin uid | Admin, once, on a completed request | Records that the sign-in account was deleted by hand in the Firebase Console (no Cloud Functions) |
+
+Who can read: the user (own request); admins. The user may delete a **pending** request
+(Withdraw) or a **declined** one (Ask again, then a new request). A **completed** request stays
+as the record of the deletion, with the reason and the admin uids.
+
+### 2.6 Settings (no personal data about app users)
 
 `fareSettings/active`, `barangayTariffs/*`, `commissionSettings/active`, `quotaSettings/active`
 hold settings plus `updatedBy` (an admin uid). `paymentSettings/active` holds **TriGo's own**
@@ -122,7 +141,8 @@ Console. Proposed retention periods are for the DPO to decide:
    (`tests/rules/driverDuty.test.ts`).
 2. **Verified driver records are readable by every signed-in user**, including the admin uid in
    `verificationUpdatedBy` and the daily count. Passengers only need name, plate, vehicle and
-   (during matching) location.
+   (during matching) location. (A driver record anonymized after account deletion is set to
+   unverified, so it is no longer readable by other users.)
 3. ~~**Ride request notifications are public on the lock screen.**~~ **Fixed (fix B,
    2026-11-02):** Android channel `ride-requests-private` (now `ride-requests-private-v2`, 2026-11-07: default sound fix) with private lock-screen visibility;
    the lock screen shows only Android's own "contents hidden" placeholder and the TriGo name,
@@ -132,8 +152,24 @@ Console. Proposed retention periods are for the DPO to decide:
    enabled.
 5. **Open standard bookings show pickup and destination addresses to all verified drivers** of
    that vehicle type (needed to choose a ride; the passenger's name and number are not shown).
-6. **No date of birth or age check** (see the minimum-age placeholder).
-7. **No way yet to request deletion or see what was agreed to.** Planned in the privacy steps
-   (consent, re-consent, deletion requests, anonymization).
+6. **No date of birth or age check.** The minimum age is 18 for passengers and drivers
+   (section 1; Privacy Notice section 14, Terms section 2), but the app relies on the user's
+   agreement and does not ask for an age.
+7. ~~**No way yet to request deletion or see what was agreed to.**~~ **Built (privacy steps,
+   2026-11-07):**
+   - *What was agreed to:* consent at registration and a re-consent screen when the version
+     changes (`users/{uid}.legalConsent`, log in `users/{uid}/legalConsents/{version}`).
+     App: Profile → Privacy Policy & Terms shows "You agreed to version … on …", the current
+     version, both documents and the privacy contact. The admin website shows the public
+     Privacy Notice and Terms at `/privacy` and `/terms`.
+   - *Deletion:* app: Profile → Privacy Policy & Terms → Request account deletion (optional
+     reason; Withdraw while pending; a declined request shows the team's note and "Ask
+     again"; completed shows the date). Admin website: Account deletion page
+     (`/account-deletion`, with a badge for pending requests) checks open items, then either
+     anonymizes the account and completes the request in one commit, or declines with a note;
+     the admin then deletes the sign-in account in the Firebase Console and records it.
+     Fields in section 2.5.
 
-Findings 1 and 3 were fixed before the privacy notice was written; the others are recorded only (and described in the notice) unless you decide to change them.
+Findings 1 and 3 were fixed before the privacy notice was written, and finding 7 was built in the
+privacy steps; the others are recorded only (and described in the notice) unless you decide to
+change them.

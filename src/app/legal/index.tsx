@@ -8,6 +8,7 @@ import { legalVersionLine, PRIVACY_CONTACT } from '@/constants/legal';
 import { colors, radius, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import {
+  clearDeclinedDeletionRequest,
   DeletionRequestError,
   loadDeletionContext,
   requestAccountDeletion,
@@ -91,7 +92,11 @@ export default function LegalOverviewScreen() {
   );
 }
 
-/** Profile → Privacy Policy & Terms → Request account deletion, its status and Withdraw. */
+/**
+ * Profile → Privacy Policy & Terms → Request account deletion, its status and Withdraw.
+ * A declined request shows the team's note and "Ask again" (removes it; the user can then
+ * send a new request).
+ */
 function AccountDeletionSection({ uid }: { uid: string }) {
   const { driverRecord } = useAuth();
   // undefined while loading; null when there is no request.
@@ -104,6 +109,9 @@ function AccountDeletionSection({ uid }: { uid: string }) {
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState('');
+  const [confirmAskAgain, setConfirmAskAgain] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState('');
 
   useEffect(
     () =>
@@ -158,6 +166,24 @@ function AccountDeletionSection({ uid }: { uid: string }) {
     }
   }
 
+  async function handleAskAgain() {
+    setClearing(true);
+    setClearError('');
+    try {
+      // The snapshot then emits null and "Request account deletion" shows again.
+      await clearDeclinedDeletionRequest(uid);
+    } catch (error) {
+      setClearError(
+        error instanceof DeletionRequestError
+          ? error.message
+          : 'Unable to clear the declined request. Please try again.',
+      );
+    } finally {
+      setClearing(false);
+      setConfirmAskAgain(false);
+    }
+  }
+
   return (
     <>
       {/* The menu section brings its own title; the other states use the same heading. */}
@@ -198,6 +224,29 @@ function AccountDeletionSection({ uid }: { uid: string }) {
         </View>
       ) : null}
 
+      {request?.status === 'declined' ? (
+        <View style={styles.card}>
+          <Text style={styles.consent}>
+            Declined on {formatDate(request.declinedAt ?? request.requestedAt)}
+          </Text>
+          <Text style={styles.hint}>Requested on {formatDate(request.requestedAt)}</Text>
+          {request.declineNote ? (
+            <Text style={styles.hint}>Note from the TriGo team: {request.declineNote}</Text>
+          ) : null}
+          <Text style={styles.hint}>
+            Your account was not deleted. You can ask again, or contact the privacy contact
+            above.
+          </Text>
+          {clearError ? <ErrorBanner message={clearError} /> : null}
+          <Button
+            title="Ask again"
+            variant="secondary"
+            loading={clearing}
+            onPress={() => setConfirmAskAgain(true)}
+          />
+        </View>
+      ) : null}
+
       {request?.status === 'completed' ? (
         <View style={styles.card}>
           <Text style={styles.consent}>
@@ -228,6 +277,17 @@ function AccountDeletionSection({ uid }: { uid: string }) {
         loading={withdrawing}
         onConfirm={() => void handleWithdraw()}
         onCancel={() => setConfirmWithdraw(false)}
+      />
+
+      <ConfirmationDialog
+        visible={confirmAskAgain}
+        title="Ask again?"
+        message="The declined request is removed. You can then send a new request for account deletion."
+        confirmLabel="Continue"
+        cancelLabel="Cancel"
+        loading={clearing}
+        onConfirm={() => void handleAskAgain()}
+        onCancel={() => setConfirmAskAgain(false)}
       />
     </>
   );

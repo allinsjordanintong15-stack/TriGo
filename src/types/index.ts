@@ -113,10 +113,13 @@ export interface LegalConsent {
 
 /** deletionRequests/{uid}: the user's request to have their account deleted. */
 export interface DeletionRequest {
-  status: 'pending' | 'completed';
+  status: 'pending' | 'declined' | 'completed';
   requestedAt: Date;
   reason: string | null;
   completedAt: Date | null;
+  /** Set by an admin when declining; shown to the user. */
+  declineNote: string | null;
+  declinedAt: Date | null;
 }
 
 export interface User {

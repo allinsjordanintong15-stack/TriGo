@@ -10,6 +10,8 @@ import {
   DELETION_REASON_MAX_LENGTH,
   deletionNotes,
   normalizeDeletionReason,
+  parseDeclineNote,
+  parseDeletionStatus,
   type DeletionContext,
 } from '../../src/utils/accountDeletion.ts';
 
@@ -82,5 +84,25 @@ describe('driver application privacy notice', () => {
   it('asks for "I\'ve read this" and has no "Draft" wording', () => {
     assert.equal(DRIVER_APPLICATION_NOTICE.acknowledgement, "I've read this");
     assert.doesNotMatch(`${DRIVER_APPLICATION_NOTICE.title} ${text}`, /draft/i);
+  });
+});
+
+describe('deletion request status as the app shows it', () => {
+  it('keeps pending, declined and completed', () => {
+    assert.equal(parseDeletionStatus('pending'), 'pending');
+    assert.equal(parseDeletionStatus('declined'), 'declined');
+    assert.equal(parseDeletionStatus('completed'), 'completed');
+  });
+
+  it('treats an unknown or missing status as pending', () => {
+    assert.equal(parseDeletionStatus(undefined), 'pending');
+    assert.equal(parseDeletionStatus('other'), 'pending');
+  });
+
+  it('reads the decline note trimmed, null when missing or blank', () => {
+    assert.equal(parseDeclineNote('  Not the account holder.  '), 'Not the account holder.');
+    assert.equal(parseDeclineNote('   '), null);
+    assert.equal(parseDeclineNote(undefined), null);
+    assert.equal(parseDeclineNote(42), null);
   });
 });

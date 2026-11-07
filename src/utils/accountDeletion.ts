@@ -19,6 +19,23 @@ export function normalizeDeletionReason(text: string): { reason: string | null; 
   return { reason: reason || null, error: null };
 }
 
+/** deletionRequests/{uid}.status as the app shows it. */
+export type DeletionRequestStatus = 'pending' | 'declined' | 'completed';
+
+/**
+ * The stored status; anything unknown counts as pending (the user can still remove it,
+ * which the rules allow for pending and declined requests).
+ */
+export function parseDeletionStatus(value: unknown): DeletionRequestStatus {
+  return value === 'completed' || value === 'declined' ? value : 'pending';
+}
+
+/** The admin's decline note, trimmed; null when missing or empty. */
+export function parseDeclineNote(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.trim() || null;
+}
+
 /** What is still open on the account when the user asks for deletion. */
 export interface DeletionContext {
   /** As a passenger: a booking with a driver assigned that has not ended. */
