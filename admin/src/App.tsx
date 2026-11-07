@@ -21,6 +21,9 @@ import { ReportsLayout } from './pages/ReportsLayout';
 import { ReportsPage } from './pages/ReportsPage';
 import { SystemSettingsPage } from './pages/SystemSettingsPage';
 import { LoginPage } from './pages/LoginPage';
+import { DeletionRequestPage } from './pages/DeletionRequestPage';
+import { DeletionRequestsPage } from './pages/DeletionRequestsPage';
+import { LegalPage } from './pages/LegalPage';
 import { OutOfAreaTripDetailPage } from './pages/OutOfAreaTripDetailPage';
 import { OutOfAreaTripsPage } from './pages/OutOfAreaTripsPage';
 
@@ -30,6 +33,9 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Public: no sign-in needed (linked from the app stores, the app and the login page). */}
+          <Route path="/privacy" element={<LegalPage document="privacy-notice" />} />
+          <Route path="/terms" element={<LegalPage document="terms" />} />
           <Route
             element={
               <RequireAdmin>
@@ -57,6 +63,8 @@ export function App() {
             <Route path="/drivers" element={<DriverVerificationPage />} />
             <Route path="/drivers/:uid" element={<DriverApplicationPage />} />
             <Route path="/quota" element={<QuotaPage />} />
+            <Route path="/account-deletion" element={<DeletionRequestsPage />} />
+            <Route path="/account-deletion/:uid" element={<DeletionRequestPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

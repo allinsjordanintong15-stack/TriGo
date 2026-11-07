@@ -318,9 +318,13 @@ service cloud.firestore {
     }
 
     // ─── Account deletion requests ─────────────────────────────────────────
-    // deletionRequests/{uid} {uid, status, requestedAt, reason?, completedAt?, completedBy?}.
-    // The user asks (pending) and may withdraw while pending; an admin completes it only in
-    // the commit that anonymizes users/{uid}. A completed request stays as the record.
+    // deletionRequests/{uid} {uid, status, requestedAt, reason?, completedAt?, completedBy?,
+    // authDeletedAt?, authDeletedBy?, declineNote?, declinedAt?, declinedBy?}.
+    // The user asks (pending) and may withdraw while pending. An admin either completes it,
+    // only in the commit that anonymizes users/{uid}, or declines it with a note. A completed
+    // request stays as the record; the admin later records that the sign-in account was
+    // deleted by hand in the Firebase Console. A declined request may be removed by its owner,
+    // who can then ask again.
 
     match /deletionRequests/{uid} {
       allow read: if isOwner(uid) || isAdmin();
@@ -337,8 +341,9 @@ service cloud.firestore {
         && get(userPath(uid)).data.get('anonymizedAt', null) == null;
 
       allow delete: if isOwner(uid)
-        && resource.data.status == 'pending';
+        && resource.data.status in ['pending', 'declined'];
 
+      // Complete: with the anonymization, in one commit.
       allow update: if isAdmin()
         && resource.data.status == 'pending'
         && onlyChanged(['status', 'completedAt', 'completedBy'])
@@ -346,6 +351,26 @@ service cloud.firestore {
         && request.resource.data.completedAt == request.time
         && request.resource.data.completedBy == request.auth.uid
         && isAnonymizedInThisCommit(userPath(uid));
+
+      // Decline (e.g. not the account holder, or a duplicate): a note the user can read.
+      allow update: if isAdmin()
+        && resource.data.status == 'pending'
+        && onlyChanged(['status', 'declineNote', 'declinedAt', 'declinedBy'])
+        && request.resource.data.status == 'declined'
+        && request.resource.data.declineNote is string
+        && request.resource.data.declineNote.size() > 0
+        && request.resource.data.declineNote.size() <= 500
+        && request.resource.data.declinedAt == request.time
+        && request.resource.data.declinedBy == request.auth.uid;
+
+      // The sign-in account was deleted in the Firebase Console (no Cloud Functions): recorded
+      // once, on a completed request.
+      allow update: if isAdmin()
+        && resource.data.status == 'completed'
+        && !('authDeletedAt' in resource.data)
+        && onlyChanged(['authDeletedAt', 'authDeletedBy'])
+        && request.resource.data.authDeletedAt == request.time
+        && request.resource.data.authDeletedBy == request.auth.uid;
     }
 
     // ─── Contacts ──────────────────────────────────────────────────────────

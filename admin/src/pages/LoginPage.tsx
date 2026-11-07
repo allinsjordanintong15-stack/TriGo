@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 
 import logo from '../assets/logo.png';
 import { useAuth } from '../auth/AuthContext';
+import { LegalLinks } from '../components/LegalLinks';
 import { PasswordInput } from '../components/PasswordInput';
 
 export function LoginPage() {
@@ -76,6 +77,7 @@ export function LoginPage() {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      <LegalLinks className="login-legal" />
     </div>
   );
 }

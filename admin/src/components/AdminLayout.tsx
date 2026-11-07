@@ -5,6 +5,7 @@ import logo from '../assets/logo.png';
 import { useAuth } from '../auth/AuthContext';
 import { useAdminCounts, type AdminCounts } from '../lib/adminCounts';
 import { AdminCountsProvider } from './AdminCountsProvider';
+import { LegalLinks } from './LegalLinks';
 import { NavIcon, type NavIconName } from './NavIcons';
 
 type NavItem = {
@@ -53,6 +54,12 @@ const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
         label: 'Reports & Complaints',
         icon: 'reports',
         badge: { count: 'openComplaints', noun: ['open complaint', 'open complaints'] },
+      },
+      {
+        to: '/account-deletion',
+        label: 'Account deletion',
+        icon: 'privacy',
+        badge: { count: 'pendingDeletions', noun: ['pending deletion request', 'pending deletion requests'] },
       },
     ],
   },
@@ -150,6 +157,8 @@ function Shell() {
             </div>
           ))}
         </nav>
+
+        <LegalLinks className="sidebar-legal" newTab />
 
         {/* One row: the initial (full email on hover and for screen readers) and Sign out. */}
         <div className="sidebar-account">

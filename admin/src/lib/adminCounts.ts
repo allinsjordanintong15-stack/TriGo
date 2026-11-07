@@ -15,6 +15,8 @@ export type AdminCounts = {
   pendingApplications: number;
   /** complaints with status 'open' (Reports & Complaints). */
   openComplaints: number;
+  /** deletionRequests with status 'pending' (Account deletion). */
+  pendingDeletions: number;
 };
 
 export const REFRESH_INTERVAL_MS = 15_000;
@@ -25,12 +27,13 @@ async function countWhere(collectionName: string, status: string): Promise<numbe
 }
 
 export async function loadAdminCounts(): Promise<AdminCounts> {
-  const [pendingPayments, pendingApplications, openComplaints] = await Promise.all([
+  const [pendingPayments, pendingApplications, openComplaints, pendingDeletions] = await Promise.all([
     countWhere('commissionPayments', 'pending'),
     countWhere('driverApplications', 'pending'),
     countWhere('complaints', 'open'),
+    countWhere('deletionRequests', 'pending'),
   ]);
-  return { pendingPayments, pendingApplications, openComplaints };
+  return { pendingPayments, pendingApplications, openComplaints, pendingDeletions };
 }
 
 export type AdminCountsState = {

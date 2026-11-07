@@ -15,7 +15,8 @@ export type NavIconName =
   | 'fares'
   | 'tariffs'
   | 'commission'
-  | 'settings';
+  | 'settings'
+  | 'privacy';
 
 const PATHS: Record<NavIconName, ReactNode> = {
   dashboard: (
@@ -74,6 +75,12 @@ const PATHS: Record<NavIconName, ReactNode> = {
     <>
       <path d="M9 4L3.5 6v14L9 18l6 2 5.5-2V4L15 6 9 4z" />
       <path d="M9 4v14M15 6v14" />
+    </>
+  ),
+  privacy: (
+    <>
+      <path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z" />
+      <path d="M9.5 12.5l1.8 1.8 3.4-3.6" />
     </>
   ),
   quota: (

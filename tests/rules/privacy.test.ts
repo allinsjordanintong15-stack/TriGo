@@ -31,6 +31,16 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 
+// The admin website's exact write payloads (no Firebase imports, so Node loads it directly).
+import {
+  anonymizedApplicationUpdate,
+  anonymizedDriverUpdate,
+  anonymizedUserUpdate,
+  authDeletedUpdate,
+  completedRequestUpdate,
+  declinedRequestUpdate,
+} from '../../admin/src/privacy/deletionPlan.ts';
+
 const PROJECT_ID = 'demo-trigo-rules';
 
 // Denied reads and writes are expected; keep the SDK's PERMISSION_DENIED warnings quiet.
@@ -867,5 +877,181 @@ describe('privacy: driver application acknowledgement', () => {
       });
       await assertFails(updateDoc(doc(applicantDb(), 'driverApplications', APPLICANT), resubmission()));
     });
+  });
+});
+
+// ─── Admin: decline a request, record the sign-in account deletion ────────
+
+function decline(overrides: DocumentData = {}, firestore: Firestore = adminDb()) {
+  return updateDoc(doc(firestore, 'deletionRequests', PASSENGER), {
+    status: 'declined',
+    declineNote: 'We could not confirm you are the account holder. Please email us.',
+    declinedAt: serverTimestamp(),
+    declinedBy: ADMIN,
+    ...overrides,
+  });
+}
+
+describe('privacy: declining a deletion request', () => {
+  beforeEach(seedPassengerRequest);
+
+  it('allows an admin to decline a pending request with a note the user can read', async () => {
+    await assertSucceeds(decline());
+    const snap = await getDoc(doc(db(PASSENGER), 'deletionRequests', PASSENGER));
+    if (snap.data()?.status !== 'declined' || !snap.data()?.declineNote) throw new Error('decline not readable');
+  });
+
+  it('allows a note of 500 characters, not an empty one or 501', async () => {
+    await assertFails(decline({ declineNote: '' }));
+    await assertFails(decline({ declineNote: 'x'.repeat(501) }));
+    await assertSucceeds(decline({ declineNote: 'x'.repeat(500) }));
+  });
+
+  const badDeclines: [string, DocumentData][] = [
+    ['no note', { declineNote: null }],
+    ['a client-chosen time', { declinedAt: Timestamp.now() }],
+    ['another admin named', { declinedBy: 'admin2' }],
+    ['an extra field', { completedAt: serverTimestamp() }],
+    ['another status', { status: 'completed' }],
+  ];
+
+  for (const [label, overrides] of badDeclines) {
+    it(`denies a decline with ${label}`, async () => {
+      await assertFails(decline(overrides));
+    });
+  }
+
+  it('denies the owner declining their own request', async () => {
+    await assertFails(decline({ declinedBy: PASSENGER }, db(PASSENGER)));
+  });
+
+  it('denies declining a request that is not pending', async () => {
+    await seed({
+      [`deletionRequests/${PASSENGER}`]: pendingRequest(PASSENGER, {
+        status: 'completed',
+        completedAt: Timestamp.now(),
+        completedBy: ADMIN,
+      }),
+    });
+    await assertFails(decline());
+  });
+
+  it('lets the owner remove a declined request and ask again', async () => {
+    await assertSucceeds(decline());
+    await assertSucceeds(deleteDoc(doc(db(PASSENGER), 'deletionRequests', PASSENGER)));
+    await assertSucceeds(requestDeletion(PASSENGER));
+  });
+
+  it('allows anonymizing an account whose request was declined (asked again another way)', async () => {
+    await assertSucceeds(decline());
+    await assertSucceeds(anonymize(PASSENGER));
+  });
+});
+
+function recordAuthDeleted(overrides: DocumentData = {}, firestore: Firestore = adminDb()) {
+  return updateDoc(doc(firestore, 'deletionRequests', PASSENGER), {
+    authDeletedAt: serverTimestamp(),
+    authDeletedBy: ADMIN,
+    ...overrides,
+  });
+}
+
+describe('privacy: recording the sign-in account deletion', () => {
+  beforeEach(async () => {
+    await seed({
+      [`deletionRequests/${PASSENGER}`]: pendingRequest(PASSENGER, {
+        status: 'completed',
+        completedAt: Timestamp.now(),
+        completedBy: ADMIN,
+      }),
+    });
+  });
+
+  it('allows an admin to record it once on a completed request', async () => {
+    await assertSucceeds(recordAuthDeleted());
+    await assertFails(recordAuthDeleted());
+  });
+
+  it('denies a client-chosen time, another admin, or other changes', async () => {
+    await assertFails(recordAuthDeleted({ authDeletedAt: Timestamp.now() }));
+    await assertFails(recordAuthDeleted({ authDeletedBy: 'admin2' }));
+    await assertFails(recordAuthDeleted({ status: 'pending' }));
+  });
+
+  it('denies recording it before the request is completed', async () => {
+    await seedPassengerRequest();
+    await assertFails(recordAuthDeleted());
+  });
+
+  it('denies the owner recording it', async () => {
+    await assertFails(recordAuthDeleted({ authDeletedBy: PASSENGER }, db(PASSENGER)));
+  });
+});
+
+// ─── The admin website's own payloads (admin/src/privacy/deletionPlan.ts) ──
+
+describe('privacy: admin website payloads', () => {
+  it('anonymizes a driver with application and completes the request (deletionRequests.ts anonymizeAndComplete)', async () => {
+    await seed({
+      [`deletionRequests/${DRIVER}`]: pendingRequest(DRIVER),
+      [`driverApplications/${DRIVER}`]: application(APPLICANT, { uid: DRIVER, status: 'approved' }),
+    });
+    const now = serverTimestamp();
+    await assertSucceeds(
+      anonymize(DRIVER, {
+        user: anonymizedUserUpdate(now),
+        driver: anonymizedDriverUpdate(now, ADMIN),
+        application: anonymizedApplicationUpdate(now),
+        request: completedRequestUpdate(now, ADMIN),
+      }),
+    );
+  });
+
+  it('anonymizes a passenger and completes the request', async () => {
+    await seed({ [`deletionRequests/${PASSENGER}`]: pendingRequest(PASSENGER) });
+    const now = serverTimestamp();
+    await assertSucceeds(
+      anonymize(PASSENGER, { user: anonymizedUserUpdate(now), request: completedRequestUpdate(now, ADMIN) }),
+    );
+  });
+
+  it('declines with a trimmed note, then records nothing else', async () => {
+    await seed({ [`deletionRequests/${PASSENGER}`]: pendingRequest(PASSENGER) });
+    await assertSucceeds(
+      updateDoc(
+        doc(adminDb(), 'deletionRequests', PASSENGER),
+        declinedRequestUpdate('  Please email us from your account address.  ', serverTimestamp(), ADMIN),
+      ),
+    );
+    const snap = await getDoc(doc(db(PASSENGER), 'deletionRequests', PASSENGER));
+    if (snap.data()?.declineNote !== 'Please email us from your account address.') throw new Error('note not trimmed');
+  });
+
+  it('records the sign-in account deletion on a completed request', async () => {
+    await seed({
+      [`deletionRequests/${PASSENGER}`]: pendingRequest(PASSENGER, {
+        status: 'completed',
+        completedAt: Timestamp.now(),
+        completedBy: ADMIN,
+      }),
+    });
+    await assertSucceeds(
+      updateDoc(doc(adminDb(), 'deletionRequests', PASSENGER), authDeletedUpdate(serverTimestamp(), ADMIN)),
+    );
+  });
+
+  it('refuses the anonymization while the driver is on a trip (the website stops it first)', async () => {
+    await seed({
+      [`deletionRequests/${DRIVER}`]: pendingRequest(DRIVER),
+      [`drivers/${DRIVER}`]: driverRecord({ currentBookingId: 'booking1' }),
+    });
+    const now = serverTimestamp();
+    await assertFails(
+      anonymize(DRIVER, {
+        user: anonymizedUserUpdate(now),
+        driver: anonymizedDriverUpdate(now, ADMIN),
+        request: completedRequestUpdate(now, ADMIN),
+      }),
+    );
   });
 });
