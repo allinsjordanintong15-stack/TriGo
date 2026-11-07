@@ -34,7 +34,8 @@ export async function ensureRideRequestChannel(): Promise<void> {
     name: 'Ride requests',
     description: 'New ride requests while you are online and available.',
     importance: Notifications.AndroidImportance.HIGH,
-    sound: 'default',
+    // No `sound`: expo-notifications then uses Android's default notification sound. A
+    // string is a custom sound file name ('default' included), and null means silent.
     enableVibrate: true,
     vibrationPattern: NEW_REQUEST_VIBRATION_PATTERN,
     lightColor: colors.primary,
@@ -119,7 +120,8 @@ export async function showRideRequestNotification(input: LocalNotificationInput)
     await ensureRideRequestChannel();
     await Notifications.scheduleNotificationAsync({
       identifier: input.identifier,
-      content: { title: input.title, body: input.body, data: input.data, sound: 'default' },
+      // sound: true = the default sound (a string would be looked up as a custom sound file).
+      content: { title: input.title, body: input.body, data: input.data, sound: true },
       trigger: Platform.OS === 'android' ? { channelId: RIDE_REQUEST_CHANNEL_ID } : null,
     });
   } catch {

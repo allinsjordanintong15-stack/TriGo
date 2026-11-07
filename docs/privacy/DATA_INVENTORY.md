@@ -124,7 +124,7 @@ Console. Proposed retention periods are for the DPO to decide:
    `verificationUpdatedBy` and the daily count. Passengers only need name, plate, vehicle and
    (during matching) location.
 3. ~~**Ride request notifications are public on the lock screen.**~~ **Fixed (fix B,
-   2026-11-02):** Android channel `ride-requests-private` with private lock-screen visibility;
+   2026-11-02):** Android channel `ride-requests-private` (now `ride-requests-private-v2`, 2026-11-07: default sound fix) with private lock-screen visibility;
    the lock screen shows only Android's own "contents hidden" placeholder and the TriGo name,
    details after unlocking. The old `ride-requests` channel is deleted on app start. Custom
    lock-screen text ("New ride request") would need `Notification.publicVersion` (native code).
