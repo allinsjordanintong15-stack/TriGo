@@ -20,11 +20,11 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth';
 import { addOwnContactToBatch } from '@/services/contactService';
+import { addConsentLogToBatch, newLegalConsentField } from '@/services/legalConsentService';
 import {
   doc,
   getDoc,
   serverTimestamp,
-  setDoc,
   writeBatch,
 } from 'firebase/firestore';
 
@@ -53,11 +53,17 @@ async function createPassengerProfile(
     mobileNumber: normalizeMobileNumber(mobileNumber),
     role: PASSENGER_ROLE,
     profileImage: firebaseUser.photoURL ?? null,
+    // Registration requires the Privacy Notice and Terms checkbox; the consent and its
+    // log entry are written in one commit, as the rules require.
+    legalConsent: newLegalConsentField(),
     createdAt: now,
     updatedAt: now,
   };
 
-  await setDoc(userRef, userData);
+  const batch = writeBatch(firestore);
+  batch.set(userRef, userData);
+  addConsentLogToBatch(batch, firebaseUser.uid);
+  await batch.commit();
 
   const snapshot = await getDoc(userRef);
   if (!snapshot.exists()) {

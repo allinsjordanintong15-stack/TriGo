@@ -1,5 +1,6 @@
 import { AuthLink } from '@/components/auth/AuthLink';
 import { AuthScreenLayout } from '@/components/auth/AuthScreenLayout';
+import { LegalConsentCheckbox } from '@/components/legal/LegalConsentCheckbox';
 import { PasswordField } from '@/components/auth/PasswordField';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -20,6 +21,8 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  // Required and unticked by default (Privacy Notice and Terms).
+  const [acceptsLegal, setAcceptsLegal] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,6 +43,7 @@ export default function RegisterScreen() {
         password,
         confirmPassword,
         mobileNumber,
+        acceptsLegal,
       });
       await refreshProfile();
       router.replace('/home');
@@ -138,6 +142,22 @@ export default function RegisterScreen() {
         placeholder="Re-enter your password"
         returnKeyType="go"
         onSubmitEditing={handleRegister}
+      />
+
+      <LegalConsentCheckbox
+        checked={acceptsLegal}
+        onChange={(checked) => {
+          setAcceptsLegal(checked);
+          if (checked) {
+            setFieldErrors((current) => {
+              const next = { ...current };
+              delete next.acceptsLegal;
+              return next;
+            });
+          }
+        }}
+        error={fieldErrors.acceptsLegal}
+        disabled={loading}
       />
 
       <View style={styles.spacer} />

@@ -54,6 +54,10 @@ export function validateRegisterInput(input: RegisterPassengerInput): Validation
   const mobileError = validateMobileNumber(input.mobileNumber);
   if (mobileError) errors.mobileNumber = mobileError;
 
+  if (!input.acceptsLegal) {
+    errors.acceptsLegal = 'Please read and agree to the Privacy Notice and Terms to create an account.';
+  }
+
   return {
     isValid: Object.keys(errors).length === 0,
     errors,

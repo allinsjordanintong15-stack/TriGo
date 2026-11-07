@@ -198,6 +198,7 @@ function newProfile(overrides: DocumentData = {}): DocumentData {
     email: `${NEW_USER}@example.com`,
     fullName: 'Liza Ramos',
     mobileNumber: '+639211234567',
+    profileImage: null, // as authService.createPassengerProfile writes it
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     ...overrides,

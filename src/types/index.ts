@@ -105,6 +105,12 @@ export interface AvailableDriver {
   isVerified: boolean;
 }
 
+/** users/{uid}.legalConsent: the Privacy Notice and Terms version the user accepted, and when. */
+export interface LegalConsent {
+  version: string;
+  acceptedAt: Date;
+}
+
 export interface User {
   uid: string;
   fullName: string;
@@ -112,6 +118,8 @@ export interface User {
   mobileNumber: string;
   role: UserRole;
   profileImage: string | null;
+  /** null: never accepted (accounts from before consent existed) or unreadable. */
+  legalConsent: LegalConsent | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -302,6 +310,8 @@ export interface RegisterPassengerInput {
   password: string;
   confirmPassword: string;
   mobileNumber: string;
+  /** The "I have read and agree to the Privacy Notice and Terms" checkbox. */
+  acceptsLegal: boolean;
 }
 
 export interface LoginInput {

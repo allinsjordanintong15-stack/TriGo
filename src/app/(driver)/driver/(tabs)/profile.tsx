@@ -1,3 +1,4 @@
+import { ProfileMenuItem, ProfileMenuSection } from '@/components/profile/ProfileMenuItem';
 import { SupportContactsList } from '@/components/support/SupportContactsList';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -187,6 +188,16 @@ export default function DriverProfileScreen() {
         <View style={styles.supportContacts}>
           <SupportContactsList />
         </View>
+
+        <ProfileMenuSection title="Privacy">
+          <ProfileMenuItem
+            icon="shield-checkmark-outline"
+            label="Privacy Policy & Terms"
+            description="What you agreed to and the privacy contact"
+            onPress={() => router.push('/legal')}
+            last
+          />
+        </ProfileMenuSection>
 
         {error ? <ErrorBanner message={error} /> : null}
 

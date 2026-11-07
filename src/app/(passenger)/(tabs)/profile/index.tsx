@@ -103,6 +103,12 @@ export default function ProfileScreen() {
             onPress={() => router.push('/profile/help')}
           />
           <ProfileMenuItem
+            icon="shield-checkmark-outline"
+            label="Privacy Policy & Terms"
+            description="What you agreed to and the privacy contact"
+            onPress={() => router.push('/legal')}
+          />
+          <ProfileMenuItem
             icon="settings-outline"
             label="Settings"
             description="Location access and app information"
