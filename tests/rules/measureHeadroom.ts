@@ -6,7 +6,9 @@
 // (TRIGO_HEADROOM=payments in the environment: commission payment and cash-out scenarios only;
 // TRIGO_HEADROOM=enforcement: T1 accept, propose, claim and the out-of-area confirm only;
 // TRIGO_HEADROOM=vehicle: driver application submit/resubmit, approval and vehicle edit only;
-// TRIGO_HEADROOM=booking: standard booking create (older shape, per-km, barangay tariff) only.)
+// TRIGO_HEADROOM=booking: standard booking create (older shape, per-km, barangay tariff) only;
+// TRIGO_HEADROOM=privacy: consent, re-consent, deletion request, anonymization and the driver
+// application submit/resubmit only.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
 // binary search finds the largest N at which the valid commit still succeeds. The same
@@ -109,6 +111,15 @@ type Target =
   | 'approve: driver create'
   | 'vehicle edit'
   | 'standard create'
+  | 'consent: user create'
+  | 'consent: log create'
+  | 'reconsent: user update'
+  | 'deletion request create'
+  | 'anonymize: user'
+  | 'anonymize: contact delete'
+  | 'anonymize: driver'
+  | 'anonymize: application'
+  | 'anonymize: request complete'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -193,6 +204,42 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'standard create': [
     "        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')\n        && isValidFareBasis();",
     "        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')\n        && isValidFareBasis()\n        && pad();",
+  ],
+  'consent: user create': [
+    "        && (!('legalConsent' in request.resource.data) || isNewConsent(request.resource.data));",
+    "        && (!('legalConsent' in request.resource.data) || isNewConsent(request.resource.data))\n        && pad();",
+  ],
+  'consent: log create': [
+    '        && getAfter(userPath(userId)).data.legalConsent.acceptedAt == request.time;',
+    '        && getAfter(userPath(userId)).data.legalConsent.acceptedAt == request.time\n        && pad();',
+  ],
+  'reconsent: user update': [
+    "        && onlyChanged(['legalConsent', 'updatedAt'])\n",
+    "        && onlyChanged(['legalConsent', 'updatedAt'])\n        && pad()\n",
+  ],
+  'deletion request create': [
+    "        && get(userPath(uid)).data.get('anonymizedAt', null) == null;",
+    "        && get(userPath(uid)).data.get('anonymizedAt', null) == null\n        && pad();",
+  ],
+  'anonymize: user': [
+    '        && !existsAfter(contactPath(userId))\n',
+    '        && !existsAfter(contactPath(userId))\n        && pad()\n',
+  ],
+  'anonymize: contact delete': [
+    '      allow delete: if isAdmin()\n        && isAnonymizedInThisCommit(userPath(uid));',
+    '      allow delete: if isAdmin()\n        && isAnonymizedInThisCommit(userPath(uid))\n        && pad();',
+  ],
+  'anonymize: driver': [
+    '        && isAnonymizedInThisCommit(userPath(driverId));',
+    '        && isAnonymizedInThisCommit(userPath(driverId))\n        && pad();',
+  ],
+  'anonymize: application': [
+    "        && request.resource.data.get('adminRemarks', null) == null\n        && request.resource.data.anonymizedAt == request.time\n",
+    "        && request.resource.data.get('adminRemarks', null) == null\n        && pad()\n        && request.resource.data.anonymizedAt == request.time\n",
+  ],
+  'anonymize: request complete': [
+    '        && request.resource.data.completedBy == request.auth.uid\n        && isAnonymizedInThisCommit(userPath(uid));',
+    '        && request.resource.data.completedBy == request.auth.uid\n        && isAnonymizedInThisCommit(userPath(uid))\n        && pad();',
   ],
   'reference free': [
     '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
@@ -689,7 +736,12 @@ const applicationCreate: Scenario = {
     const firestore = db(APPLICANT, { email: APPLICANT_EMAIL });
     await setDoc(
       doc(firestore, 'driverApplications', APPLICANT),
-      applicationDoc({ submittedAt: serverTimestamp(), updatedAt: serverTimestamp() }),
+      applicationDoc({
+        submittedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        privacyNoticeVersion: '1.0',
+        privacyNoticeAcknowledgedAt: serverTimestamp(),
+      }),
     );
   },
 };
@@ -710,6 +762,8 @@ const applicationResubmit: Scenario = {
       status: 'pending',
       submittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
+      privacyNoticeVersion: '1.0',
+      privacyNoticeAcknowledgedAt: serverTimestamp(),
     });
   },
 };
@@ -762,6 +816,170 @@ const vehicleEdit: Scenario = {
       vehicleColor: 'Blue/White',
       updatedAt: serverTimestamp(),
     });
+  },
+};
+
+// ─── Privacy: consent, deletion request, anonymization ─────────────────────
+
+const LEGAL_VERSION = '1.0';
+const NEW_USER = 'privacyNewUser';
+const ERASED = 'privacyErased';
+
+function privacyConsentBatch(firestore: Firestore, uid: string, profile: DocumentData, create: boolean) {
+  const batch = writeBatch(firestore);
+  if (create) batch.set(doc(firestore, 'users', uid), profile);
+  else batch.update(doc(firestore, 'users', uid), profile);
+  batch.set(doc(firestore, 'users', uid, 'legalConsents', LEGAL_VERSION), {
+    version: LEGAL_VERSION,
+    acceptedAt: serverTimestamp(),
+  });
+  return batch.commit();
+}
+
+const privacyRegister: Scenario = {
+  label: 'privacy: registration with consent (profile + consent log)',
+  targets: ['consent: user create', 'consent: log create'],
+  run: async () => {
+    await seed({});
+    await privacyConsentBatch(
+      db(NEW_USER),
+      NEW_USER,
+      {
+        uid: NEW_USER,
+        role: 'passenger',
+        email: `${NEW_USER}@example.com`,
+        fullName: 'Liza Ramos',
+        mobileNumber: '+639211234567',
+        legalConsent: { version: LEGAL_VERSION, acceptedAt: serverTimestamp() },
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      true,
+    );
+  },
+};
+
+const privacyReconsent: Scenario = {
+  label: 'privacy: re-consent, driver account (legalConsent + consent log)',
+  targets: ['reconsent: user update', 'consent: log create'],
+  run: async () => {
+    await seed({});
+    await privacyConsentBatch(
+      db(DRIVER),
+      DRIVER,
+      { legalConsent: { version: LEGAL_VERSION, acceptedAt: serverTimestamp() }, updatedAt: serverTimestamp() },
+      false,
+    );
+  },
+};
+
+const privacyDeletionRequest: Scenario = {
+  label: 'privacy: deletion request (with reason)',
+  targets: ['deletion request create'],
+  run: async () => {
+    await seed({});
+    await setDoc(doc(db(PASSENGER), 'deletionRequests', PASSENGER), {
+      uid: PASSENGER,
+      status: 'pending',
+      requestedAt: serverTimestamp(),
+      reason: 'I no longer use the app.',
+    });
+  },
+};
+
+// The heaviest deletion: a driver with an approved application and a pending request.
+const privacyAnonymizeDriver: Scenario = {
+  label: 'privacy: anonymize a driver account (users + contact + driver + application + request)',
+  targets: [
+    'anonymize: user',
+    'anonymize: contact delete',
+    'anonymize: driver',
+    'anonymize: application',
+    'anonymize: request complete',
+  ],
+  run: async () => {
+    await seed({
+      [`users/${ERASED}`]: {
+        uid: ERASED,
+        role: 'driver',
+        email: `${ERASED}@example.com`,
+        fullName: 'Pedro Reyes',
+        mobileNumber: '+639191234567',
+        profileImage: null,
+        legalConsent: { version: LEGAL_VERSION, acceptedAt: Timestamp.now() },
+      },
+      [`contacts/${ERASED}`]: { fullName: 'Pedro Reyes', mobileNumber: '+639191234567', updatedAt: Timestamp.now() },
+      [`drivers/${ERASED}`]: {
+        ...availableDriverRecord(),
+        fullName: 'Pedro Reyes',
+        vehiclePlate: 'ABC 1234',
+        vehicleBrand: 'Honda',
+        vehicleModel: 'TMX 155',
+        vehicleColor: 'Red',
+        verificationNote: 'Documents verified.',
+      },
+      [`driverApplications/${ERASED}`]: {
+        ...applicationDoc({ status: 'approved', adminRemarks: 'Documents verified.' }),
+        uid: ERASED,
+        privacyNoticeVersion: LEGAL_VERSION,
+        privacyNoticeAcknowledgedAt: Timestamp.now(),
+      },
+      [`deletionRequests/${ERASED}`]: {
+        uid: ERASED,
+        status: 'pending',
+        requestedAt: Timestamp.now(),
+        reason: 'Stopped driving.',
+      },
+    });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'users', ERASED), {
+      fullName: 'Deleted user',
+      email: '',
+      mobileNumber: '',
+      profileImage: null,
+      anonymizedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.delete(doc(firestore, 'contacts', ERASED));
+    batch.update(doc(firestore, 'drivers', ERASED), {
+      fullName: 'Deleted user',
+      vehiclePlate: '',
+      vehicleBrand: '',
+      vehicleModel: '',
+      vehicleColor: '',
+      isVerified: false,
+      isOnline: false,
+      isAvailable: false,
+      currentLocation: null,
+      verificationNote: null,
+      verificationUpdatedAt: serverTimestamp(),
+      verificationUpdatedBy: ADMIN,
+      anonymizedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(firestore, 'driverApplications', ERASED), {
+      firstName: '',
+      middleName: null,
+      lastName: '',
+      fullName: 'Deleted user',
+      email: '',
+      mobileNumber: '',
+      vehiclePlate: '',
+      vehicleBrand: '',
+      vehicleModel: '',
+      vehicleColor: '',
+      documents: null,
+      adminRemarks: null,
+      anonymizedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(firestore, 'deletionRequests', ERASED), {
+      status: 'completed',
+      completedAt: serverTimestamp(),
+      completedBy: ADMIN,
+    });
+    await batch.commit();
   },
 };
 
@@ -854,6 +1072,10 @@ const SCENARIOS: Scenario[] = [
   applicationResubmit,
   approval,
   vehicleEdit,
+  privacyRegister,
+  privacyReconsent,
+  privacyDeletionRequest,
+  privacyAnonymizeDriver,
 ];
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
@@ -864,6 +1086,8 @@ const ONLY_VEHICLE = process.env.TRIGO_HEADROOM === 'vehicle';
 const VEHICLE_LABELS = /^(driver application|driver verification|admin drivers)/;
 const ONLY_BOOKING = process.env.TRIGO_HEADROOM === 'booking';
 const BOOKING_LABELS = /^standard booking create/;
+const ONLY_PRIVACY = process.env.TRIGO_HEADROOM === 'privacy';
+const PRIVACY_LABELS = /^(privacy|driver application)/;
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -915,7 +1139,8 @@ try {
       (!ONLY_PAYMENTS || s.label.startsWith('payment')) &&
       (!ONLY_ENFORCEMENT || ENFORCEMENT_LABELS.test(s.label)) &&
       (!ONLY_VEHICLE || VEHICLE_LABELS.test(s.label)) &&
-      (!ONLY_BOOKING || BOOKING_LABELS.test(s.label)),
+      (!ONLY_BOOKING || BOOKING_LABELS.test(s.label)) &&
+      (!ONLY_PRIVACY || PRIVACY_LABELS.test(s.label)),
   );
   for (const scenario of selected) {
     console.log(scenario.label);

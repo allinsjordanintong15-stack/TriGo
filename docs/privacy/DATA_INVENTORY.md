@@ -76,7 +76,7 @@ phone numbers TriGo publishes (not app users' data).
 | `trigo.driver.{uid}.declinedBookings` | AsyncStorage | Standard requests the driver declined (IDs only), so they stay hidden on this phone |
 | `trigo.driver.{uid}.hiddenRequests` | AsyncStorage | Out-of-area requests hidden after the passenger chose another driver (IDs only) |
 | `trigo.driver.{uid}.notificationPromptSeen` | AsyncStorage | The notification explanation was shown once |
-| Ride request notifications | The phone's notification shade | Show fare, pickup → destination place names and distance to pickup while the driver app is in the background |
+| Ride request notifications | The phone's notification shade | Show fare, pickup → destination place names and distance to pickup while the driver app is in the background (hidden on the Android lock screen since fix B) |
 
 Nothing is logged to a server: `logFirebaseError` writes to the developer console in development
 builds only. There is no analytics or crash-reporting SDK.
@@ -85,7 +85,7 @@ builds only. There is no analytics or crash-reporting SDK.
 
 | Permission | Used for | Notes |
 |---|---|---|
-| Location (while in use; fine and coarse) | Passengers: the pickup point on the map. Drivers: the location written to `drivers/{uid}.currentLocation` **when going online** | No background location; the app never asks for it. The driver's position is not updated continuously. |
+| Location (while in use; fine and coarse) | Passengers: the pickup point on the map. Drivers: the location written to `drivers/{uid}.currentLocation` **when going online** | No background location; the app never asks for it. The driver's position is not updated continuously and is cleared on going offline (fix A). |
 | Notifications (Android 13+) | Local ride-request notifications for drivers | Asked once with an explanation; no push token is created or sent anywhere. |
 | Vibrate | New-request alert for drivers | |
 | Camera / photos | Profile photo and driver documents (image picker) | Declared in the build, but the uploads need Firebase Storage (Blaze), which is not enabled. |
@@ -116,14 +116,18 @@ Console. Proposed retention periods are for the DPO to decide:
 
 ## 7. Findings to note in the privacy notice or to fix
 
-1. **A driver's last location stays readable after going offline.** `goOffline` does not clear
-   `currentLocation`, and any signed-in user can read a verified driver's record, so the last
-   location from going online stays visible until the next time the driver goes online.
+1. ~~**A driver's last location stays readable after going offline.**~~ **Fixed (fix A,
+   2026-11-02):** going offline writes `currentLocation: null`; the rules allow a null position
+   only while offline and require a position when going online
+   (`tests/rules/driverDuty.test.ts`).
 2. **Verified driver records are readable by every signed-in user**, including the admin uid in
    `verificationUpdatedBy` and the daily count. Passengers only need name, plate, vehicle and
    (during matching) location.
-3. **Ride request notifications are public on the lock screen** (channel visibility PUBLIC):
-   fare, place names and distance show without unlocking.
+3. ~~**Ride request notifications are public on the lock screen.**~~ **Fixed (fix B,
+   2026-11-02):** Android channel `ride-requests-private` with private lock-screen visibility;
+   the lock screen shows only Android's own "contents hidden" placeholder and the TriGo name,
+   details after unlocking. The old `ride-requests` channel is deleted on app start. Custom
+   lock-screen text ("New ride request") would need `Notification.publicVersion` (native code).
 4. **Camera and photo permissions are declared** although uploads do not work until Storage is
    enabled.
 5. **Open standard bookings show pickup and destination addresses to all verified drivers** of
@@ -132,4 +136,4 @@ Console. Proposed retention periods are for the DPO to decide:
 7. **No way yet to request deletion or see what was agreed to.** Planned in the privacy steps
    (consent, re-consent, deletion requests, anonymization).
 
-These are recorded only; the privacy plan does not change them unless you decide to.
+Findings 1 and 3 were fixed before the privacy notice was written; the others are recorded only (and described in the notice) unless you decide to change them.

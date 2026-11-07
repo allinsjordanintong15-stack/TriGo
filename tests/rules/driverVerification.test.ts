@@ -177,9 +177,15 @@ function applicantDb(): Firestore {
   return db(APPLICANT, { email: `${APPLICANT}@example.com` });
 }
 
+/** The Privacy Notice acknowledgement every submit and resubmit carries (rules: currentLegalVersion()). */
+function privacyAck(): DocumentData {
+  return { privacyNoticeVersion: '1.0', privacyNoticeAcknowledgedAt: serverTimestamp() };
+}
+
 /** First submission exactly like the mobile app (server timestamps). */
 function submit(data: DocumentData) {
   return setDoc(doc(applicantDb(), 'driverApplications', APPLICANT), {
+    ...privacyAck(),
     ...data,
     submittedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -189,6 +195,7 @@ function submit(data: DocumentData) {
 /** Resubmission after a rejection: status back to pending with the given changes. */
 function resubmit(changes: DocumentData = {}) {
   return updateDoc(doc(applicantDb(), 'driverApplications', APPLICANT), {
+    ...privacyAck(),
     ...changes,
     status: 'pending',
     submittedAt: serverTimestamp(),
@@ -417,6 +424,7 @@ describe('driver verification: reject', () => {
     await assertSucceeds(
       // The resubmit rule checks the token email against the application's email.
       updateDoc(doc(db(APPLICANT, { email: `${APPLICANT}@example.com` }), 'driverApplications', APPLICANT), {
+        ...privacyAck(),
         status: 'pending',
         submittedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),

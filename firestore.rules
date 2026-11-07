@@ -44,6 +44,34 @@ service cloud.firestore {
       return /databases/$(database)/documents/driverApplications/$(uid);
     }
 
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function contactPath(uid) {
+      return /databases/$(database)/documents/contacts/$(uid);
+    }
+
+    function deletionRequestPath(uid) {
+      return /databases/$(database)/documents/deletionRequests/$(uid);
+    }
+
+    function legalConsentPath(uid, version) {
+      return /databases/$(database)/documents/users/$(uid)/legalConsents/$(version);
+    }
+
+    // ─── Privacy: legal version and account deletion ───────────────────────
+    // The version of the Privacy Notice and Terms of Use that users accept. Keep equal to
+    // LEGAL_VERSION in shared/legal/meta.ts (tests/legal/legalRulesSync.test.ts).
+    function currentLegalVersion() {
+      return '1.0';
+    }
+
+    // The document at `path` is anonymized (account deletion) in this very commit.
+    function isAnonymizedInThisCommit(path) {
+      return getAfter(path).data.get('anonymizedAt', null) == request.time;
+    }
+
     function driverDoc() {
       return get(driverPath(request.auth.uid));
     }
@@ -202,23 +230,122 @@ service cloud.firestore {
     // ─── Users ─────────────────────────────────────────────────────────────
 
     match /users/{userId} {
-      // Admins read any profile (user management on the admin website); writes unchanged.
+      // Admins read any profile (user management on the admin website).
       allow read: if isOwner(userId) || isAdmin();
 
+      // legalConsent {version, acceptedAt}: the current legal version, accepted now, with
+      // its consent log entry users/{uid}/legalConsents/{version} created in the same commit
+      // (one entry per version, so each version is accepted once).
+      function isNewConsent(data) {
+        return data.legalConsent is map
+          && data.legalConsent.keys().hasOnly(['version', 'acceptedAt'])
+          && data.legalConsent.version == currentLegalVersion()
+          && data.legalConsent.acceptedAt == request.time
+          && !exists(legalConsentPath(userId, currentLegalVersion()))
+          && existsAfter(legalConsentPath(userId, currentLegalVersion()));
+      }
+
+      // Registration may record consent; an account without it accepts later (re-consent).
       allow create: if isOwner(userId)
         && request.resource.data.uid == userId
         && request.resource.data.role == 'passenger'
         && request.resource.data.email is string
         && request.resource.data.fullName is string
-        && request.resource.data.mobileNumber is string;
+        && request.resource.data.mobileNumber is string
+        && !('anonymizedAt' in request.resource.data)
+        && (!('legalConsent' in request.resource.data) || isNewConsent(request.resource.data));
 
-      // Passengers may update their own profile but cannot change role or uid.
+      // Passengers may update their own profile but cannot change role or uid, consent
+      // (only through the rule below) or anything once the account is anonymized.
       allow update: if isOwner(userId)
         && isPassenger()
+        && resource.data.get('anonymizedAt', null) == null
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['legalConsent', 'anonymizedAt'])
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
         && request.resource.data.role == resource.data.role
         && request.resource.data.role == 'passenger';
+
+      // Consent and re-consent, for any role (passenger or driver account): only
+      // legalConsent and updatedAt change.
+      allow update: if isOwner(userId)
+        && resource.data.get('anonymizedAt', null) == null
+        && onlyChanged(['legalConsent', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && isNewConsent(request.resource.data);
+
+      // Account deletion (admin website): the profile is anonymized once, in one commit with
+      // the rest of the account's personal data: contacts/{uid} deleted, drivers/{uid} and
+      // driverApplications/{uid} anonymized when they exist, and a pending deletion request
+      // completed. uid, role, dates and the consent record stay. The sign-in account is
+      // deleted by hand in the Firebase Console (no Cloud Functions).
+      allow update: if isAdmin()
+        && request.resource.data.get('anonymizedAt', null) == request.time
+        && resource.data.get('anonymizedAt', null) == null
+        && onlyChanged(['fullName', 'email', 'mobileNumber', 'profileImage', 'anonymizedAt', 'updatedAt'])
+        && request.resource.data.fullName == 'Deleted user'
+        && request.resource.data.email == ''
+        && request.resource.data.mobileNumber == ''
+        && request.resource.data.get('profileImage', null) == null
+        && request.resource.data.anonymizedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && !existsAfter(contactPath(userId))
+        && (!exists(driverPath(userId)) || isAnonymizedInThisCommit(driverPath(userId)))
+        && (!exists(applicationPath(userId)) || isAnonymizedInThisCommit(applicationPath(userId)))
+        && (
+          !exists(deletionRequestPath(userId))
+          || get(deletionRequestPath(userId)).data.status != 'pending'
+          || getAfter(deletionRequestPath(userId)).data.status == 'completed'
+        );
+    }
+
+    // ─── Consent log ───────────────────────────────────────────────────────
+    // users/{uid}/legalConsents/{version} {version, acceptedAt}: one entry per accepted
+    // version, written with users/{uid}.legalConsent in the same commit, never changed.
+
+    match /users/{userId}/legalConsents/{version} {
+      allow read: if isOwner(userId) || isAdmin();
+
+      allow create: if isOwner(userId)
+        && version == currentLegalVersion()
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.version == version
+        && request.resource.data.acceptedAt == request.time
+        && getAfter(userPath(userId)).data.legalConsent.version == version
+        && getAfter(userPath(userId)).data.legalConsent.acceptedAt == request.time;
+
+      allow update, delete: if false;
+    }
+
+    // ─── Account deletion requests ─────────────────────────────────────────
+    // deletionRequests/{uid} {uid, status, requestedAt, reason?, completedAt?, completedBy?}.
+    // The user asks (pending) and may withdraw while pending; an admin completes it only in
+    // the commit that anonymizes users/{uid}. A completed request stays as the record.
+
+    match /deletionRequests/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['uid', 'status', 'requestedAt', 'reason'])
+        && request.resource.data.uid == uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requestedAt == request.time
+        && (
+          request.resource.data.get('reason', null) == null
+          || (request.resource.data.reason is string && request.resource.data.reason.size() <= 500)
+        )
+        && get(userPath(uid)).data.get('anonymizedAt', null) == null;
+
+      allow delete: if isOwner(uid)
+        && resource.data.status == 'pending';
+
+      allow update: if isAdmin()
+        && resource.data.status == 'pending'
+        && onlyChanged(['status', 'completedAt', 'completedBy'])
+        && request.resource.data.status == 'completed'
+        && request.resource.data.completedAt == request.time
+        && request.resource.data.completedBy == request.auth.uid
+        && isAnonymizedInThisCommit(userPath(uid));
     }
 
     // ─── Contacts ──────────────────────────────────────────────────────────
@@ -264,9 +391,12 @@ service cloud.firestore {
           == getAfter(/databases/$(database)/documents/users/$(uid)).data.fullName
         && request.resource.data.mobileNumber
           == getAfter(/databases/$(database)/documents/users/$(uid)).data.mobileNumber
+        && getAfter(userPath(uid)).data.get('anonymizedAt', null) == null
         && request.resource.data.updatedAt == request.time;
 
-      allow delete: if false;
+      // Account deletion: an admin deletes the card in the commit that anonymizes users/{uid}.
+      allow delete: if isAdmin()
+        && isAnonymizedInThisCommit(userPath(uid));
     }
 
     // ─── Bookings ──────────────────────────────────────────────────────────
@@ -884,11 +1014,15 @@ service cloud.firestore {
       // unavailable in the same write; the current trip link is untouched, so a driver
       // revoked mid-ride can still finish it (trip updates use isDriver()). Restoring
       // clears the reason and leaves the driver offline until they go online in the app.
+      // (The anonymizedAt check comes after onlyChanged: for a driver's own write isAdmin()
+      // is an error, not false, so every term up to the first false one is evaluated and
+      // counts toward the 1000-expression limit of the driver's commit.)
       allow update: if isAdmin()
         && onlyChanged([
           'isVerified', 'isOnline', 'isAvailable',
           'verificationNote', 'verificationUpdatedAt', 'verificationUpdatedBy'
         ])
+        && resource.data.get('anonymizedAt', null) == null
         && request.resource.data.verificationUpdatedAt == request.time
         && request.resource.data.verificationUpdatedBy == request.auth.uid
         && request.resource.data.isOnline == false
@@ -921,8 +1055,44 @@ service cloud.firestore {
         && isValidVehiclePlate(request.resource.data.vehiclePlate)
         && isValidVehicleDetails(request.resource.data)
         && request.resource.data.updatedAt == request.time
+        && resource.data.get('anonymizedAt', null) == null
         && resource.data.get('currentBookingId', null) == null
         && resource.data.get('currentRequestId', null) == null;
+
+      // Account deletion (admin website), in the commit that anonymizes users/{uid}: name,
+      // plate and vehicle details are blanked, the admin's note removed, and the driver is
+      // unverified, offline, unavailable and without a position, for good (restore and
+      // vehicle edits are refused afterwards). Refused while the driver is on a trip or
+      // holding an out-of-area request. Type, rating and quota count stay (not personal).
+      // The key test comes first: it is false for every driver write on a record that was
+      // never anonymized, so a driver's own commit stops here without evaluating isAdmin()
+      // (an error for drivers, which would keep evaluating and count toward the driver
+      // commit's 1000-expression limit). anonymizedAt == request.time is checked below.
+      allow update: if 'anonymizedAt' in request.resource.data
+        && isAdmin()
+        && resource.data.get('anonymizedAt', null) == null
+        && resource.data.get('currentBookingId', null) == null
+        && resource.data.get('currentRequestId', null) == null
+        && onlyChanged([
+          'fullName', 'vehiclePlate', 'vehicleBrand', 'vehicleModel', 'vehicleColor',
+          'isVerified', 'isOnline', 'isAvailable', 'currentLocation',
+          'verificationNote', 'verificationUpdatedAt', 'verificationUpdatedBy', 'anonymizedAt', 'updatedAt'
+        ])
+        && request.resource.data.fullName == 'Deleted user'
+        && request.resource.data.vehiclePlate == ''
+        && request.resource.data.vehicleBrand == ''
+        && request.resource.data.vehicleModel == ''
+        && request.resource.data.vehicleColor == ''
+        && request.resource.data.isVerified == false
+        && request.resource.data.isOnline == false
+        && request.resource.data.isAvailable == false
+        && request.resource.data.currentLocation == null
+        && request.resource.data.get('verificationNote', null) == null
+        && request.resource.data.verificationUpdatedAt == request.time
+        && request.resource.data.verificationUpdatedBy == request.auth.uid
+        && request.resource.data.anonymizedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && isAnonymizedInThisCommit(userPath(driverId));
 
       // A driver controls only their own duty status, position, current-trip link and
       // proposal reservation, and their quota count only as isValidQuotaChange allows.
@@ -1060,6 +1230,13 @@ service cloud.firestore {
           && hasValidDocuments(data);
       }
 
+      // The applicant acknowledges the current Privacy Notice on every submit and resubmit
+      // (version and time stored on the application).
+      function acknowledgesPrivacyNotice(data) {
+        return data.privacyNoticeVersion == currentLegalVersion()
+          && data.privacyNoticeAcknowledgedAt == request.time;
+      }
+
       allow read: if isOwner(uid) || isAdmin();
 
       allow create: if isOwner(uid)
@@ -1067,29 +1244,35 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'uid', 'firstName', 'middleName', 'lastName', 'fullName', 'email', 'mobileNumber',
           'vehicleType', 'vehiclePlate', 'vehicleBrand', 'vehicleModel', 'vehicleColor', 'documents',
-          'status', 'adminRemarks', 'submittedAt', 'updatedAt', 'reviewedAt'
+          'status', 'adminRemarks', 'submittedAt', 'updatedAt', 'reviewedAt',
+          'privacyNoticeVersion', 'privacyNoticeAcknowledgedAt'
         ])
         && request.resource.data.uid == uid
         && hasValidApplicantDetails(request.resource.data)
+        && acknowledgesPrivacyNotice(request.resource.data)
         && request.resource.data.status == 'pending'
         && request.resource.data.adminRemarks == null
         && request.resource.data.reviewedAt == null
         && request.resource.data.submittedAt == request.time
         && request.resource.data.updatedAt == request.time;
 
-      // Controlled resubmission: only after an administrator rejected the application.
-      // uid, adminRemarks and reviewedAt cannot change. An application from before the
-      // vehicle details existed gains them here (hasValidApplicantDetails requires them).
+      // Controlled resubmission: only after an administrator rejected the application,
+      // never once anonymized. uid, adminRemarks and reviewedAt cannot change. An
+      // application from before the vehicle details or the privacy acknowledgement existed
+      // gains them here (both are required).
       allow update: if isOwner(uid)
         && isPassenger()
         && resource.data.status == 'rejected'
+        && resource.data.get('anonymizedAt', null) == null
         && request.resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'firstName', 'middleName', 'lastName', 'fullName', 'email', 'mobileNumber',
           'vehicleType', 'vehiclePlate', 'vehicleBrand', 'vehicleModel', 'vehicleColor',
-          'documents', 'status', 'submittedAt', 'updatedAt'
+          'documents', 'status', 'submittedAt', 'updatedAt',
+          'privacyNoticeVersion', 'privacyNoticeAcknowledgedAt'
         ])
         && hasValidApplicantDetails(request.resource.data)
+        && acknowledgesPrivacyNotice(request.resource.data)
         && request.resource.data.submittedAt == request.time
         && request.resource.data.updatedAt == request.time;
 
@@ -1098,6 +1281,7 @@ service cloud.firestore {
       function isAdminReview() {
         return isAdmin()
           && resource.data.status == 'pending'
+          && resource.data.get('anonymizedAt', null) == null
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status', 'adminRemarks', 'reviewedAt', 'updatedAt'
           ])
@@ -1122,6 +1306,35 @@ service cloud.firestore {
       allow update: if isAdminReview()
         && request.resource.data.status == 'rejected'
         && isValidRemarks(request.resource.data.adminRemarks);
+
+      // Account deletion (admin website), in the commit that anonymizes users/{uid}: names,
+      // email, mobile number, plate, vehicle details, document references and the admin's
+      // remarks are removed, once. Status, vehicle type, dates and the privacy
+      // acknowledgement stay; an anonymized application can no longer be reviewed or
+      // resubmitted.
+      allow update: if isAdmin()
+        && request.resource.data.get('anonymizedAt', null) == request.time
+        && resource.data.get('anonymizedAt', null) == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'firstName', 'middleName', 'lastName', 'fullName', 'email', 'mobileNumber',
+          'vehiclePlate', 'vehicleBrand', 'vehicleModel', 'vehicleColor', 'documents',
+          'adminRemarks', 'anonymizedAt', 'updatedAt'
+        ])
+        && request.resource.data.firstName == ''
+        && request.resource.data.get('middleName', null) == null
+        && request.resource.data.lastName == ''
+        && request.resource.data.fullName == 'Deleted user'
+        && request.resource.data.email == ''
+        && request.resource.data.mobileNumber == ''
+        && request.resource.data.vehiclePlate == ''
+        && request.resource.data.vehicleBrand == ''
+        && request.resource.data.vehicleModel == ''
+        && request.resource.data.vehicleColor == ''
+        && request.resource.data.get('documents', null) == null
+        && request.resource.data.get('adminRemarks', null) == null
+        && request.resource.data.anonymizedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && isAnonymizedInThisCommit(userPath(uid));
 
       allow delete: if false;
     }
