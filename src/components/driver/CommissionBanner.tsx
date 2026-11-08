@@ -2,6 +2,7 @@ import { colors, radius, spacing, typography } from '@/constants/theme';
 import { CommissionAccountState } from '@/hooks/useCommissionAccount';
 import { centavosToPesos, commissionStatus, formatPeriodEndDay } from '@/utils/commission';
 import { formatTimeLeft } from '@/utils/dateTime';
+import { isCommissionDueSoon } from '@/utils/driverHome';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 
@@ -18,7 +19,8 @@ interface CommissionBannerProps {
 /**
  * Commission notice on Home and Requests: a warning during the grace period, and once it
  * has ended a suspended notice (no new requests until the overdue amount is confirmed
- * paid). With `showDue`, also a gold notice while the running period is owed. The state
+ * paid). With `showDue`, also a gold notice once the running period's due time is
+ * COMMISSION_DUE_SOON_HOURS or less away (isCommissionDueSoon). The state
  * comes from commissionStatus(); nothing is shown when paid up.
  */
 export function CommissionBanner({
@@ -35,7 +37,10 @@ export function CommissionBanner({
     deadline !== null && deadline > nowMillis ? formatTimeLeft(deadline - nowMillis) : null;
 
   if (summary.status === 'due') {
-    if (!showDue || summary.dueAtMillis === null) return null;
+    // Only close to the due time; until then the Home "Commission owed" tile shows it.
+    if (!showDue || summary.dueAtMillis === null || !isCommissionDueSoon(summary, nowMillis)) {
+      return null;
+    }
     const amount = formatPhilippinePeso(centavosToPesos(summary.balanceCentavos));
     const left = timeLeft(summary.dueAtMillis);
     return (
