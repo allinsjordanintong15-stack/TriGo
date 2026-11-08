@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/constants/theme';
+import { useDriverActivity } from '@/contexts/DriverActivityContext';
+import { formatRequestCount } from '@/utils/openRequests';
 import { useNewRequestAlert } from '@/hooks/useNewRequestAlert';
 import { useNotificationTapRouting } from '@/hooks/useNotificationTapRouting';
 import { Tabs } from 'expo-router';
@@ -9,6 +11,9 @@ export default function DriverTabsLayout() {
   useNewRequestAlert();
   // Here, not in the root layout: the driver account has loaded (also on a cold start).
   useNotificationTapRouting();
+  // Waiting passenger requests (the shared listener in DriverActivityContext).
+  const { openRequests } = useDriverActivity();
+  const requestBadge = formatRequestCount(openRequests.count);
 
   return (
     <Tabs
@@ -36,6 +41,16 @@ export default function DriverTabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="list-outline" color={color} size={size} />
           ),
+          // Hidden when 0 (undefined removes the badge).
+          tabBarBadge: requestBadge || undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.accent,
+            color: colors.primaryDark,
+            fontWeight: '700',
+          },
+          tabBarAccessibilityLabel: requestBadge
+            ? `Requests, ${openRequests.count} waiting`
+            : undefined,
         }}
       />
       <Tabs.Screen

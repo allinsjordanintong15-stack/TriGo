@@ -1,4 +1,5 @@
 import { useDriverAccess } from '@/hooks/useDriverAccess';
+import { OpenRequestFeed, useOpenRequestFeed } from '@/hooks/useOpenRequestFeed';
 import {
   BookingServiceError,
   subscribeToBooking,
@@ -76,6 +77,11 @@ export interface DriverActivityContextValue {
    * Null until the limit is read, or when it cannot be (the rules still enforce it).
    */
   dailyQuota: QuotaStatus | null;
+  /**
+   * Open passenger requests (one shared listener each for standard and out-of-area), used
+   * by the Requests tab, the new-request alert and the Home/tab-bar count.
+   */
+  openRequests: OpenRequestFeed;
 }
 
 /** How often the Manila day is re-checked, so the count resets on screen at midnight. */
@@ -355,6 +361,13 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
 
   const dismissFinishedProposal = useCallback(() => setFinishedProposal(null), []);
 
+  const openRequests = useOpenRequestFeed({
+    driverRecord,
+    canPerformDriverActions,
+    hasActiveTrip: activeBookings.length > 0,
+    hiddenRequestIds,
+  });
+
   const value = useMemo<DriverActivityContextValue>(
     () => ({
       activeBookings,
@@ -368,6 +381,7 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
       dismissFinishedProposal,
       hiddenRequestIds,
       dailyQuota,
+      openRequests,
     }),
     [
       activeBookings,
@@ -381,6 +395,7 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
       dismissFinishedProposal,
       hiddenRequestIds,
       dailyQuota,
+      openRequests,
     ],
   );
 

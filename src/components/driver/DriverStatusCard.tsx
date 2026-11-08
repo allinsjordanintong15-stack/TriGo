@@ -17,7 +17,11 @@ interface DriverStatusCardProps {
   actionTitle?: string;
   onAction?: () => void;
   actionLoading?: boolean;
-  actionVariant?: 'primary' | 'secondary';
+  actionVariant?: 'primary' | 'secondary' | 'accent';
+  /** Optional count pill on the action button, e.g. "3" or "9+". */
+  actionBadge?: string;
+  /** Optional screen-reader label for the action, e.g. "View requests, 2 waiting". */
+  actionAccessibilityLabel?: string;
   /** Extra details between the message and the action, e.g. the request's route. */
   children?: ReactNode;
 }
@@ -33,6 +37,8 @@ export function DriverStatusCard({
   onAction,
   actionLoading = false,
   actionVariant = 'primary',
+  actionBadge,
+  actionAccessibilityLabel,
   children,
 }: DriverStatusCardProps) {
   return (
@@ -58,6 +64,8 @@ export function DriverStatusCard({
             title={actionTitle}
             variant={actionVariant}
             loading={actionLoading}
+            badge={actionBadge}
+            accessibilityLabel={actionAccessibilityLabel}
             onPress={onAction}
           />
         </View>

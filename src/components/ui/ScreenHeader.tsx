@@ -9,31 +9,38 @@ interface ScreenHeaderProps {
   title: string;
   onBack?: () => void;
   right?: ReactNode;
+  /**
+   * Optional: a right element wider than 48 dp (e.g. a chip). Both sides then share the
+   * space left by the title equally, so the title stays centred. Off by default.
+   */
+  wideRight?: boolean;
 }
 
-export function ScreenHeader({ title, onBack, right }: ScreenHeaderProps) {
+export function ScreenHeader({ title, onBack, right, wideRight = false }: ScreenHeaderProps) {
   const insets = useSafeAreaInsets();
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
       <View style={styles.row}>
-        {onBack ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            style={styles.back}
-            hitSlop={4}
-            onPress={onBack}
-          >
-            <Ionicons name="chevron-back" color={colors.primary} size={26} />
-          </Pressable>
-        ) : (
-          <View style={styles.backPlaceholder} />
-        )}
-        <Text style={styles.title} numberOfLines={1}>
+        <View style={wideRight ? styles.sideWide : null}>
+          {onBack ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={styles.back}
+              hitSlop={4}
+              onPress={onBack}
+            >
+              <Ionicons name="chevron-back" color={colors.primary} size={26} />
+            </Pressable>
+          ) : (
+            <View style={styles.backPlaceholder} />
+          )}
+        </View>
+        <Text style={[styles.title, wideRight ? styles.titleWide : null]} numberOfLines={1}>
           {title}
         </Text>
-        <View style={styles.right}>{right}</View>
+        <View style={wideRight ? [styles.sideWide, styles.rightWide] : styles.right}>{right}</View>
       </View>
     </View>
   );
@@ -81,6 +88,21 @@ const styles = StyleSheet.create({
   },
   right: {
     width: 48,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  // wideRight: left and right take equal shares of the free space; the title its own width.
+  sideWide: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 48,
+  },
+  titleWide: {
+    flex: 0,
+    flexShrink: 1,
+    marginHorizontal: spacing.sm,
+  },
+  rightWide: {
     alignItems: 'flex-end',
     justifyContent: 'center',
   },

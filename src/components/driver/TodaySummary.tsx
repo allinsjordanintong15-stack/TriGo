@@ -1,7 +1,5 @@
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
-import { CommissionAccountState } from '@/hooks/useCommissionAccount';
 import { FaresCollected } from '@/services/driverBookingService';
-import { centavosToPesos, commissionStatus, CommissionStatus } from '@/utils/commission';
 import { QuotaStatus } from '@/utils/dailyQuota';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -12,22 +10,12 @@ interface TodaySummaryProps {
   /** Fares collected today; null while loading. */
   faresToday: FaresCollected | null;
   faresError: boolean;
-  commission: CommissionAccountState;
-  /** Clock for the commission balance (useNow). */
-  now: number;
 }
 
 type TileValue =
   | { kind: 'loading' }
   | { kind: 'unavailable' }
   | { kind: 'value'; value: string; caption: string; alert?: boolean };
-
-const COMMISSION_CAPTION: Record<CommissionStatus, string> = {
-  paid_up: 'Paid up',
-  due: 'Due',
-  overdue: 'Overdue',
-  suspended: 'Suspended',
-};
 
 function quotaTile(dailyQuota: QuotaStatus | null): TileValue {
   if (!dailyQuota) return { kind: 'unavailable' };
@@ -49,30 +37,11 @@ function faresTile(today: FaresCollected | null, error: boolean): TileValue {
   };
 }
 
-function commissionTile(commission: CommissionAccountState, now: number): TileValue {
-  if (commission.loading) return { kind: 'loading' };
-  if (commission.error) return { kind: 'unavailable' };
-  // No commission recorded yet (or none set by the admin): nothing is owed.
-  if (!commission.account) {
-    return { kind: 'value', value: formatPhilippinePeso(0), caption: 'Nothing owed' };
-  }
-  const summary = commissionStatus(commission.account, now);
-  return {
-    kind: 'value',
-    value: formatPhilippinePeso(centavosToPesos(summary.balanceCentavos)),
-    caption: COMMISSION_CAPTION[summary.status],
-    alert: summary.status === 'overdue' || summary.status === 'suspended',
-  };
-}
-
-/** Today at a glance on driver Home: accepted vs limit, fares collected, commission owed. */
-export function TodaySummary({
-  dailyQuota,
-  faresToday,
-  faresError,
-  commission,
-  now,
-}: TodaySummaryProps) {
+/**
+ * Today at a glance on driver Home: accepted vs limit and fares collected. The commission
+ * balance is the header chip (CommissionChip).
+ */
+export function TodaySummary({ dailyQuota, faresToday, faresError }: TodaySummaryProps) {
   return (
     <View style={styles.card}>
       <Text style={styles.heading} accessibilityRole="header">
@@ -82,8 +51,6 @@ export function TodaySummary({
         <Tile label="Accepted today" tile={quotaTile(dailyQuota)} />
         <View style={styles.divider} />
         <Tile label="Fares collected" tile={faresTile(faresToday, faresError)} />
-        <View style={styles.divider} />
-        <Tile label="Commission owed" tile={commissionTile(commission, now)} />
       </View>
     </View>
   );
@@ -144,7 +111,7 @@ const styles = StyleSheet.create({
   divider: {
     width: 1,
     backgroundColor: colors.border,
-    marginHorizontal: spacing.sm,
+    marginHorizontal: spacing.md,
   },
   tile: {
     flex: 1,
@@ -152,11 +119,10 @@ const styles = StyleSheet.create({
   label: {
     ...typography.caption,
     color: colors.textSecondary,
-    minHeight: 34,
   },
   value: {
     ...typography.label,
-    fontSize: 18,
+    fontSize: 22,
     color: colors.primary,
     marginTop: spacing.xs,
     fontVariant: ['tabular-nums'],

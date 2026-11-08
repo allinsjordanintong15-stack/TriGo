@@ -11,10 +11,6 @@ import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useCommissionAccount } from '@/hooks/useCommissionAccount';
 import { useNow } from '@/hooks/useNow';
 import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
-import { getDeclinedBookingIds, subscribeToOpenBookings } from '@/services/driverBookingService';
-import { OpenOutOfAreaRequest, subscribeToOpenOutOfAreaRequests } from '@/services/driverService';
-import { fetchFareConfig } from '@/services/fareService';
-import { Booking } from '@/types';
 import { isBookingExpired } from '@/utils/bookingExpiry';
 import { calculateDistanceKm } from '@/utils/distance';
 import { router, useFocusEffect } from 'expo-router';
@@ -24,14 +20,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function DriverRequestsScreen() {
   const insets = useSafeAreaInsets();
-  const { status, driverRecord, canPerformDriverActions } = useDriverAccess();
-  const { hasActiveTrip, hiddenRequestIds, dailyQuota } = useDriverActivity();
-  const [bookings, setBookings] = useState<Booking[] | null>(null);
-  const [declinedIds, setDeclinedIds] = useState<string[]>([]);
-  const [error, setError] = useState('');
-  const [outOfAreaRequests, setOutOfAreaRequests] = useState<OpenOutOfAreaRequest[] | null>(null);
-  const [outOfAreaError, setOutOfAreaError] = useState('');
-  const [searchRadiusKm, setSearchRadiusKm] = useState<number | null>(null);
+  const { status, driverRecord } = useDriverAccess();
+  const { hasActiveTrip, hiddenRequestIds, dailyQuota, openRequests } = useDriverActivity();
+  // One shared listener per source (DriverActivityContext); subscribed only while the
+  // driver is verified, online, available and not on a trip.
+  const {
+    bookings,
+    bookingsError,
+    outOfArea: outOfAreaRequests,
+    outOfAreaError: outOfAreaFailure,
+    searchRadiusKm,
+    declinedBookingIds: declinedIds,
+    refreshDeclined,
+  } = openRequests;
   const [now, setNow] = useState(() => Date.now());
 
   const driverId = driverRecord?.driverId ?? null;
@@ -39,45 +40,19 @@ export default function DriverRequestsScreen() {
   const vehicleType = driverRecord?.vehicleType ?? null;
   const isOnline = driverRecord?.isOnline === true;
   const isAvailable = driverRecord?.isAvailable === true;
-  const canReceiveRequests = canPerformDriverActions && isOnline && isAvailable && !hasActiveTrip;
   const latitude = driverRecord?.currentLocation?.latitude ?? null;
   const longitude = driverRecord?.currentLocation?.longitude ?? null;
 
-  // Admin-managed radius from fareSettings, merged over the in-code defaults.
-  useEffect(() => {
-    let active = true;
-    fetchFareConfig().then((config) => {
-      if (active) setSearchRadiusKm(config.outOfArea.driverSearchRadiusKm);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    setOutOfAreaRequests(null);
-    setOutOfAreaError('');
-
-    if (!canReceiveRequests || !vehicleType || searchRadiusKm === null) return;
-    if (latitude === null || longitude === null) {
-      setOutOfAreaRequests([]);
-      return;
-    }
-
-    return subscribeToOpenOutOfAreaRequests(
-      vehicleType,
-      { latitude, longitude },
-      searchRadiusKm,
-      (open) => {
-        setOutOfAreaRequests(open);
-        setOutOfAreaError('');
-      },
-      () => {
-        setOutOfAreaRequests([]);
-        setOutOfAreaError('Unable to load out-of-area requests. Please check your connection.');
-      },
-    );
-  }, [canReceiveRequests, vehicleType, latitude, longitude, searchRadiusKm]);
+  const outOfAreaError = outOfAreaFailure
+    ? 'Unable to load out-of-area requests. Please check your connection.'
+    : '';
+  let error = '';
+  if (bookingsError) {
+    const message = 'Unable to load ride requests. Please check your connection.';
+    // Dev builds show the Firestore code (e.g. permission-denied vs unavailable).
+    const code = (bookingsError as { code?: unknown }).code;
+    error = __DEV__ && typeof code === 'string' ? `${message} [${code}]` : message;
+  }
 
   // Drives the expiry countdowns and hides requests that expire while the list is open.
   const hasOutOfAreaRequests = (outOfAreaRequests?.length ?? 0) > 0;
@@ -100,28 +75,6 @@ export default function DriverRequestsScreen() {
     [outOfAreaRequests, now, hiddenRequestIds],
   );
 
-  useEffect(() => {
-    setBookings(null);
-    setError('');
-
-    if (!canReceiveRequests || !vehicleType) return;
-
-    return subscribeToOpenBookings(
-      vehicleType,
-      (open) => {
-        setBookings(open);
-        setError('');
-      },
-      (subscriptionError) => {
-        setBookings([]);
-        const message = 'Unable to load ride requests. Please check your connection.';
-        // Dev builds show the Firestore code (e.g. permission-denied vs unavailable).
-        const code = (subscriptionError as { code?: unknown }).code;
-        setError(__DEV__ && typeof code === 'string' ? `${message} [${code}]` : message);
-      },
-    );
-  }, [canReceiveRequests, vehicleType]);
-
   // Every 30 s: drops standard requests that expire while the list is open and keeps the
   // request ages current.
   const bookingsNow = useNow(30 * 1000, (bookings?.length ?? 0) > 0);
@@ -129,15 +82,8 @@ export default function DriverRequestsScreen() {
   // Re-read declined requests whenever the list regains focus (e.g. after declining).
   useFocusEffect(
     useCallback(() => {
-      if (!driverId) return;
-      let active = true;
-      getDeclinedBookingIds(driverId).then((ids) => {
-        if (active) setDeclinedIds(ids);
-      });
-      return () => {
-        active = false;
-      };
-    }, [driverId]),
+      refreshDeclined();
+    }, [refreshDeclined]),
   );
 
   const visibleRequests = useMemo(() => {

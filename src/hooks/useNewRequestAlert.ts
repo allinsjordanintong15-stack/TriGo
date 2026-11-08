@@ -1,9 +1,8 @@
 import { BARANGAYS, POBLACION_ID } from '@/constants/barangays';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useDriverAccess } from '@/hooks/useDriverAccess';
-import { getDeclinedBookingIds, subscribeToOpenBookings } from '@/services/driverBookingService';
-import { OpenOutOfAreaRequest, subscribeToOpenOutOfAreaRequests } from '@/services/driverService';
-import { fetchFareConfig } from '@/services/fareService';
+import { getDeclinedBookingIds } from '@/services/driverBookingService';
+import { OpenOutOfAreaRequest } from '@/services/driverService';
 import {
   dismissAllRideRequestNotifications,
   dismissRideRequestNotification,
@@ -36,7 +35,7 @@ import {
   ShownNotifications,
   SUMMARY_NOTIFICATION_ID,
 } from '@/utils/requestNotification';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Vibration } from 'react-native';
 
 /** New requests arriving this close together (e.g. a standard and an out-of-area one) are
@@ -128,10 +127,16 @@ function outOfAreaDetails(
  */
 export function useNewRequestAlert(): void {
   const { driverRecord, canPerformDriverActions } = useDriverAccess();
-  const { hasActiveTrip, hiddenRequestIds, dailyQuota } = useDriverActivity();
+  const { hasActiveTrip, hiddenRequestIds, dailyQuota, openRequests } = useDriverActivity();
+  // The shared listeners (one per source), also used by the Requests tab and the count.
+  const {
+    bookings: feedBookings,
+    bookingsError: feedBookingsError,
+    outOfArea: feedOutOfArea,
+    outOfAreaError: feedOutOfAreaError,
+  } = openRequests;
 
   const driverId = driverRecord?.driverId ?? null;
-  const vehicleType = driverRecord?.vehicleType ?? null;
   const latitude = driverRecord?.currentLocation?.latitude ?? null;
   const longitude = driverRecord?.currentLocation?.longitude ?? null;
   const enabled =
@@ -143,17 +148,6 @@ export function useNewRequestAlert(): void {
     // At the daily acceptance limit nothing can be accepted, so nothing alerts (and the
     // "not enabled" path below removes the ride-request notifications).
     dailyQuota?.reached !== true;
-
-  const [searchRadiusKm, setSearchRadiusKm] = useState<number | null>(null);
-  useEffect(() => {
-    let active = true;
-    fetchFareConfig().then((config) => {
-      if (active) setSearchRadiusKm(config.outOfArea.driverSearchRadiusKm);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   // Every request key seen while able to take requests; a key alerts at most once.
   const seen = useRef(new Set<string>());
@@ -317,95 +311,88 @@ export function useNewRequestAlert(): void {
     return () => clearInterval(timer);
   }, [enabled, removeGone]);
 
-  // Standard bookings.
+  // Standard bookings, from the shared listener (DriverActivityContext). A failed listener
+  // leaves the alert quiet, as before (the Requests tab shows the error).
+  // Each new snapshot (a new array) runs this once; the first one after becoming able to take
+  // requests is the baseline, exactly as with the hook's own listener before.
   useEffect(() => {
-    if (!enabled || !vehicleType || !driverId) return;
+    if (!enabled || !driverId || feedBookings === null || feedBookingsError) return;
     let active = true;
 
-    const unsubscribe = subscribeToOpenBookings(
-      vehicleType,
-      (bookings) => {
-        const now = Date.now();
-        const open = bookings.filter((booking) => !isBookingExpired(booking, now));
-        syncSource(
-          STANDARD_PREFIX,
-          new Map(
-            open.map((booking) => [
-              requestNotificationId('standard', booking.bookingId),
-              standardDetails(booking, locationRef.current, driverId),
-            ]),
-          ),
-        );
-
-        const keys = open.map((booking) => standardRequestKey(booking.bookingId));
-        const fresh = findNewRequestKeys(seen.current, keys, !standardBaselined.current);
-        standardBaselined.current = true;
-        keys.forEach((key) => seen.current.add(key));
-        if (fresh.length === 0) return;
-        const freshKeys = new Set(fresh);
-        const freshIds = open
-          .map((booking) => booking.bookingId)
-          .filter((id) => freshKeys.has(standardRequestKey(id)));
-
-        getDeclinedBookingIds(driverId).then((declinedIds) => {
-          if (!active) return;
-          const declined = new Set(declinedIds);
-          alertNew(
-            freshIds
-              .filter((id) => !declined.has(id))
-              .map((id) => requestNotificationId('standard', id)),
-          );
-        });
-      },
-      () => {
-        // The Requests tab shows load errors; the alert just stays quiet.
-      },
+    const now = Date.now();
+    const open = feedBookings.filter((booking) => !isBookingExpired(booking, now));
+    syncSource(
+      STANDARD_PREFIX,
+      new Map(
+        open.map((booking) => [
+          requestNotificationId('standard', booking.bookingId),
+          standardDetails(booking, locationRef.current, driverId),
+        ]),
+      ),
     );
+
+    const keys = open.map((booking) => standardRequestKey(booking.bookingId));
+    const fresh = new Set(findNewRequestKeys(seen.current, keys, !standardBaselined.current));
+    standardBaselined.current = true;
+    keys.forEach((key) => seen.current.add(key));
+    const freshIds = open
+      .map((booking) => booking.bookingId)
+      .filter((id) => fresh.has(standardRequestKey(id)));
+
+    if (freshIds.length > 0) {
+      getDeclinedBookingIds(driverId).then((declinedIds) => {
+        if (!active) return;
+        const declined = new Set(declinedIds);
+        alertNew(
+          freshIds
+            .filter((id) => !declined.has(id))
+            .map((id) => requestNotificationId('standard', id)),
+        );
+      });
+    }
 
     return () => {
       active = false;
-      unsubscribe();
     };
-  }, [enabled, vehicleType, driverId, syncSource, alertNew]);
+  }, [enabled, driverId, feedBookings, feedBookingsError, syncSource, alertNew]);
 
-  // Out-of-area requests near the driver.
+  // Out-of-area requests near the driver, from the shared listener (within the admin radius).
   useEffect(() => {
-    if (!enabled || !vehicleType || !driverId || searchRadiusKm === null) return;
+    if (!enabled || !driverId || feedOutOfArea === null || feedOutOfAreaError) return;
     if (latitude === null || longitude === null) return;
 
-    return subscribeToOpenOutOfAreaRequests(
-      vehicleType,
-      { latitude, longitude },
-      searchRadiusKm,
-      (requests) => {
-        const now = Date.now();
-        const hidden = new Set(hiddenRef.current);
-        const open = requests.filter(
-          ({ request }) => isUnexpired(request.expiresAt, now) && !hidden.has(request.requestId),
-        );
-        syncSource(
-          OUT_OF_AREA_PREFIX,
-          new Map(
-            open.map((entry) => [
-              requestNotificationId('out_of_area', entry.request.requestId),
-              outOfAreaDetails(entry, driverId),
-            ]),
-          ),
-        );
-
-        const keys = open.map(({ request }) => outOfAreaRequestKey(request.requestId));
-        const fresh = new Set(findNewRequestKeys(seen.current, keys, !outOfAreaBaselined.current));
-        outOfAreaBaselined.current = true;
-        keys.forEach((key) => seen.current.add(key));
-        alertNew(
-          open
-            .filter(({ request }) => fresh.has(outOfAreaRequestKey(request.requestId)))
-            .map(({ request }) => requestNotificationId('out_of_area', request.requestId)),
-        );
-      },
-      () => {
-        // The Requests tab shows load errors; the alert just stays quiet.
-      },
+    const now = Date.now();
+    const hidden = new Set(hiddenRef.current);
+    const open = feedOutOfArea.filter(
+      ({ request }) => isUnexpired(request.expiresAt, now) && !hidden.has(request.requestId),
     );
-  }, [enabled, vehicleType, driverId, latitude, longitude, searchRadiusKm, syncSource, alertNew]);
+    syncSource(
+      OUT_OF_AREA_PREFIX,
+      new Map(
+        open.map((entry) => [
+          requestNotificationId('out_of_area', entry.request.requestId),
+          outOfAreaDetails(entry, driverId),
+        ]),
+      ),
+    );
+
+    const keys = open.map(({ request }) => outOfAreaRequestKey(request.requestId));
+    const fresh = new Set(findNewRequestKeys(seen.current, keys, !outOfAreaBaselined.current));
+    outOfAreaBaselined.current = true;
+    keys.forEach((key) => seen.current.add(key));
+    alertNew(
+      open
+        .filter(({ request }) => fresh.has(outOfAreaRequestKey(request.requestId)))
+        .map(({ request }) => requestNotificationId('out_of_area', request.requestId)),
+    );
+  }, [
+    enabled,
+    driverId,
+    latitude,
+    longitude,
+    feedOutOfArea,
+    feedOutOfAreaError,
+    syncSource,
+    alertNew,
+  ]);
 }

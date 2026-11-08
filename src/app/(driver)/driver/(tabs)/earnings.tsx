@@ -25,8 +25,8 @@ import {
 import { centavosToPesos, commissionStatus } from '@/utils/commission';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -92,6 +92,21 @@ export default function DriverEarningsScreen() {
 
   const scrollRef = useRef<ScrollView>(null);
   const payFormY = useRef<number | null>(null);
+
+  // ?pay=1 (Home's commission chip): scroll to the payment form once, the same way as
+  // "Pay now". The form may not be laid out yet; then onLayout does it.
+  const { pay } = useLocalSearchParams<{ pay?: string }>();
+  const payRequested = useRef(false);
+  useEffect(() => {
+    if (pay !== '1') return;
+    payRequested.current = true;
+    router.setParams({ pay: undefined });
+    if (payFormY.current !== null) {
+      payRequested.current = false;
+      scrollToPayForm();
+    }
+    // scrollToPayForm only reads refs.
+  }, [pay]);
 
   // TriGo's GCash account and the first page of payments. A newer load (or leaving the
   // tab) makes an older one's result be ignored.
@@ -285,6 +300,10 @@ export default function DriverEarningsScreen() {
               <View
                 onLayout={(event) => {
                   payFormY.current = event.nativeEvent.layout.y;
+                  if (payRequested.current) {
+                    payRequested.current = false;
+                    scrollToPayForm();
+                  }
                 }}
               >
                 <CommissionPaymentForm

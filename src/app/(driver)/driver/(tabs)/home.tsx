@@ -1,7 +1,7 @@
 import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { ActiveTripBanner } from '@/components/driver/ActiveTripBanner';
 import { CommissionBanner } from '@/components/driver/CommissionBanner';
-import { CommissionCard } from '@/components/driver/CommissionCard';
+import { CommissionChip } from '@/components/driver/CommissionChip';
 import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
 import { DutyToggle } from '@/components/driver/DutyToggle';
 import { GoOnlineLocationCard } from '@/components/driver/GoOnlineLocationCard';
@@ -42,6 +42,7 @@ import {
 } from '@/services/locationService';
 import { commissionStatus } from '@/utils/commission';
 import { getAcceptRestriction } from '@/utils/driverHome';
+import { formatRequestCount, viewRequestsLabel, waitingPassengersText } from '@/utils/openRequests';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { LocationProblem, locationProblemMessage } from '@/utils/goOnlineLocation';
 import { shouldExplainBeforeGoingOnline } from '@/utils/notificationPermission';
@@ -126,7 +127,9 @@ export default function DriverHomeScreen() {
     dailyQuota,
     activeBookingsError,
     retryActiveBookings,
+    openRequests,
   } = useDriverActivity();
+  const openRequestCount = openRequests.count;
   const driverId = driverRecord?.driverId ?? null;
   const [now, setNow] = useState(() => Date.now());
   const [explainNotifications, setExplainNotifications] = useState(false);
@@ -406,8 +409,17 @@ export default function DriverHomeScreen() {
       <DriverStatusCard
         icon="checkmark-circle-outline"
         title="You are available"
-        message="New ride requests appear in the Requests tab."
+        message={
+          openRequestCount > 0
+            ? waitingPassengersText(openRequestCount)
+            : 'New ride requests appear in the Requests tab.'
+        }
         actionTitle="View requests"
+        // Gold only when something is waiting and the driver can accept it (not suspended,
+        // not at the daily limit); otherwise the count shows on the normal button.
+        actionVariant={openRequestCount > 0 && acceptRestriction === null ? 'accent' : 'primary'}
+        actionBadge={formatRequestCount(openRequestCount) || undefined}
+        actionAccessibilityLabel={viewRequestsLabel(openRequestCount)}
         onAction={() => router.navigate('/driver/requests')}
       />
     );
@@ -437,7 +449,23 @@ export default function DriverHomeScreen() {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader title="Home" />
+      <ScreenHeader
+        title="Home"
+        wideRight
+        right={
+          driverRecord ? (
+            <CommissionChip
+              state={commission}
+              now={clock}
+              onPress={(owes) =>
+                router.navigate(
+                  owes ? { pathname: '/driver/earnings', params: { pay: '1' } } : '/driver/earnings',
+                )
+              }
+            />
+          ) : null
+        }
+      />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
@@ -514,8 +542,6 @@ export default function DriverHomeScreen() {
             dailyQuota={status === 'verified' ? dailyQuota : null}
             faresToday={fares.today}
             faresError={fares.error}
-            commission={commission}
-            now={clock}
           />
         ) : null}
 
@@ -527,16 +553,6 @@ export default function DriverHomeScreen() {
               router.push({ pathname: '/driver/trip/[bookingId]', params: { bookingId } })
             }
             onViewAll={() => router.navigate('/driver/trips')}
-          />
-        ) : null}
-
-        {/* Hidden when the admin has not set a commission and nothing was ever recorded. */}
-        {driverRecord &&
-        (commission.loading || commission.error || commission.settings || commission.account) ? (
-          <CommissionCard
-            state={commission}
-            variant="summary"
-            onOpen={() => router.navigate('/driver/earnings')}
           />
         ) : null}
       </ScrollView>
