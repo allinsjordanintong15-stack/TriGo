@@ -39,7 +39,12 @@ Source documents (read these before planning any feature):
    number; the admin verifies manually. Admin cash-outs are recorded only.
 3. Admin platform: inside the mobile app (role-based screens) or a separate web app.
 4. Map/location provider.
-5. Driver Rating, Earnings, Vehicle Fleet appear in prototypes but not in SRS scope.
+5. Earnings, Vehicle Fleet appear in prototypes but not in SRS scope.
+   ~~Driver Rating~~ DECIDED 2026-11-08 (docs/DECISIONS.md): after a completed trip the
+   passenger rates the driver once (1–5 whole stars, optional tags and comment) within 7
+   days; ratings/{bookingId} plus a rules-verified summary driverRatings/{driverId}
+   (ratingSum, ratingCount), no Cloud Functions. The app and admin website show the
+   average or "New". The SRS needs a rating section added in the final documentation.
 
 ## Working rules
 - Plan first: before writing code for a feature, show me the plan (files to touch,

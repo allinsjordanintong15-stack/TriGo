@@ -22,6 +22,7 @@ import {
   type DriverVehicleType,
   type VehicleDetails,
 } from './driverRecords';
+import { readRatingSummary, type DriverRatingSummary } from './driverRatings';
 
 // Drivers page: every drivers/{uid} record with contact details from users/{uid}, a
 // driver's trip history, revoke/restore of verification, and vehicle corrections.
@@ -29,7 +30,12 @@ import {
 /** The trip history query returns at most this many bookings (newest first). */
 export const TRIP_HISTORY_LIMIT = 200;
 
-export type DriverListEntry = { driver: AdminDriver; contact: DriverContact | undefined };
+export type DriverListEntry = {
+  driver: AdminDriver;
+  contact: DriverContact | undefined;
+  /** driverRatings/{uid}; null when nobody has rated this driver yet. */
+  ratingSummary: DriverRatingSummary | null;
+};
 
 async function loadContact(uid: string): Promise<DriverContact | undefined> {
   const data = (await getDoc(doc(db, 'users', uid))).data();
@@ -38,11 +44,19 @@ async function loadContact(uid: string): Promise<DriverContact | undefined> {
 
 /** All driver records, A–Z by name. Search is done in the browser (Firestore has no text search). */
 export async function loadDrivers(): Promise<DriverListEntry[]> {
-  const snapshot = await getDocs(collection(db, 'drivers'));
+  const [snapshot, ratingsSnapshot] = await Promise.all([
+    getDocs(collection(db, 'drivers')),
+    getDocs(collection(db, 'driverRatings')),
+  ]);
+  const ratings = new Map(ratingsSnapshot.docs.map((d) => [d.id, readRatingSummary(d.data())]));
   const drivers = snapshot.docs.map((d) => readDriver(d.id, d.data()));
   const contacts = await Promise.all(drivers.map((driver) => loadContact(driver.uid)));
   return drivers
-    .map((driver, index) => ({ driver, contact: contacts[index] }))
+    .map((driver, index) => ({
+      driver,
+      contact: contacts[index],
+      ratingSummary: ratings.get(driver.uid) ?? null,
+    }))
     .sort((a, b) => a.driver.fullName.localeCompare(b.driver.fullName));
 }
 
@@ -56,10 +70,12 @@ export type DriverDetail = {
   tripsTruncated: boolean;
   /** Email of the admin who last revoked or restored, when it is still a user profile. */
   verificationUpdatedByEmail: string | null;
+  /** driverRatings/{uid}; null when nobody has rated this driver yet. */
+  ratingSummary: DriverRatingSummary | null;
 };
 
 export async function loadDriverDetail(uid: string): Promise<DriverDetail | null> {
-  const [driverSnap, userSnap, tripsSnap] = await Promise.all([
+  const [driverSnap, userSnap, tripsSnap, ratingSnap] = await Promise.all([
     getDoc(doc(db, 'drivers', uid)),
     getDoc(doc(db, 'users', uid)),
     // Composite index bookings (driverId ASC, createdAt DESC) in firestore.indexes.json.
@@ -71,6 +87,7 @@ export async function loadDriverDetail(uid: string): Promise<DriverDetail | null
         limit(TRIP_HISTORY_LIMIT),
       ),
     ),
+    getDoc(doc(db, 'driverRatings', uid)),
   ]);
   if (!driverSnap.exists()) return null;
   const driver = readDriver(uid, driverSnap.data());
@@ -90,6 +107,7 @@ export async function loadDriverDetail(uid: string): Promise<DriverDetail | null
     trips: tripsSnap.docs.map((d) => readBooking(d.id, d.data())),
     tripsTruncated: tripsSnap.size >= TRIP_HISTORY_LIMIT,
     verificationUpdatedByEmail,
+    ratingSummary: readRatingSummary(ratingSnap.data()),
   };
 }
 

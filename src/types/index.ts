@@ -286,14 +286,18 @@ export interface DriverLocation {
   updatedAt: Date;
 }
 
+/** ratings/{bookingId}: a passenger's rating of the driver on one completed trip. */
 export interface Rating {
-  ratingId: string;
   bookingId: string;
   passengerId: string;
   driverId: string;
-  rating: number;
+  /** Whole stars, 1–5. */
+  stars: number;
+  /** Ids from RATING_TAGS (src/constants/rating.ts). */
+  tags: string[];
   comment: string | null;
-  createdAt: Date;
+  /** Null only in the moment before the server time is filled in. */
+  createdAt: Date | null;
 }
 
 export type NotificationType =

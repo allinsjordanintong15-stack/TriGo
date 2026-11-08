@@ -2,7 +2,9 @@ import { ContactCallButton } from '@/components/booking/ContactCallButton';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { formatVehicleDescription, getVehicleOption } from '@/constants/vehicles';
+import { useDriverRatingSummary } from '@/hooks/useDriverRatingSummary';
 import { DriverRecord } from '@/types';
+import { formatDriverRating } from '@/utils/rating';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 interface DriverCardProps {
@@ -19,6 +21,9 @@ const AVATAR_SIZE = 48;
  * type for drivers approved before those were recorded), plate and rating when known.
  */
 export function DriverCard({ driver, mobileNumber = null }: DriverCardProps) {
+  // The average from driverRatings/{driverId} ("New" before the first rating).
+  const { summary, loaded: ratingLoaded } = useDriverRatingSummary(driver?.driverId ?? null);
+  const ratingText = formatDriverRating(summary);
   const callButton = mobileNumber ? (
     <ContactCallButton
       mobileNumber={mobileNumber}
@@ -58,10 +63,16 @@ export function DriverCard({ driver, mobileNumber = null }: DriverCardProps) {
             <Text style={styles.name} numberOfLines={1}>
               {driver.fullName || 'TriGo driver'}
             </Text>
-            {driver.rating > 0 ? (
-              <View style={styles.ratingRow}>
+            {ratingLoaded ? (
+              <View
+                style={styles.ratingRow}
+                accessible
+                accessibilityLabel={
+                  ratingText === 'New' ? 'New driver, no ratings yet' : `Rated ${ratingText} of 5`
+                }
+              >
                 <Ionicons name="star" size={14} color={colors.gold} />
-                <Text style={styles.rating}>{driver.rating.toFixed(1)}</Text>
+                <Text style={styles.rating}>{ratingText}</Text>
               </View>
             ) : null}
           </View>

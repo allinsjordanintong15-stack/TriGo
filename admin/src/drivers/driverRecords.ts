@@ -120,7 +120,6 @@ export type AdminDriver = {
   isAvailable: boolean;
   currentBookingId: string | null;
   currentRequestId: string | null;
-  rating: number | null;
   /** Reason given when verification was revoked; null otherwise. */
   verificationNote: string | null;
   verificationUpdatedAt: Date | null;
@@ -145,7 +144,6 @@ export function readDriver(uid: string, data: DocumentData): AdminDriver {
     isAvailable: data.isAvailable === true,
     currentBookingId: typeof data.currentBookingId === 'string' ? data.currentBookingId : null,
     currentRequestId: typeof data.currentRequestId === 'string' ? data.currentRequestId : null,
-    rating: typeof data.rating === 'number' && Number.isFinite(data.rating) ? data.rating : null,
     verificationNote: typeof data.verificationNote === 'string' ? data.verificationNote : null,
     verificationUpdatedAt: (data.verificationUpdatedAt as Timestamp | undefined)?.toDate?.() ?? null,
     verificationUpdatedBy: typeof data.verificationUpdatedBy === 'string' ? data.verificationUpdatedBy : null,

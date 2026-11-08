@@ -8,6 +8,7 @@ export const COLLECTIONS = {
   contacts: 'contacts',
   bookings: 'bookings',
   ratings: 'ratings',
+  driverRatings: 'driverRatings',
   notifications: 'notifications',
   fareSettings: 'fareSettings',
   barangayTariffs: 'barangayTariffs',

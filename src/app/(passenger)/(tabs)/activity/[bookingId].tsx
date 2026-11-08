@@ -1,5 +1,6 @@
 import { DriverCard } from '@/components/booking/DriverCard';
 import { FareCard } from '@/components/booking/FareCard';
+import { GivenRating } from '@/components/booking/RateDriverForm';
 import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { StatusHeader } from '@/components/booking/StatusHeader';
 import { TripStatsRow } from '@/components/booking/TripStatsRow';
@@ -10,6 +11,8 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useNow } from '@/hooks/useNow';
+import { useOwnRating } from '@/hooks/useOwnRating';
+import { isWithinRatingWindow } from '@/utils/rating';
 import { BookingServiceError, subscribeToBooking } from '@/services/bookingService';
 import { getDriverRecord } from '@/services/driverService';
 import { Booking, DriverRecord } from '@/types';
@@ -128,6 +131,9 @@ export default function BookingDetailScreen() {
   // Shows Expired once a waiting standard booking passes its expiry.
   const now = useNow(30 * 1000, booking?.status === 'pending');
 
+  // Completed trips: the passenger's rating, or "Rate driver" while the window is open.
+  const ownRating = useOwnRating(booking?.bookingId ?? null, booking?.status === 'completed');
+
   if (loading && !booking) {
     return (
       <View style={styles.container}>
@@ -219,6 +225,28 @@ export default function BookingDetailScreen() {
         </View>
 
         {booking.driverId ? <DriverCard driver={assignedDriver} /> : null}
+
+        {isCompleted && booking.driverId ? (
+          ownRating.state.kind === 'ready' && ownRating.state.rating ? (
+            <GivenRating rating={ownRating.state.rating} />
+          ) : ownRating.state.kind === 'ready' && isWithinRatingWindow(booking, Date.now()) ? (
+            <Button
+              title="Rate driver"
+              onPress={() =>
+                router.push({
+                  pathname: '/activity/rate/[bookingId]',
+                  params: { bookingId: loadedBookingId },
+                })
+              }
+            />
+          ) : ownRating.state.kind === 'error' ? (
+            <Button
+              title="Retry loading your rating"
+              variant="secondary"
+              onPress={() => void ownRating.reload()}
+            />
+          ) : null
+        ) : null}
 
         <View style={styles.card}>
           <RouteTimeline

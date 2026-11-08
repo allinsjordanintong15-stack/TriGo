@@ -24,7 +24,9 @@ import { useCommissionAccount } from '@/hooks/useCommissionAccount';
 import { DRIVER_ACCESS_REVOKED, DriverAccessStatus, useDriverAccess } from '@/hooks/useDriverAccess';
 import { useFaresCollected } from '@/hooks/useFaresCollected';
 import { useNow } from '@/hooks/useNow';
+import { useDriverRatingSummary } from '@/hooks/useDriverRatingSummary';
 import { useRecentTrips } from '@/hooks/useRecentTrips';
+import { formatDriverRating } from '@/utils/rating';
 import { becomeAvailable, DriverServiceError, goOffline, goOnline } from '@/services/driverService';
 import {
   getNotificationPermission,
@@ -141,6 +143,7 @@ export default function DriverHomeScreen() {
   const fares = useFaresCollected(driverId);
   const commission = useCommissionAccount(driverId);
   const recentTrips = useRecentTrips(driverId);
+  const driverRating = useDriverRatingSummary(driverId);
   // Keeps commission time-left text and the balance status current while Home is open.
   const clock = useNow(60 * 1000);
   const [refreshing, setRefreshing] = useState(false);
@@ -457,8 +460,8 @@ export default function DriverHomeScreen() {
             </Text>
             <Text style={styles.profileSubtitle}>
               TriGo driver
-              {driverRecord && driverRecord.rating > 0
-                ? ` · ★ ${driverRecord.rating.toFixed(1)}`
+              {driverRecord && driverRating.loaded
+                ? ` · ★ ${formatDriverRating(driverRating.summary)}`
                 : ''}
             </Text>
             <View style={styles.badgeRow}>

@@ -42,6 +42,7 @@ import {
   VerificationConflictError,
   type DriverDetail,
 } from '../drivers/drivers';
+import { formatDriverRatingWithCount } from '../drivers/driverRatings';
 import { formatDateTime, formatPeso } from '../lib/format';
 
 type Action = 'revoke' | 'restore' | 'vehicle';
@@ -236,7 +237,7 @@ export function DriverDetailPage() {
           <Detail label="Brand" value={driver.vehicleBrand ?? 'Not set'} />
           <Detail label="Model" value={driver.vehicleModel ?? 'Not set'} />
           <Detail label="Color" value={driver.vehicleColor ?? 'Not set'} />
-          <Detail label="Rating" value={driver.rating ? driver.rating.toFixed(1) : 'No ratings yet'} />
+          <Detail label="Rating" value={formatDriverRatingWithCount(detail.ratingSummary)} />
           <Detail label="Now" value={DUTY_LABELS[duty]} />
           <Detail
             label="Account"

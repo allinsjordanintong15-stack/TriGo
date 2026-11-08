@@ -912,18 +912,104 @@ service cloud.firestore {
 
     // ─── Ratings ───────────────────────────────────────────────────────────
 
-    match /ratings/{ratingId} {
-      allow read: if isSignedIn()
-        && resource.data.passengerId == request.auth.uid;
+    // ─── Ratings (2026-11-08, no Cloud Functions) ──────────────────────────
+    // One rating per completed booking, by its passenger, within ratingWindowDays() of
+    // completion (server time), written in the same commit as the driver's summary
+    // driverRatings/{driverId} (ratingSum + stars, ratingCount + 1, lastBookingId). The
+    // values below are kept equal to src/constants/rating.ts by
+    // tests/booking/ratingSync.test.ts.
 
-      allow create: if isSignedIn()
-        && isPassenger()
-        && request.resource.data.passengerId == request.auth.uid
-        && request.resource.data.rating is number
-        && request.resource.data.rating >= 1
-        && request.resource.data.rating <= 5
-        && request.resource.data.bookingId is string
-        && request.resource.data.driverId is string;
+    function ratingWindowDays() {
+      return 7;
+    }
+
+    function ratingCommentMaxLength() {
+      return 300;
+    }
+
+    function ratingTagIds() {
+      return ['on_time', 'safe_driving', 'friendly', 'clean_vehicle', 'good_route', 'late_pickup', 'unsafe_driving', 'rude'];
+    }
+
+    function ratingPath(bookingId) {
+      return /databases/$(database)/documents/ratings/$(bookingId);
+    }
+
+    function driverRatingsPath(driverId) {
+      return /databases/$(database)/documents/driverRatings/$(driverId);
+    }
+
+    match /ratings/{bookingId} {
+      function isValidRatingCreate() {
+        let data = request.resource.data;
+        let keys = ['bookingId', 'passengerId', 'driverId', 'stars', 'tags', 'comment', 'createdAt'];
+        let booking = get(bookingPath(bookingId)).data;
+        let summary = getAfter(driverRatingsPath(booking.driverId)).data;
+        return isPassenger()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.bookingId == bookingId
+          && data.passengerId == request.auth.uid
+          && booking.passengerId == request.auth.uid
+          && booking.status == 'completed'
+          && booking.driverId is string
+          && data.driverId == booking.driverId
+          && booking.get('completedAt', null) is timestamp
+          && request.time < booking.completedAt + duration.value(ratingWindowDays(), 'd')
+          && data.stars is int
+          && data.stars >= 1
+          && data.stars <= 5
+          && data.tags is list
+          && data.tags.size() <= ratingTagIds().size()
+          && data.tags.toSet().size() == data.tags.size()
+          && data.tags.toSet().hasOnly(ratingTagIds())
+          && (
+            data.comment == null
+            || (data.comment is string && data.comment.size() <= ratingCommentMaxLength())
+          )
+          && data.createdAt == request.time
+          // The driver's summary is written in this same commit (its rule checks the sums).
+          && summary.lastBookingId == bookingId
+          && summary.updatedAt == request.time;
+      }
+
+      // The passenger reads their own rating; reading one that does not exist yet is
+      // allowed so the app can tell whether a trip was rated.
+      allow get: if isAdmin()
+        || (isSignedIn() && (resource == null || resource.data.passengerId == request.auth.uid));
+      allow list: if isAdmin();
+      allow create: if isValidRatingCreate();
+      allow update, delete: if false;
+    }
+
+    // driverRatings/{driverId}: { ratingSum, ratingCount, lastBookingId, updatedAt }, the
+    // average shown in the app and on the admin website (ratingSum / ratingCount). Written
+    // only by the passenger's rating commit; drivers/{uid}.rating is no longer shown.
+    match /driverRatings/{driverId} {
+      function isRatingSummaryWrite(beforeSum, beforeCount) {
+        let data = request.resource.data;
+        let bookingId = data.lastBookingId;
+        let rating = getAfter(ratingPath(bookingId)).data;
+        return isPassenger()
+          && data.keys().hasAll(['ratingSum', 'ratingCount', 'lastBookingId', 'updatedAt'])
+          && data.keys().hasOnly(['ratingSum', 'ratingCount', 'lastBookingId', 'updatedAt'])
+          && bookingId is string
+          && data.updatedAt == request.time
+          // The rating is created in this commit (its rule checks the booking).
+          && !exists(ratingPath(bookingId))
+          && existsAfter(ratingPath(bookingId))
+          && rating.passengerId == request.auth.uid
+          && rating.driverId == driverId
+          && data.ratingSum is int
+          && data.ratingCount is int
+          && data.ratingSum == beforeSum + rating.stars
+          && data.ratingCount == beforeCount + 1;
+      }
+
+      allow read: if isSignedIn();
+      allow create: if isRatingSummaryWrite(0, 0);
+      allow update: if isRatingSummaryWrite(resource.data.ratingSum, resource.data.ratingCount);
+      allow delete: if false;
     }
 
     // ─── Notifications ─────────────────────────────────────────────────────

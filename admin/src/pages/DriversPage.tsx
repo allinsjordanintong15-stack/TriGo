@@ -14,6 +14,7 @@ import {
   verificationStatus,
   type VerificationStatus,
 } from '../drivers/driverRecords';
+import { formatDriverRating } from '../drivers/driverRatings';
 import { loadDrivers, type DriverListEntry } from '../drivers/drivers';
 import { plural } from '../lib/format';
 
@@ -130,7 +131,7 @@ export function DriversPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map(({ driver, contact, verification }) => (
+                    {filtered.map(({ driver, contact, verification, ratingSummary }) => (
                       <tr key={driver.uid}>
                         <td className="cell-strong">{driver.fullName || '(no name)'}</td>
                         <td>
@@ -148,7 +149,7 @@ export function DriversPage() {
                           </span>
                         </td>
                         <td>{DUTY_LABELS[dutyStatus(driver)]}</td>
-                        <td>{driver.rating ? driver.rating.toFixed(1) : '—'}</td>
+                        <td>{formatDriverRating(ratingSummary)}</td>
                         <td className="cell-action">
                           <Link className="btn-link" to={`/driver-accounts/${driver.uid}`}>
                             View

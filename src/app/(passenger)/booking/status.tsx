@@ -5,6 +5,7 @@ import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { StatusHeader } from '@/components/booking/StatusHeader';
 import { StatusStepper } from '@/components/booking/StatusStepper';
 import { StickyActionBar } from '@/components/booking/StickyActionBar';
+import { TripCompletedView } from '@/components/booking/TripCompletedView';
 import { TripStatsRow } from '@/components/booking/TripStatsRow';
 import { Button } from '@/components/ui/Button';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
@@ -300,6 +301,27 @@ export default function BookingStatusScreen() {
   const isCompleted = booking.status === 'completed';
   const showDriverConfirmNotice =
     awaitingDriverConfirm && now - booking.createdAt.getTime() >= DRIVER_CONFIRM_NOTICE_MS;
+
+  // Completed: the Trip completed view (fare, driver, rate the driver, report a problem).
+  if (isCompleted && passenger) {
+    return (
+      <View style={styles.screen}>
+        <ScreenHeader title="Your Ride" />
+        <TripCompletedView
+          booking={booking}
+          driver={assignedDriver}
+          passengerId={passenger.uid}
+          onHome={goHome}
+          onReportProblem={() =>
+            router.push({
+              pathname: '/activity/report/[bookingId]',
+              params: { bookingId: booking.bookingId },
+            })
+          }
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>

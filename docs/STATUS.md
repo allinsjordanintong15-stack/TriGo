@@ -50,6 +50,10 @@ things stand.
   - The passenger confirms the driver who accepted, or chooses another.
 - **Activity** (ride history) with trip details. From a trip, the passenger can report a
   problem, which creates a complaint.
+- **Rating the driver** (2026-11-08): a completed ride shows "Trip completed" with the
+  final fare, the driver, stars (1–5), quick tags, an optional comment, Skip, and Report a
+  problem. Trips can also be rated later from Booking Details for 7 days; a given rating
+  is shown there. Drivers' ratings show as the average (one decimal) or "New".
 - **Driver application:** personal and vehicle details, plus OR/CR and LTO license photos
   (blocked by Storage, see Known limits).
 - **Notifications screen:** lists the user's notification documents and marks them as read.
@@ -156,15 +160,17 @@ things stand.
 
 - **Firestore rules tests:** `npm run test:rules` runs the Firestore emulator under the
   demo project `demo-trigo-rules`.
-  - **711 tests in 21 files, all passing** (2026-11-02).
+  - **889 tests in 24 files, all passing** (2026-11-08).
   - Every rule branch has tests for both allowed and denied writes. This covers bookings,
     out-of-area requests, driver verification, fares, barangay tariffs, complaints, support
-    contacts, admin reads, commission accrual, payments, enforcement, cash-outs and the
-    daily acceptance quota.
-- **Unit tests:** `npm run test:unit` (plain Node, no emulator): **206 tests in 16 files,
-  all passing** (2026-11-02). `tests/booking/dailyQuotaSync.test.ts` checks that the
+    contacts, admin reads, commission accrual, payments, enforcement, cash-outs, the
+    daily acceptance quota, privacy, passenger cancellation and ratings.
+- **Unit tests:** `npm run test:unit` (plain Node, no emulator): **314 tests in 29 files,
+  all passing** (2026-11-08). `tests/booking/dailyQuotaSync.test.ts` checks that the
   default daily limit (20) and its range (1–100) are the same in the app, `firestore.rules`
-  and the admin website.
+  and the admin website; `passengerCancelSync.test.ts` and `ratingSync.test.ts` do the
+  same for the late-driver cancel limit and the rating window, tags, comment length and
+  the admin website's rating display.
 - **Rules cost headroom:** `tests/rules/measureHeadroom.ts` measures how much of
   Firestore's 1000-expression limit each heavy valid commit uses (2026-10-21).
   - Tightest path: an out-of-area propose by an approved-applicant driver, with about 46%
@@ -252,8 +258,16 @@ things stand.
   - Cash-outs are only records.
   - A wrongly confirmed payment or a wrong cash-out cannot be edited; correcting them is
     not in scope yet.
-- **Driver rating is display only.** `drivers.rating` is shown, but there is no rating flow
-  that updates it.
+- **Driver ratings (no Cloud Functions).**
+  - The passenger's app raises `driverRatings/{driverId}` in the same commit as the
+    rating; the rules check the exact new sum and count. Two passengers rating the same
+    driver at the same moment: one commit is retried by the Firestore transaction.
+  - Deploy the rules and the app together: older app builds have no rating flow, and the
+    new app's ratings are refused by the old rules.
+  - `drivers/{uid}.rating` (admin-only) is no longer shown; demo values in the emulator
+    seed are ignored. Ratings cannot be edited or removed, also not by admins.
+  - No admin correction path for `driverRatings/{driverId}`: admins cannot change a
+    driver's rating sum or count (for example to remove an unfair rating). Not in scope yet.
 - **No Cloud Functions.** Expired standard bookings and out-of-area requests are never
   rewritten (a booking stays `pending`); they are shown as expired from `expiresAt`. Every balance change is a client write checked by the rules.
 - **Daily acceptance quota.**
