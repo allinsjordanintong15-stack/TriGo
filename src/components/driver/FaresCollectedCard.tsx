@@ -76,7 +76,9 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.white,
     borderRadius: radius.lg,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
     ...shadow.card,
   },
   title: {
@@ -91,8 +93,8 @@ const styles = StyleSheet.create({
   },
   columns: {
     flexDirection: 'row',
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
   },
   divider: {
     width: 1,
@@ -108,7 +110,7 @@ const styles = StyleSheet.create({
   },
   amount: {
     ...typography.title,
-    fontSize: 22,
+    fontSize: 20,
     color: colors.primary,
     marginTop: spacing.xs,
     fontVariant: ['tabular-nums'],

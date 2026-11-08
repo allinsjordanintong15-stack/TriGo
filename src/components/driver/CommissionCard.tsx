@@ -1,6 +1,8 @@
+import { Button } from '@/components/ui/Button';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { CommissionAccountState } from '@/hooks/useCommissionAccount';
 import {
+  CommissionAccountTimes,
   centavosToPesos,
   CommissionStatus,
   commissionStatus,
@@ -9,7 +11,10 @@ import {
   formatPeriodEndDay,
   periodEndMillis,
 } from '@/utils/commission';
+import { formatPayBy, overdueNotice } from '@/utils/commissionText';
 import { formatPhilippinePeso } from '@/utils/fare';
+import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 const STATUS_LABELS: Record<CommissionStatus, string> = {
@@ -56,13 +61,17 @@ interface CommissionCardProps {
   /** Home shows the balance and status only, with a link to the Earnings tab. */
   variant: 'summary' | 'full';
   onOpen?: () => void;
+  /** Full variant: "Pay now" (shown while something is owed), e.g. scrolls to the form. */
+  onPayNow?: () => void;
+  /** Full variant: a ticking clock (useNow) for the time left; defaults to render time. */
+  now?: number;
 }
 
 /**
  * The driver's commission: what they owe TriGo on completed trips and by when. Paying is
  * a separate card on the Earnings tab (CommissionPaymentForm).
  */
-export function CommissionCard({ state, variant, onOpen }: CommissionCardProps) {
+export function CommissionCard({ state, variant, onOpen, onPayNow, now }: CommissionCardProps) {
   const { loading, error, settings, account } = state;
   const rate = settings
     ? `${formatPercentage(settings.percentage)} of the fare on each completed trip`
@@ -81,9 +90,17 @@ export function CommissionCard({ state, variant, onOpen }: CommissionCardProps) 
           : 'TriGo does not charge commission at the moment.'}
       </Text>
     );
+  } else if (variant === 'full') {
+    body = (
+      <FullCommission
+        account={account}
+        rate={rate}
+        nowMillis={now ?? Date.now()}
+        onPayNow={onPayNow}
+      />
+    );
   } else {
     const summary = commissionStatus(account, Date.now());
-    const { current } = account;
     const colorsFor = STATUS_COLORS[summary.status];
     body = (
       <>
@@ -101,27 +118,6 @@ export function CommissionCard({ state, variant, onOpen }: CommissionCardProps) 
           </Text>
         </View>
         <Text style={styles.message}>{statusMessage(summary)}</Text>
-
-        {variant === 'full' ? (
-          <View style={styles.details}>
-            <DetailRow label="Total balance" value={peso(summary.balanceCentavos)} />
-            <DetailRow label="Recorded so far" value={peso(account.accruedCentavos)} />
-            <DetailRow label="Paid so far" value={peso(account.paidCentavos)} />
-            <DetailRow
-              label={`Period ${current.seq}`}
-              value={`${formatManilaDay(current.startAtMillis)} – ${formatPeriodEndDay(
-                periodEndMillis(current.startAtMillis, current.periodDays),
-              )}`}
-            />
-            {rate ? <Text style={styles.note}>Commission: {rate}.</Text> : null}
-            <Text style={styles.note}>
-              A new period starts with your first completed trip after the current one ends.
-              {summary.balanceCentavos > 0
-                ? ' Pay by GCash below; your balance goes down once TriGo confirms the payment.'
-                : ''}
-            </Text>
-          </View>
-        ) : null}
       </>
     );
   }
@@ -136,6 +132,96 @@ export function CommissionCard({ state, variant, onOpen }: CommissionCardProps) 
         </Pressable>
       ) : null}
     </View>
+  );
+}
+
+interface FullCommissionProps {
+  account: CommissionAccountTimes;
+  rate: string | null;
+  nowMillis: number;
+  onPayNow?: () => void;
+}
+
+/** Earnings tab: balance, status, deadline and Pay now; the breakdown folds away. */
+function FullCommission({ account, rate, nowMillis, onPayNow }: FullCommissionProps) {
+  const [showDetails, setShowDetails] = useState(false);
+  const summary = commissionStatus(account, nowMillis);
+  const { current } = account;
+  const colorsFor = STATUS_COLORS[summary.status];
+  const payBy = formatPayBy(summary, nowMillis);
+  const owes = summary.balanceCentavos > 0;
+  const suspended = summary.status === 'suspended';
+  const notice = overdueNotice(summary);
+
+  return (
+    <>
+      <View style={styles.amountRow}>
+        <View style={styles.amountBlock}>
+          <Text style={styles.amountLabel}>Balance</Text>
+          <Text style={[styles.amount, styles.amountLarge]}>{peso(summary.balanceCentavos)}</Text>
+        </View>
+        <Text style={[styles.badge, { backgroundColor: colorsFor.bg, color: colorsFor.text }]}>
+          {STATUS_LABELS[summary.status]}
+        </Text>
+      </View>
+
+      {/* Overdue and suspended stay on the card, never only in the details. */}
+      {notice ? (
+        <View
+          accessible
+          accessibilityRole="alert"
+          style={[styles.alert, suspended ? styles.alertSuspended : styles.alertOverdue]}
+        >
+          <Text style={[styles.alertTitle, suspended ? styles.alertTitleSuspended : null]}>
+            {notice.title}
+          </Text>
+          <Text style={styles.alertMessage}>{notice.message}</Text>
+        </View>
+      ) : (
+        <Text style={styles.message}>
+          {summary.status === 'paid_up' ? statusMessage(summary) : payBy}
+        </Text>
+      )}
+      {summary.status === 'overdue' && payBy ? <Text style={styles.payBy}>{payBy}</Text> : null}
+
+      {owes && onPayNow ? (
+        <Button title="Pay now" onPress={onPayNow} style={styles.payNow} />
+      ) : null}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: showDetails }}
+        onPress={() => setShowDetails((shown) => !shown)}
+        style={styles.detailsToggle}
+      >
+        <Text style={styles.link}>{showDetails ? 'Hide details' : 'View details'}</Text>
+        <Ionicons
+          name={showDetails ? 'chevron-up' : 'chevron-down'}
+          color={colors.primary}
+          size={18}
+        />
+      </Pressable>
+
+      {showDetails ? (
+        <View style={styles.details}>
+          <DetailRow
+            label={`Period ${current.seq}`}
+            value={`${formatManilaDay(current.startAtMillis)} – ${formatPeriodEndDay(
+              periodEndMillis(current.startAtMillis, current.periodDays),
+            )}`}
+          />
+          <DetailRow label="Total commission (all time)" value={peso(account.accruedCentavos)} />
+          <DetailRow label="Paid so far (confirmed)" value={peso(account.paidCentavos)} />
+          {rate ? <Text style={styles.note}>Commission: {rate}.</Text> : null}
+          <Text style={styles.note}>
+            A new period starts with your first completed trip after the current one ends.
+            {owes
+              ? ' Pay by GCash below; your balance goes down once TriGo confirms the payment.'
+              : ''}
+          </Text>
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -180,6 +266,53 @@ const styles = StyleSheet.create({
     color: colors.primary,
     marginTop: spacing.xs,
     fontVariant: ['tabular-nums'],
+  },
+  amountLarge: {
+    fontSize: 32,
+  },
+  alert: {
+    borderRadius: radius.md,
+    borderLeftWidth: 4,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  alertOverdue: {
+    backgroundColor: colors.goldLight,
+    borderLeftColor: colors.accent,
+  },
+  alertSuspended: {
+    backgroundColor: colors.errorBackground,
+    borderLeftColor: colors.error,
+  },
+  alertTitle: {
+    ...typography.label,
+    color: colors.primaryDark,
+    fontVariant: ['tabular-nums'],
+  },
+  alertTitleSuspended: {
+    color: colors.error,
+  },
+  alertMessage: {
+    ...typography.caption,
+    color: colors.text,
+    lineHeight: 18,
+    marginTop: spacing.xs,
+  },
+  payBy: {
+    ...typography.label,
+    color: colors.primaryDark,
+    marginTop: spacing.sm,
+  },
+  payNow: {
+    marginTop: spacing.md,
+  },
+  detailsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+    minHeight: 48,
+    marginTop: spacing.xs,
   },
   badge: {
     ...typography.caption,

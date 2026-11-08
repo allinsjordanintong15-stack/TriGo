@@ -21,6 +21,13 @@ import { formatPhilippinePeso } from '@/utils/fare';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+/** How to pay, one step per line. */
+const PAYMENT_STEPS = [
+  'Send the amount by GCash to the TriGo account below.',
+  'Find the reference number on your GCash receipt.',
+  'Enter the amount and the reference number below, then tap Submit payment.',
+];
+
 interface CommissionPaymentFormProps {
   driverId: string;
   /** Recorded − confirmed paid; the most a payment can be. */
@@ -112,10 +119,16 @@ export function CommissionPaymentForm({
         </Text>
       ) : (
         <>
-          <Text style={styles.message}>
-            1. Send the amount by GCash to TriGo. 2. Enter the amount and the reference number
-            from your GCash receipt below.
-          </Text>
+          <View style={styles.steps}>
+            {PAYMENT_STEPS.map((step, index) => (
+              <View key={step} style={styles.step}>
+                <View style={styles.stepNumber}>
+                  <Text style={styles.stepNumberText}>{index + 1}</Text>
+                </View>
+                <Text style={styles.stepText}>{step}</Text>
+              </View>
+            ))}
+          </View>
           <View style={styles.gcashBox}>
             <Text style={styles.gcashLabel}>GCash name</Text>
             <Text style={styles.gcashValue} selectable>
@@ -125,6 +138,7 @@ export function CommissionPaymentForm({
             <Text style={[styles.gcashValue, styles.gcashNumber]} selectable>
               {formatGcashNumber(paymentSettings.gcashNumber)}
             </Text>
+            <Text style={styles.gcashHint}>Press and hold the number to copy it.</Text>
           </View>
 
           {pendingCentavos > 0 ? (
@@ -198,6 +212,32 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.text,
   },
+  steps: {
+    gap: spacing.sm,
+  },
+  step: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  stepNumber: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberText: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: colors.white,
+  },
+  stepText: {
+    ...typography.body,
+    color: colors.text,
+    flex: 1,
+  },
   gcashBox: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
@@ -219,6 +259,11 @@ const styles = StyleSheet.create({
   gcashNumber: {
     fontVariant: ['tabular-nums'],
     letterSpacing: 0.5,
+  },
+  gcashHint: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
   },
   pending: {
     ...typography.caption,
