@@ -1252,9 +1252,33 @@ describe('out-of-area booking: passenger cancels', () => {
     await assertFails(passengerCancelBatch());
   });
 
-  it('allows a cancel after the claim and releases the driver via the booking path', async () => {
+  // Lock with safety exit (2026-11-08): right after the claim the passenger cannot cancel;
+  // once the driver is 15 minutes late (acceptedAt moved back) they can, with the
+  // no-show reason, and the driver is then released through the booking path.
+  it('denies a passenger cancel right after the claim', async () => {
     await assertSucceeds(claimBatch(DRIVER));
-    await assertSucceeds(passengerCancelBatch({ request: false }));
+    await assertFails(
+      updateDoc(doc(db(PASSENGER), 'bookings', REQUEST), {
+        ...PASSENGER_CANCEL_UPDATE,
+        cancellationReason: 'Driver did not arrive',
+      }),
+    );
+  });
+
+  it('allows a late-driver cancel after the claim and releases the driver via the booking path', async () => {
+    await assertSucceeds(claimBatch(DRIVER));
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const firestore = context.firestore() as unknown as Firestore;
+      await updateDoc(doc(firestore, 'bookings', REQUEST), {
+        acceptedAt: Timestamp.fromMillis(Date.now() - 16 * MINUTE_MS),
+      });
+    });
+    await assertSucceeds(
+      updateDoc(doc(db(PASSENGER), 'bookings', REQUEST), {
+        ...PASSENGER_CANCEL_UPDATE,
+        cancellationReason: 'Driver did not arrive',
+      }),
+    );
     await assertSucceeds(releaseBookingUpdate(DRIVER));
     const driver = await readAsAdmin(`drivers/${DRIVER}`);
     if (driver?.currentBookingId !== null || driver?.isAvailable !== true) {

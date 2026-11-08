@@ -47,7 +47,11 @@ export function StatusStepper({ steps }: StatusStepperProps) {
                 step.state === 'upcoming' ? styles.labelUpcoming : null,
                 step.state === 'cancelled' ? styles.labelCancelled : null,
               ]}
-              numberOfLines={2}
+              // One word ("Completed") stays on one line, shrinking a little in narrow
+              // columns (360 dp) instead of breaking mid-word; two words may wrap.
+              numberOfLines={step.label.includes(' ') ? 2 : 1}
+              adjustsFontSizeToFit={!step.label.includes(' ')}
+              minimumFontScale={0.75}
             >
               {step.label}
             </Text>

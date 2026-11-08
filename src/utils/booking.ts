@@ -1,11 +1,10 @@
-import {
-  DRIVER_CANCELLABLE_STATUSES,
-  PASSENGER_CANCELLABLE_STATUSES,
-} from '@/constants/cancellation';
+import { DRIVER_CANCELLABLE_STATUSES } from '@/constants/cancellation';
 import { Booking, OutOfAreaRequest, TripQuote } from '@/types';
+import { canPassengerCancelNow } from '@/utils/passengerCancel';
 
-export function canPassengerCancelBooking(booking: Booking): boolean {
-  return PASSENGER_CANCELLABLE_STATUSES.includes(booking.status);
+/** Pending, or accepted and the driver is late (utils/passengerCancel.ts; phone clock). */
+export function canPassengerCancelBooking(booking: Booking, nowMillis: number = Date.now()): boolean {
+  return canPassengerCancelNow(booking, nowMillis);
 }
 
 export function canDriverCancelBooking(booking: Booking): boolean {

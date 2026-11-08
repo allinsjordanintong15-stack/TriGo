@@ -3,7 +3,9 @@ import {
   MAX_REQUEST_EXPIRY_MINUTES,
   OUT_OF_AREA_FARE_SETTINGS,
 } from '@/constants/outOfAreaFareSettings';
+import { DRIVER_NO_SHOW_REASON } from '@/constants/cancellation';
 import { canPassengerCancelBooking } from '@/utils/booking';
+import { passengerCancelState } from '@/utils/passengerCancel';
 import { bookingExpiryMinutes, isBookingExpired } from '@/utils/bookingExpiry';
 import {
   getPassengerOfferState,
@@ -594,6 +596,10 @@ export function subscribeToBooking(
  * commit; that lets the driver release their reservation. The transaction re-reads the
  * booking, so if the driver claims first only the booking is cancelled and the driver is
  * released through releaseCancelledBooking like any assigned trip.
+ *
+ * Once a driver has accepted, the passenger may cancel only when the driver has not
+ * arrived PASSENGER_NO_SHOW_CANCEL_MINUTES after accepting (server time in the rules);
+ * that cancel always records DRIVER_NO_SHOW_REASON.
  */
 export async function cancelBooking(
   bookingId: string,
@@ -601,6 +607,8 @@ export async function cancelBooking(
   reason: string | null = null,
 ): Promise<Booking> {
   const bookingRef = doc(firestore, COLLECTIONS.bookings, bookingId);
+  // Status seen in the transaction, to word a rules refusal.
+  let statusAtCancel: Booking['status'] | null = null;
 
   try {
     await runTransaction(firestore, async (transaction) => {
@@ -615,14 +623,21 @@ export async function cancelBooking(
         throw new BookingServiceError('You are not authorized to cancel this booking.');
       }
 
+      statusAtCancel = booking.status;
+      const cancelState = passengerCancelState(booking, Date.now());
+      if (cancelState.kind === 'wait_for_driver') {
+        throw new BookingServiceError(DRIVER_STILL_ON_TIME_MESSAGE);
+      }
       if (!canPassengerCancelBooking(booking)) {
         throw new BookingServiceError('This booking can no longer be cancelled.');
       }
+      // A late-driver cancel is always recorded with the reason the rules require.
+      const cancellationReason = cancelState.kind === 'driver_late' ? DRIVER_NO_SHOW_REASON : reason;
 
       transaction.update(bookingRef, {
         status: 'cancelled',
         cancelledBy: 'passenger',
-        ...(reason ? { cancellationReason: reason } : {}),
+        ...(cancellationReason ? { cancellationReason } : {}),
         cancelledAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -643,6 +658,15 @@ export async function cancelBooking(
     if (error instanceof BookingServiceError) {
       throw error;
     }
+    // Refused by the rules: usually the phone's clock is ahead of the server's near the
+    // late-driver limit, or the driver arrived or started the trip meanwhile.
+    if ((error as { code?: string }).code === 'permission-denied') {
+      throw new BookingServiceError(
+        statusAtCancel === 'accepted'
+          ? DRIVER_STILL_ON_TIME_MESSAGE
+          : 'This booking can no longer be cancelled.',
+      );
+    }
     throw new BookingServiceError(
       'Unable to cancel booking. Please check your internet connection and try again.',
     );
@@ -658,6 +682,10 @@ export async function cancelBooking(
 
 /** Recorded on an expired booking the passenger closes or books again. */
 export const NO_DRIVER_ACCEPTED_REASON = 'No driver accepted';
+
+/** Shown when a cancel of an accepted booking is too early for the late-driver exit. */
+export const DRIVER_STILL_ON_TIME_MESSAGE =
+  'Your driver still has a little time to arrive. Please try again in a minute.';
 
 /**
  * "Try again" on an expired standard booking: books the same trip again (new booking,

@@ -424,6 +424,17 @@ service cloud.firestore {
         && isAnonymizedInThisCommit(userPath(uid));
     }
 
+    // Passenger late-driver cancel (bookings T5). Keep equal to PASSENGER_NO_SHOW_CANCEL_MINUTES
+    // and DRIVER_NO_SHOW_REASON in src/constants/cancellation.ts
+    // (tests/booking/passengerCancelSync.test.ts fails if they differ).
+    function passengerNoShowCancelMinutes() {
+      return 15;
+    }
+
+    function driverNoShowReason() {
+      return 'Driver did not arrive';
+    }
+
     // ─── Bookings ──────────────────────────────────────────────────────────
     // Ride lifecycle (docs/plans/task2-ride-lifecycle.md):
     //   pending → accepted → arrived → in_progress → completed, or → cancelled.
@@ -685,10 +696,23 @@ service cloud.firestore {
           )
         );
 
-      // T5 passenger cancels before the ride starts.
+      // T5 passenger cancels ("lock with safety exit", 2026-11-08): any time while pending;
+      // once accepted only when the driver has not arrived passengerNoShowCancelMinutes()
+      // after acceptedAt (server time; acceptedAt is request.time of the accept or claim),
+      // recorded with driverNoShowReason(). Never once arrived or in progress. The same rule
+      // covers out-of-area bookings after their driver claimed them.
       allow update: if isPassenger()
         && resource.data.passengerId == request.auth.uid
-        && resource.data.status in ['pending', 'accepted', 'arrived']
+        && (
+          resource.data.status == 'pending'
+          || (
+            resource.data.status == 'accepted'
+            && resource.data.get('acceptedAt', null) is timestamp
+            && request.time >= resource.data.acceptedAt
+              + duration.value(passengerNoShowCancelMinutes(), 'm')
+            && request.resource.data.get('cancellationReason', null) == driverNoShowReason()
+          )
+        )
         && request.resource.data.status == 'cancelled'
         && request.resource.data.cancelledBy == 'passenger'
         && request.resource.data.cancelledAt == request.time

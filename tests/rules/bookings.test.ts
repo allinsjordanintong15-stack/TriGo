@@ -738,15 +738,82 @@ describe('standard booking: T2-T4 trip progress', () => {
   });
 });
 
+// Same as PASSENGER_NO_SHOW_CANCEL_MINUTES / DRIVER_NO_SHOW_REASON (src/constants/cancellation.ts).
+const NO_SHOW_MINUTES = 15;
+const NO_SHOW_REASON = 'Driver did not arrive';
+
+/** acceptedAt the given number of minutes ago (server time is the emulator's clock). */
+function acceptedMinutesAgo(minutes: number): Timestamp {
+  return Timestamp.fromMillis(Date.now() - minutes * MINUTE_MS);
+}
+
+function passengerCancel(uid: string, overrides: DocumentData = {}) {
+  return updateDoc(doc(db(uid), 'bookings', BOOKING), cancelUpdate('passenger', overrides));
+}
+
+const noShowCancel = { cancellationReason: NO_SHOW_REASON };
+
 describe('standard booking: T5 passenger cancel', () => {
-  for (const status of ['pending', 'accepted', 'arrived']) {
-    it(`allows the passenger to cancel a ${status} booking`, async () => {
-      await seed({
-        [`bookings/${BOOKING}`]: newBooking(status === 'pending' ? {} : { status, driverId: DRIVER }),
-      });
-      await assertSucceeds(updateDoc(doc(db(PASSENGER), 'bookings', BOOKING), cancelUpdate('passenger')));
+  it('allows the passenger to cancel a pending booking (any reason or none)', async () => {
+    await seed({ [`bookings/${BOOKING}`]: newBooking() });
+    await assertSucceeds(passengerCancel(PASSENGER));
+  });
+
+  it('allows a pending cancel without a reason', async () => {
+    await seed({ [`bookings/${BOOKING}`]: newBooking() });
+    await assertSucceeds(passengerCancel(PASSENGER, { cancellationReason: null }));
+  });
+
+  it('denies cancelling an accepted booking before the limit, even with the no-show reason', async () => {
+    await seedAssignedBooking('accepted', { acceptedAt: acceptedMinutesAgo(NO_SHOW_MINUTES - 1) });
+    await assertFails(passengerCancel(PASSENGER, noShowCancel));
+  });
+
+  it('denies cancelling an accepted booking just accepted', async () => {
+    await seedAssignedBooking('accepted', { acceptedAt: acceptedMinutesAgo(0) });
+    await assertFails(passengerCancel(PASSENGER, noShowCancel));
+  });
+
+  it('allows cancelling an accepted booking after the limit with the no-show reason', async () => {
+    await seedAssignedBooking('accepted', { acceptedAt: acceptedMinutesAgo(NO_SHOW_MINUTES + 1) });
+    await assertSucceeds(passengerCancel(PASSENGER, noShowCancel));
+  });
+
+  it('denies a late-driver cancel with another reason or no reason', async () => {
+    await seedAssignedBooking('accepted', { acceptedAt: acceptedMinutesAgo(NO_SHOW_MINUTES + 1) });
+    await assertFails(passengerCancel(PASSENGER));
+    await assertFails(passengerCancel(PASSENGER, { cancellationReason: null }));
+  });
+
+  it('denies cancelling an accepted booking that has no acceptedAt (older bookings)', async () => {
+    await seedAssignedBooking('accepted');
+    await assertFails(passengerCancel(PASSENGER, noShowCancel));
+  });
+
+  it('denies cancelling once the driver has arrived, also long after accepting', async () => {
+    await seedAssignedBooking('arrived', {
+      acceptedAt: acceptedMinutesAgo(NO_SHOW_MINUTES + 30),
+      arrivedAt: acceptedMinutesAgo(10),
     });
-  }
+    await assertFails(passengerCancel(PASSENGER, noShowCancel));
+    await assertFails(passengerCancel(PASSENGER));
+  });
+
+  it('denies another passenger a late-driver cancel', async () => {
+    await seedAssignedBooking('accepted', { acceptedAt: acceptedMinutesAgo(NO_SHOW_MINUTES + 1) });
+    await assertFails(passengerCancel(OTHER_PASSENGER, noShowCancel));
+  });
+
+  it('denies the assigned driver or another driver writing a passenger cancel', async () => {
+    await seedAssignedBooking('accepted', { acceptedAt: acceptedMinutesAgo(NO_SHOW_MINUTES + 1) });
+    await assertFails(passengerCancel(DRIVER, noShowCancel));
+    await assertFails(passengerCancel(OTHER_DRIVER, noShowCancel));
+  });
+
+  it('still allows the assigned driver to cancel an accepted booking before the limit (T6)', async () => {
+    await seedAssignedBooking('accepted', { acceptedAt: acceptedMinutesAgo(1) });
+    await assertSucceeds(tripEndBatch(cancelUpdate('driver')));
+  });
 
   it('denies cancelling once the trip is in progress', async () => {
     await seedAssignedBooking('in_progress');
@@ -778,6 +845,47 @@ describe('standard booking: T5 passenger cancel', () => {
     await assertFails(
       updateDoc(doc(db(PASSENGER), 'bookings', BOOKING), cancelUpdate('passenger', { estimatedFare: 1 })),
     );
+  });
+});
+
+// After the agreed driver claimed it (accepted, acceptedAt = the claim's server time) an
+// out-of-area booking follows the same passenger cancel rule. Its pending cancel (with the
+// request closed in the same commit) is tested in outOfAreaRequests.test.ts.
+describe('out-of-area booking: T5 passenger cancel after the driver claimed it', () => {
+  function claimedOutOfArea(acceptedAgoMinutes: number, extra: DocumentData = {}) {
+    return seedAssignedBooking('accepted', {
+      bookingType: 'out_of_area',
+      outOfAreaRequestId: BOOKING,
+      agreedFare: 120,
+      expiresAt: null,
+      acceptedAt: acceptedMinutesAgo(acceptedAgoMinutes),
+      ...extra,
+    });
+  }
+
+  it('denies cancelling before the limit', async () => {
+    await claimedOutOfArea(NO_SHOW_MINUTES - 1);
+    await assertFails(passengerCancel(PASSENGER, noShowCancel));
+  });
+
+  it('allows cancelling after the limit with the no-show reason', async () => {
+    await claimedOutOfArea(NO_SHOW_MINUTES + 1);
+    await assertSucceeds(passengerCancel(PASSENGER, noShowCancel));
+  });
+
+  it('denies a late-driver cancel without the no-show reason', async () => {
+    await claimedOutOfArea(NO_SHOW_MINUTES + 1);
+    await assertFails(passengerCancel(PASSENGER));
+  });
+
+  it('denies cancelling once the driver has arrived', async () => {
+    await claimedOutOfArea(NO_SHOW_MINUTES + 30, { status: 'arrived', arrivedAt: acceptedMinutesAgo(5) });
+    await assertFails(passengerCancel(PASSENGER, noShowCancel));
+  });
+
+  it('denies another passenger', async () => {
+    await claimedOutOfArea(NO_SHOW_MINUTES + 1);
+    await assertFails(passengerCancel(OTHER_PASSENGER, noShowCancel));
   });
 });
 

@@ -25,8 +25,10 @@ import {
 import { getDriverRecord } from '@/services/driverService';
 import { getRoadRoute, RoadRoute } from '@/services/routingService';
 import { Booking, DriverRecord, Location } from '@/types';
-import { canPassengerCancelBooking } from '@/utils/booking';
+import { PASSENGER_NO_SHOW_CANCEL_MINUTES } from '@/constants/cancellation';
 import { isBookingExpired } from '@/utils/bookingExpiry';
+import { formatTime } from '@/utils/dateTime';
+import { passengerCancelState } from '@/utils/passengerCancel';
 import {
   formatPaymentMethod,
   getBookingProgress,
@@ -157,13 +159,14 @@ export default function BookingStatusScreen() {
   // a standard booking expires if no driver accepts in time.
   const awaitingDriverConfirm =
     booking?.bookingType === 'out_of_area' && booking.status === 'pending';
-  const isPending = booking?.status === 'pending';
+  // Accepted: also tick, so the late-driver cancel appears when its time comes.
+  const ticks = booking?.status === 'pending' || booking?.status === 'accepted';
   useEffect(() => {
-    if (!isPending) return;
+    if (!ticks) return;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 10 * 1000);
     return () => clearInterval(timer);
-  }, [isPending]);
+  }, [ticks]);
 
   async function handleConfirmCancel() {
     await handleCancel();
@@ -288,7 +291,9 @@ export default function BookingStatusScreen() {
       ? assignedDriverRecord
       : null;
   const isExpired = isBookingExpired(booking, now);
-  const canCancel = canPassengerCancelBooking(booking);
+  const cancelState = passengerCancelState(booking, now);
+  const canCancel = cancelState.kind === 'cancel' || cancelState.kind === 'driver_late';
+  const driverLate = cancelState.kind === 'driver_late';
   const isActive = isActiveBookingStatus(booking.status) && !isExpired;
   const header = getPassengerStatusHeader(booking, now);
   const isOutOfArea = booking.bookingType === 'out_of_area';
@@ -317,6 +322,16 @@ export default function BookingStatusScreen() {
           {showDriverConfirmNotice ? (
             <Text style={styles.notice}>
               Your driver hasn't confirmed yet. You can keep waiting or cancel.
+            </Text>
+          ) : null}
+          {cancelState.kind === 'wait_for_driver' ? (
+            <Text style={styles.info}>
+              {`Your driver accepted. If they haven't arrived by ${formatTime(new Date(cancelState.opensAt))}, you can cancel.`}
+            </Text>
+          ) : null}
+          {driverLate ? (
+            <Text style={styles.notice}>
+              {`Driver is taking too long? They haven't arrived ${PASSENGER_NO_SHOW_CANCEL_MINUTES} minutes after accepting, so you can cancel this booking.`}
             </Text>
           ) : null}
           <View style={styles.stepper}>
@@ -401,7 +416,11 @@ export default function BookingStatusScreen() {
       <ConfirmationDialog
         visible={showCancelDialog}
         title="Cancel booking?"
-        message="Are you sure you want to cancel this booking?"
+        message={
+          driverLate
+            ? 'Your driver has not arrived. Cancel this booking? You can then book again.'
+            : 'Are you sure you want to cancel this booking?'
+        }
         confirmLabel="Yes, Cancel"
         cancelLabel="No"
         destructive
@@ -445,6 +464,16 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.primaryDark,
     backgroundColor: colors.goldLight,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    marginTop: spacing.md,
+    lineHeight: 18,
+    overflow: 'hidden',
+  },
+  info: {
+    ...typography.caption,
+    color: colors.primaryDark,
+    backgroundColor: colors.primaryLight,
     borderRadius: radius.sm,
     padding: spacing.md,
     marginTop: spacing.md,
