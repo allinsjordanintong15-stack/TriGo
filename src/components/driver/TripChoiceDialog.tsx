@@ -73,13 +73,20 @@ export function TripChoiceDialog<T extends string>({
           </View>
 
           <View style={styles.actions}>
-            <Button title="Back" variant="secondary" onPress={onCancel} disabled={loading} />
+            <Button
+              title="Back"
+              variant="secondary"
+              onPress={onCancel}
+              disabled={loading}
+              style={styles.actionButton}
+            />
             <View style={styles.actionSpacer} />
             <Button
               title={confirmLabel}
               onPress={() => selected && onConfirm(selected)}
               disabled={!selected}
               loading={loading}
+              style={styles.actionButton}
             />
           </View>
         </Pressable>
@@ -134,9 +141,16 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // Both buttons as tall as the taller one when a large system font wraps a label.
+    alignItems: 'stretch',
   },
   actionSpacer: {
     width: spacing.sm,
+  },
+  // Equal halves (same as ConfirmationDialog); Button is at least 52 dp tall and its label
+  // wraps instead of being cut off.
+  actionButton: {
+    flex: 1,
+    paddingHorizontal: spacing.md,
   },
 });

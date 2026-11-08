@@ -116,8 +116,9 @@ const styles = StyleSheet.create({
   text: {
     ...typography.body,
     fontWeight: '600',
-    // Long titles still wrap inside the row.
+    // Long titles still wrap inside the row, centred (e.g. with a large system font).
     flexShrink: 1,
+    textAlign: 'center',
   },
   textLarge: {
     fontSize: 20,

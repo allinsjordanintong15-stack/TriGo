@@ -2,6 +2,7 @@ import { ContactCallButton } from '@/components/booking/ContactCallButton';
 import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { StatusStepper } from '@/components/booking/StatusStepper';
 import { TripChoiceDialog, TripChoiceOption } from '@/components/driver/TripChoiceDialog';
+import { SupportContactsList } from '@/components/support/SupportContactsList';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -120,6 +121,8 @@ export default function DriverTripScreen() {
   const [dialog, setDialog] = useState<PendingAction>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // "Need help? Contact TriGo support" during an active trip.
+  const [showSupport, setShowSupport] = useState(false);
 
   useEffect(() => {
     if (!bookingId) {
@@ -320,16 +323,33 @@ export default function DriverTripScreen() {
             <View style={styles.spacer} />
           </>
         ) : null}
-        <Button
-          title="Report a Problem"
-          variant="secondary"
-          onPress={() =>
-            router.push({
-              pathname: '/driver/report/[bookingId]',
-              params: { bookingId: booking.bookingId },
-            })
-          }
-        />
+        {/* Reporting is for finished trips (also opened from the Trips tab); during a trip,
+            TriGo support can be reached instead. */}
+        {isFinished ? (
+          <Button
+            title="Report a Problem"
+            variant="secondary"
+            onPress={() =>
+              router.push({
+                pathname: '/driver/report/[bookingId]',
+                params: { bookingId: booking.bookingId },
+              })
+            }
+          />
+        ) : (
+          <View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showSupport }}
+              onPress={() => setShowSupport((shown) => !shown)}
+              style={styles.helpLink}
+            >
+              <Ionicons name="help-circle-outline" color={colors.primary} size={20} />
+              <Text style={styles.helpLinkText}>Need help? Contact TriGo support</Text>
+            </Pressable>
+            {showSupport ? <SupportContactsList /> : null}
+          </View>
+        )}
       </ScrollView>
 
       {primaryAction ? (
@@ -502,6 +522,18 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: spacing.sm,
+  },
+  helpLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    minHeight: 48,
+  },
+  helpLinkText: {
+    ...typography.label,
+    color: colors.primary,
+    flexShrink: 1,
   },
   dialogLabel: {
     ...typography.caption,
