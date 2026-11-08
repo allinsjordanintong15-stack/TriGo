@@ -506,25 +506,38 @@ export interface TripHistoryPage {
   hasMore: boolean;
 }
 
+export interface TripHistoryOptions {
+  /** Trips per page; TRIP_HISTORY_PAGE_SIZE by default (Home's recent rides use 3). */
+  pageSize?: number;
+  /**
+   * Which finished statuses to include; both by default. Must be a subset of
+   * DRIVER_FINISHED_BOOKING_STATUSES (same index: driverId, status, updatedAt).
+   */
+  statuses?: BookingStatus[];
+}
+
 export async function fetchDriverTripHistory(
   driverId: string,
   after: TripHistoryCursor | null = null,
+  options: TripHistoryOptions = {},
 ): Promise<TripHistoryPage> {
+  const pageSize = options.pageSize ?? TRIP_HISTORY_PAGE_SIZE;
+  const statuses = options.statuses ?? DRIVER_FINISHED_BOOKING_STATUSES;
   const historyQuery = after
     ? query(
         collection(firestore, COLLECTIONS.bookings),
         where('driverId', '==', driverId),
-        where('status', 'in', DRIVER_FINISHED_BOOKING_STATUSES),
+        where('status', 'in', statuses),
         orderBy('updatedAt', 'desc'),
         startAfter(after),
-        limit(TRIP_HISTORY_PAGE_SIZE),
+        limit(pageSize),
       )
     : query(
         collection(firestore, COLLECTIONS.bookings),
         where('driverId', '==', driverId),
-        where('status', 'in', DRIVER_FINISHED_BOOKING_STATUSES),
+        where('status', 'in', statuses),
         orderBy('updatedAt', 'desc'),
-        limit(TRIP_HISTORY_PAGE_SIZE),
+        limit(pageSize),
       );
 
   try {
@@ -532,7 +545,7 @@ export async function fetchDriverTripHistory(
     return {
       trips: snapshot.docs.map((d) => docToBooking(d.id, d.data())),
       cursor: snapshot.docs[snapshot.docs.length - 1] ?? after,
-      hasMore: snapshot.docs.length === TRIP_HISTORY_PAGE_SIZE,
+      hasMore: snapshot.docs.length === pageSize,
     };
   } catch (error) {
     const code = (error as { code?: string }).code;

@@ -2,11 +2,14 @@ import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { ActiveTripBanner } from '@/components/driver/ActiveTripBanner';
 import { CommissionBanner } from '@/components/driver/CommissionBanner';
 import { CommissionCard } from '@/components/driver/CommissionCard';
-import { DailyQuotaCard } from '@/components/driver/DailyQuotaCard';
 import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
 import { DutyToggle } from '@/components/driver/DutyToggle';
-import { FaresCollectedCard } from '@/components/driver/FaresCollectedCard';
 import { GoOnlineLocationCard } from '@/components/driver/GoOnlineLocationCard';
+import { RecentTrips } from '@/components/driver/RecentTrips';
+import { TodaySummary } from '@/components/driver/TodaySummary';
+import { VehicleChip } from '@/components/driver/VehicleChip';
+import { VerificationBadge } from '@/components/driver/VerificationBadge';
+import { LoadingScreen } from '@/components/LoadingScreen';
 import { SupportContactsList } from '@/components/support/SupportContactsList';
 import { formatExpiresIn } from '@/components/driver/OutOfAreaRequestCard';
 import { Avatar } from '@/components/ui/Avatar';
@@ -14,11 +17,14 @@ import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
+import { formatVehicleDescription } from '@/constants/vehicles';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { useAuth } from '@/hooks/useAuth';
 import { useCommissionAccount } from '@/hooks/useCommissionAccount';
 import { DRIVER_ACCESS_REVOKED, DriverAccessStatus, useDriverAccess } from '@/hooks/useDriverAccess';
 import { useFaresCollected } from '@/hooks/useFaresCollected';
+import { useNow } from '@/hooks/useNow';
+import { useRecentTrips } from '@/hooks/useRecentTrips';
 import { becomeAvailable, DriverServiceError, goOffline, goOnline } from '@/services/driverService';
 import {
   getNotificationPermission,
@@ -32,6 +38,8 @@ import {
   GoOnlineLocationError,
   openAppSettings,
 } from '@/services/locationService';
+import { commissionStatus } from '@/utils/commission';
+import { getAcceptRestriction } from '@/utils/driverHome';
 import { formatPhilippinePeso } from '@/utils/fare';
 import { LocationProblem, locationProblemMessage } from '@/utils/goOnlineLocation';
 import { shouldExplainBeforeGoingOnline } from '@/utils/notificationPermission';
@@ -39,7 +47,7 @@ import { isProposalOutcome, PROPOSAL_OUTCOME_TEXT, ProposalState } from '@/utils
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { ComponentProps, ReactNode, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -114,6 +122,8 @@ export default function DriverHomeScreen() {
     finishedProposal,
     dismissFinishedProposal,
     dailyQuota,
+    activeBookingsError,
+    retryActiveBookings,
   } = useDriverActivity();
   const driverId = driverRecord?.driverId ?? null;
   const [now, setNow] = useState(() => Date.now());
@@ -130,6 +140,21 @@ export default function DriverHomeScreen() {
 
   const fares = useFaresCollected(driverId);
   const commission = useCommissionAccount(driverId);
+  const recentTrips = useRecentTrips(driverId);
+  // Keeps commission time-left text and the balance status current while Home is open.
+  const clock = useNow(60 * 1000);
+  const [refreshing, setRefreshing] = useState(false);
+
+  /** Pull-to-refresh: fares collected, recent rides and the commission summary. */
+  async function handleRefresh() {
+    setRefreshing(true);
+    commission.reload();
+    try {
+      await Promise.all([fares.reload(), recentTrips.reload()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   /**
    * Go online, first explaining ride-request notifications once per device while they are
@@ -262,6 +287,15 @@ export default function DriverHomeScreen() {
     loaded &&
     !hasActiveTrip;
 
+  const commissionState =
+    !commission.loading && !commission.error && commission.account
+      ? commissionStatus(commission.account, clock).status
+      : null;
+  // Verified drivers who may stay online but cannot accept (suspension, daily limit).
+  const acceptRestriction =
+    status === 'verified' ? getAcceptRestriction(commissionState, dailyQuota) : null;
+  const vehicleDescription = driverRecord ? formatVehicleDescription(driverRecord) : null;
+
   const dutyCaption =
     !canPerformDriverActions && !isOnline
       ? 'You can go online once your account is verified.'
@@ -282,6 +316,17 @@ export default function DriverHomeScreen() {
       >
         {status === 'revoked' ? <SupportContactsList /> : null}
       </DriverStatusCard>
+    );
+  } else if (activeBookingsError) {
+    statusCard = (
+      <DriverStatusCard
+        icon="cloud-offline-outline"
+        tone="attention"
+        title="Could not check your trips"
+        message="TriGo could not load your current trip. Check your internet connection and try again."
+        actionTitle="Retry"
+        onAction={retryActiveBookings}
+      />
     );
   } else if (activeBooking) {
     statusCard = (
@@ -376,12 +421,33 @@ export default function DriverHomeScreen() {
     );
   }
 
+  // Full loading state until a verified driver's active trips are known, so Home never
+  // shows "offline" or "available" for a driver who is actually mid-trip.
+  if (status === 'verified' && !loaded) {
+    return (
+      <View style={styles.container}>
+        <ScreenHeader title="Home" />
+        <LoadingScreen />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScreenHeader title="Home" />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          driverRecord ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void handleRefresh()}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          ) : undefined
+        }
       >
         <View style={styles.profileRow}>
           <Avatar name={fullName} imageUri={profileImage} size={56} />
@@ -395,6 +461,15 @@ export default function DriverHomeScreen() {
                 ? ` · ★ ${driverRecord.rating.toFixed(1)}`
                 : ''}
             </Text>
+            <View style={styles.badgeRow}>
+              <VerificationBadge status={status} />
+              {driverRecord ? <VehicleChip vehicle={driverRecord} /> : null}
+            </View>
+            {vehicleDescription ? (
+              <Text style={styles.profileSubtitle} numberOfLines={1}>
+                {vehicleDescription}
+              </Text>
+            ) : null}
           </View>
         </View>
 
@@ -404,6 +479,7 @@ export default function DriverHomeScreen() {
             caption={dutyCaption}
             loading={updatingDuty}
             disabled={!isOnline && !canPerformDriverActions}
+            notice={acceptRestriction}
             onChange={(online) => (online ? handleGoOnlinePress() : handleGoOffline())}
           />
         ) : null}
@@ -418,21 +494,36 @@ export default function DriverHomeScreen() {
           />
         ) : null}
 
-        {driverRecord ? (
-          <CommissionBanner state={commission} onOpen={() => router.navigate('/driver/earnings')} />
-        ) : null}
-
-        {/* Daily acceptance quota: always shown to verified drivers once the limit is read. */}
-        {status === 'verified' && dailyQuota ? <DailyQuotaCard status={dailyQuota} /> : null}
-
+        {/* Directly under the duty section, so an active trip is never pushed down. */}
         {statusCard}
 
         {driverRecord ? (
-          <FaresCollectedCard
-            today={fares.today}
-            thisWeek={fares.thisWeek}
-            error={fares.error}
-            onViewHistory={() => router.navigate('/driver/trips')}
+          <CommissionBanner
+            state={commission}
+            showDue
+            now={clock}
+            onOpen={() => router.navigate('/driver/earnings')}
+          />
+        ) : null}
+
+        {driverRecord ? (
+          <TodaySummary
+            dailyQuota={status === 'verified' ? dailyQuota : null}
+            faresToday={fares.today}
+            faresError={fares.error}
+            commission={commission}
+            now={clock}
+          />
+        ) : null}
+
+        {driverRecord ? (
+          <RecentTrips
+            trips={recentTrips.trips}
+            error={recentTrips.error}
+            onOpenTrip={(bookingId) =>
+              router.push({ pathname: '/driver/trip/[bookingId]', params: { bookingId } })
+            }
+            onViewAll={() => router.navigate('/driver/trips')}
           />
         ) : null}
 
@@ -486,6 +577,12 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
   },
   fareLine: {
     ...typography.label,

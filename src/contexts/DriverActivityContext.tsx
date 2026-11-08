@@ -54,6 +54,13 @@ export interface DriverActivityContextValue {
   activeBookings: Booking[];
   /** False until the first active-bookings snapshot arrives for a verified driver. */
   loaded: boolean;
+  /**
+   * True when the active-bookings listener failed (e.g. offline or refused). `loaded` is
+   * still true and activeBookings empty, as before; screens may show an error with retry.
+   */
+  activeBookingsError: boolean;
+  /** Restarts the active-bookings listener after an error. */
+  retryActiveBookings: () => void;
   hasActiveTrip: boolean;
   /** The request at drivers/{uid}.currentRequestId, once read (null if unreadable). */
   heldRequest: OutOfAreaRequest | null;
@@ -87,6 +94,8 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
 
   const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const [activeBookingsError, setActiveBookingsError] = useState(false);
+  const [activeBookingsAttempt, setActiveBookingsAttempt] = useState(0);
 
   // Firestore rules only let verified drivers read bookings and requests.
   const subscriptionKey = driverId && canPerformDriverActions ? driverId : null;
@@ -116,6 +125,7 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setActiveBookings([]);
     setLoadedFor(null);
+    setActiveBookingsError(false);
 
     if (!subscriptionKey) return;
 
@@ -124,13 +134,20 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
       (bookings) => {
         setActiveBookings(bookings);
         setLoadedFor(subscriptionKey);
+        setActiveBookingsError(false);
       },
       () => {
         setActiveBookings([]);
         setLoadedFor(subscriptionKey);
+        setActiveBookingsError(true);
       },
     );
-  }, [subscriptionKey]);
+  }, [subscriptionKey, activeBookingsAttempt]);
+
+  const retryActiveBookings = useCallback(
+    () => setActiveBookingsAttempt((attempt) => attempt + 1),
+    [],
+  );
 
   // Passenger cancellations cannot touch drivers/{uid}, so the driver app releases itself:
   // only when currentBookingId points to a booking that is now `cancelled` do we clear it
@@ -342,6 +359,8 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
     () => ({
       activeBookings,
       loaded: subscriptionKey !== null && loadedFor === subscriptionKey,
+      activeBookingsError,
+      retryActiveBookings,
       hasActiveTrip: activeBookings.length > 0,
       heldRequest: heldForCurrent?.request ?? null,
       proposalState,
@@ -354,6 +373,8 @@ export function DriverActivityProvider({ children }: { children: ReactNode }) {
       activeBookings,
       loadedFor,
       subscriptionKey,
+      activeBookingsError,
+      retryActiveBookings,
       heldForCurrent,
       proposalState,
       finishedProposal,

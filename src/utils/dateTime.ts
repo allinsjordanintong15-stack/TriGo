@@ -49,3 +49,24 @@ export function formatTimeAgo(date: Date, now: number): string {
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours} hr ago` : formatDate(date);
 }
+
+/**
+ * Time remaining until a deadline, for commission banners: "2 days 3 hr", "5 hr 12 min",
+ * "12 min", "less than 1 min", and "0 min" once it has passed. Floors each part, so it
+ * never shows more time than is left.
+ */
+export function formatTimeLeft(ms: number): string {
+  if (ms <= 0) return '0 min';
+  const totalMinutes = Math.floor(ms / MINUTE_MS);
+  if (totalMinutes < 1) return 'less than 1 min';
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 24) {
+    const minutes = totalMinutes % 60;
+    return minutes === 0 ? `${totalHours} hr` : `${totalHours} hr ${minutes} min`;
+  }
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  const dayText = `${days} ${days === 1 ? 'day' : 'days'}`;
+  return hours === 0 ? dayText : `${dayText} ${hours} hr`;
+}
