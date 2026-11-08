@@ -17,7 +17,14 @@ interface DutyToggleProps {
   onChange: (online: boolean) => void;
 }
 
-/** Large Online / Offline duty switch at the top of the driver Home screen. */
+/**
+ * Large Online / Offline duty switch at the top of the driver Home screen.
+ *
+ * Android: the card keeps the same border width in every state and does not clip its
+ * children (no overflow: 'hidden'), so going online only changes colors. Changing the
+ * border and background of a clipped, elevated view left the content undrawn (a plain
+ * green block) on Android.
+ */
 export function DutyToggle({
   isOnline,
   caption,
@@ -47,11 +54,11 @@ export function DutyToggle({
       >
         <View style={[styles.dot, isOnline ? styles.dotOnline : null]} />
         <View style={styles.text}>
-          <Text style={[styles.label, isOnline ? styles.captionOnline : null]}>Duty status</Text>
-          <Text style={[styles.title, isOnline ? styles.titleOnline : null]}>
+          <Text style={[styles.label, isOnline ? styles.onGreenSoft : null]}>Duty status</Text>
+          <Text style={[styles.title, isOnline ? styles.onGreen : null]}>
             {isOnline ? 'Online' : 'Offline'}
           </Text>
-          <Text style={[styles.caption, isOnline ? styles.captionOnline : null]}>{caption}</Text>
+          <Text style={[styles.caption, isOnline ? styles.onGreenSoft : null]}>{caption}</Text>
         </View>
         {loading ? (
           <ActivityIndicator color={isOnline ? colors.white : colors.primary} />
@@ -60,9 +67,12 @@ export function DutyToggle({
             value={isOnline}
             disabled={inactive}
             onValueChange={onChange}
-            trackColor={{ false: colors.border, true: colors.gold }}
+            // On: gold track on the green card. Off: grey track on white. White thumb in
+            // both states (thumbColor works on Android and iOS; ios_backgroundColor is the
+            // iOS off-track fill).
+            trackColor={{ false: colors.textMuted, true: colors.gold }}
             thumbColor={colors.white}
-            ios_backgroundColor={colors.border}
+            ios_backgroundColor={colors.textMuted}
             // The whole row is the accessible switch.
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
@@ -86,19 +96,24 @@ export function DutyToggle({
 const styles = StyleSheet.create({
   card: {
     borderRadius: radius.lg,
-    overflow: 'hidden',
+    // Same width in every state; only the color changes.
+    borderWidth: 2,
     ...shadow.card,
   },
   cardOffline: {
     backgroundColor: colors.white,
-    borderWidth: 2,
     borderColor: colors.primaryLight,
   },
   cardOnline: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
+  // Unverified: a flat grey card (no opacity, so the caption saying why stays readable).
   cardDisabled: {
-    opacity: 0.6,
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   row: {
     flexDirection: 'row',
@@ -114,8 +129,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.textMuted,
   },
+  // Gold with a white ring, so it stands out on the green card.
   dotOnline: {
     backgroundColor: colors.gold,
+    borderWidth: 2,
+    borderColor: colors.white,
   },
   text: {
     flex: 1,
@@ -129,22 +147,26 @@ const styles = StyleSheet.create({
     fontSize: 26,
     color: colors.text,
   },
-  titleOnline: {
-    color: colors.white,
-  },
   caption: {
     ...typography.caption,
     color: colors.textSecondary,
     marginTop: 2,
   },
-  captionOnline: {
-    color: colors.primaryLight,
+  onGreen: {
+    color: colors.white,
   },
+  onGreenSoft: {
+    color: colors.background,
+  },
+  // A light box inset in the card, readable on both white and green.
   notice: {
     flexDirection: 'row',
     gap: spacing.sm,
     backgroundColor: colors.errorBackground,
-    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
   },
   noticeText: {

@@ -1,61 +1,68 @@
+import { VehicleChip } from '@/components/driver/VehicleChip';
+import { VerificationBadge } from '@/components/driver/VerificationBadge';
 import { ProfileMenuItem, ProfileMenuSection } from '@/components/profile/ProfileMenuItem';
 import { SupportContactsList } from '@/components/support/SupportContactsList';
+import { Avatar } from '@/components/ui/Avatar';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { Button } from '@/components/ui/Button';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
-import { colors, radius, spacing, typography } from '@/constants/theme';
+import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
 import { useNotificationPermission } from '@/hooks/useNotificationPermission';
 import { logout } from '@/services/authService';
 import { goOffline } from '@/services/driverService';
 import { DriverRecord } from '@/types';
-import { notificationSettingAction } from '@/utils/notificationPermission';
+import {
+  NotificationSettingAction,
+  notificationSettingAction,
+} from '@/utils/notificationPermission';
+import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Image, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ComponentProps, useState } from 'react';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function getInitials(fullName: string): string {
-  return fullName
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
-}
+type IconName = ComponentProps<typeof Ionicons>['name'];
+
+const APP_VERSION = Constants.expoConfig?.version ?? null;
 
 /**
  * Read-only vehicle rows. Brand & model and color are left out for records approved before
  * they were recorded, so nothing looks missing.
  */
-function getVehicleRows(record: DriverRecord): [string, string][] {
-  const rows: [string, string][] = [
-    [
-      'Vehicle',
-      record.vehicleType
+function getVehicleRows(record: DriverRecord): { icon: IconName; label: string; value: string }[] {
+  const rows: { icon: IconName; label: string; value: string }[] = [
+    {
+      icon: 'car-outline',
+      label: 'Type',
+      value: record.vehicleType
         ? record.vehicleType.charAt(0).toUpperCase() + record.vehicleType.slice(1)
         : '—',
-    ],
+    },
   ];
   if (record.vehicleBrand && record.vehicleModel) {
-    rows.push(['Brand & model', `${record.vehicleBrand} ${record.vehicleModel}`]);
+    rows.push({
+      icon: 'pricetag-outline',
+      label: 'Brand & model',
+      value: `${record.vehicleBrand} ${record.vehicleModel}`,
+    });
   }
-  if (record.vehicleColor) rows.push(['Color', record.vehicleColor]);
-  rows.push(['Plate number', record.vehiclePlate || '—']);
+  if (record.vehicleColor) {
+    rows.push({ icon: 'color-palette-outline', label: 'Color', value: record.vehicleColor });
+  }
+  rows.push({ icon: 'card-outline', label: 'Plate', value: record.vehiclePlate || '—' });
   return rows;
 }
 
-const VERIFICATION_LABELS = {
-  verified: 'Verified',
-  revoked: DRIVER_ACCESS_REVOKED.title,
-  pending_verification: 'Pending verification',
-  role_not_authorized: 'Driver access not active',
-  invalid_vehicle_type: 'Vehicle type not set up',
-  no_record: 'Not set up',
-} as const;
+/** One line under "Ride request alerts" for each permission state. */
+const ALERTS_SUBTITLE: Record<NotificationSettingAction, string> = {
+  none: 'New requests while TriGo is open but not on screen.',
+  request: 'Tap to turn on ride request notifications.',
+  open_settings: 'Turned off. Tap to open your phone settings.',
+};
 
 export default function DriverProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -116,6 +123,15 @@ export default function DriverProfileScreen() {
   }
 
   const profileImage = driverRecord?.profileImage ?? driver.profileImage;
+  const alertsAction = notifications.state ? notificationSettingAction(notifications.state) : null;
+
+  function handleAlertsPress() {
+    if (alertsAction === 'request') {
+      void notifications.request();
+    } else if (alertsAction === 'open_settings') {
+      Linking.openSettings().catch(() => undefined);
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -124,19 +140,16 @@ export default function DriverProfileScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.avatarRow}>
-          {profileImage ? (
-            <Image source={{ uri: profileImage }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Text style={styles.avatarInitials}>{getInitials(driver.fullName)}</Text>
-            </View>
-          )}
-          <View style={styles.avatarMeta}>
-            <Text style={styles.name} numberOfLines={1}>
+        <View style={styles.profileCard}>
+          <Avatar name={driver.fullName} imageUri={profileImage} size={64} />
+          <View style={styles.profileMeta}>
+            <Text style={styles.name} numberOfLines={2}>
               {driver.fullName}
             </Text>
-            <Text style={styles.role}>Driver · {VERIFICATION_LABELS[status]}</Text>
+            <View style={styles.badgeRow}>
+              <VerificationBadge status={status} />
+              {driverRecord ? <VehicleChip vehicle={driverRecord} /> : null}
+            </View>
           </View>
         </View>
 
@@ -146,50 +159,64 @@ export default function DriverProfileScreen() {
           </Text>
         ) : null}
 
-        <View style={styles.card}>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Email</Text>
-            <Text style={styles.fieldValue}>{driver.email}</Text>
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Mobile number</Text>
-            <Text style={styles.fieldValue}>{driver.mobileNumber || '—'}</Text>
-          </View>
-          {driverRecord
-            ? getVehicleRows(driverRecord).map(([label, value], index, rows) => (
-                <View
-                  key={label}
-                  style={[styles.field, index === rows.length - 1 ? styles.fieldLast : null]}
-                >
-                  <Text style={styles.fieldLabel}>{label}</Text>
-                  <Text style={styles.fieldValue}>{value}</Text>
-                </View>
-              ))
-            : null}
-        </View>
+        <ProfileMenuSection title="Account">
+          <ProfileMenuItem icon="mail-outline" label="Email" value={driver.email} />
+          <ProfileMenuItem
+            icon="phone-portrait-outline"
+            label="Mobile number"
+            value={driver.mobileNumber || '—'}
+            last
+          />
+        </ProfileMenuSection>
 
-        <Text style={styles.note}>
-          Driver details are managed by the TriGo administrator. Contact them to update your
-          vehicle or account information.
-        </Text>
+        {driverRecord ? (
+          <ProfileMenuSection
+            title="Vehicle"
+            footer="Driver details are managed by the TriGo administrator. Contact them to update your vehicle or account information."
+          >
+            {getVehicleRows(driverRecord).map((row, index, rows) => (
+              <ProfileMenuItem
+                key={row.label}
+                icon={row.icon}
+                label={row.label}
+                value={row.value}
+                last={index === rows.length - 1}
+              />
+            ))}
+          </ProfileMenuSection>
+        ) : (
+          <Text style={styles.note}>
+            Driver details are managed by the TriGo administrator. Contact them to update your
+            vehicle or account information.
+          </Text>
+        )}
 
-        {notifications.state ? (
-          <>
-            <Text style={styles.sectionTitle}>Ride request alerts</Text>
-            <NotificationsCard
-              on={notifications.state.status === 'granted'}
-              action={notificationSettingAction(notifications.state)}
-              onRequest={() => void notifications.request()}
+        {/* Hidden until the permission has been read, as before. */}
+        {notifications.state && alertsAction ? (
+          <ProfileMenuSection title="Preferences">
+            <ProfileMenuItem
+              icon="notifications-outline"
+              label="Ride request alerts"
+              description={ALERTS_SUBTITLE[alertsAction]}
+              pill={
+                notifications.state.status === 'granted'
+                  ? { label: 'On', tone: 'on' }
+                  : { label: 'Off', tone: 'off' }
+              }
+              onPress={alertsAction === 'none' ? undefined : handleAlertsPress}
+              last
             />
-          </>
+          </ProfileMenuSection>
         ) : null}
 
-        <Text style={styles.sectionTitle}>Contact TriGo support</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">
+          Support
+        </Text>
         <View style={styles.supportContacts}>
           <SupportContactsList />
         </View>
 
-        <ProfileMenuSection title="Privacy">
+        <ProfileMenuSection title="Legal">
           <ProfileMenuItem
             icon="shield-checkmark-outline"
             label="Privacy Policy & Terms"
@@ -199,26 +226,38 @@ export default function DriverProfileScreen() {
           />
         </ProfileMenuSection>
 
-        {error ? <ErrorBanner message={error} /> : null}
+        {error ? (
+          <View style={styles.errorWrap}>
+            <ErrorBanner message={error} />
+          </View>
+        ) : null}
 
         {role === 'passenger' ? (
-          <>
-            <Button
-              title="Switch to Passenger Mode"
+          <ProfileMenuSection>
+            <ProfileMenuItem
+              icon="swap-horizontal-outline"
+              label="Switch to Passenger Mode"
               loading={switchingMode}
               disabled={loggingOut}
               onPress={handleSwitchToPassengerMode}
+              last
             />
-            <View style={styles.spacer} />
-          </>
+          </ProfileMenuSection>
         ) : null}
 
-        <Button
-          title="Log Out"
-          variant="secondary"
-          loading={loggingOut}
-          onPress={() => setConfirmLogout(true)}
-        />
+        {APP_VERSION ? <Text style={styles.version}>TriGo v{APP_VERSION}</Text> : null}
+
+        <ProfileMenuSection>
+          <ProfileMenuItem
+            icon="log-out-outline"
+            label="Log Out"
+            destructive
+            showChevron={false}
+            loading={loggingOut}
+            onPress={() => setConfirmLogout(true)}
+            last
+          />
+        </ProfileMenuSection>
       </ScrollView>
 
       <ConfirmationDialog
@@ -236,48 +275,7 @@ export default function DriverProfileScreen() {
   );
 }
 
-interface NotificationsCardProps {
-  on: boolean;
-  action: ReturnType<typeof notificationSettingAction>;
-  onRequest: () => void;
-}
-
-/** Whether ride-request notifications are allowed, with a way to turn them on. */
-function NotificationsCard({ on, action, onRequest }: NotificationsCardProps) {
-  return (
-    <View style={[styles.card, styles.notificationsCard]}>
-      <Text style={styles.fieldValue}>Notifications: {on ? 'On' : 'Off'}</Text>
-      <Text style={styles.notificationsHint}>
-        {on
-          ? 'You get a notification for new ride requests while TriGo is open but not on screen. Not when the app is closed.'
-          : 'Turn on notifications to hear about new ride requests while TriGo is open but not on screen.'}
-      </Text>
-      {action === 'request' ? (
-        <Button title="Turn on notifications" variant="secondary" onPress={onRequest} />
-      ) : null}
-      {action === 'open_settings' ? (
-        <Button
-          title="Open phone settings"
-          variant="secondary"
-          onPress={() => {
-            Linking.openSettings().catch(() => undefined);
-          }}
-        />
-      ) : null}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  notificationsCard: {
-    marginBottom: spacing.lg,
-    gap: spacing.sm,
-  },
-  notificationsHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
-  },
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -286,41 +284,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
   },
-  avatarRow: {
+  profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: spacing.md,
     marginBottom: spacing.lg,
+    ...shadow.card,
   },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-  },
-  avatarFallback: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    ...typography.title,
-    color: colors.primary,
-  },
-  avatarMeta: {
-    marginLeft: spacing.md,
+  profileMeta: {
     flex: 1,
   },
   name: {
     ...typography.title,
-    fontSize: 22,
+    fontSize: 20,
     color: colors.text,
   },
-  role: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: 2,
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
   },
   revokedNotice: {
     ...typography.caption,
@@ -328,7 +314,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.errorBackground,
     borderRadius: radius.md,
     padding: spacing.md,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   sectionTitle: {
     ...typography.caption,
@@ -341,36 +327,19 @@ const styles = StyleSheet.create({
   supportContacts: {
     marginBottom: spacing.lg,
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  field: {
-    paddingVertical: spacing.sm,
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-  },
-  fieldLast: {
-    borderBottomWidth: 0,
-  },
-  fieldLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginBottom: 2,
-  },
-  fieldValue: {
-    ...typography.body,
-    color: colors.text,
-  },
-  spacer: {
-    height: spacing.sm,
-  },
   note: {
     ...typography.caption,
     color: colors.textMuted,
     lineHeight: 18,
     marginBottom: spacing.lg,
+  },
+  errorWrap: {
+    marginBottom: spacing.md,
+  },
+  version: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
 });
