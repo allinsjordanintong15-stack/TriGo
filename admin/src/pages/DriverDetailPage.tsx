@@ -89,7 +89,7 @@ export function DriverDetailPage() {
   }, [reload]);
 
   const backLink = (
-    <Link to="/driver-accounts" className="back-link">
+    <Link to="/drivers/all" className="back-link">
       ← Back to drivers
     </Link>
   );

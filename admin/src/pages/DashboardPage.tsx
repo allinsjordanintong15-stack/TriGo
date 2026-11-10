@@ -68,7 +68,7 @@ function SectionError() {
 /** The booking's own page: the out-of-area request, else the passenger's booking history. */
 function bookingLink(booking: AdminBooking): string {
   if (booking.bookingType === 'out_of_area' && booking.outOfAreaRequestId) {
-    return `/out-of-area/${encodeURIComponent(booking.outOfAreaRequestId)}`;
+    return `/trips/out-of-area/${encodeURIComponent(booking.outOfAreaRequestId)}`;
   }
   return `/passengers/${encodeURIComponent(booking.passengerId)}#booking-${booking.bookingId}`;
 }
@@ -137,7 +137,7 @@ export function DashboardPage() {
           <AttentionCard
             label="Driver applications"
             count={counts?.pendingApplications ?? null}
-            to="/drivers"
+            to="/drivers/applications"
           />
           <AttentionCard
             label="Open complaints"
@@ -159,7 +159,7 @@ export function DashboardPage() {
             label="Drivers at daily limit"
             count={atLimit.data}
             error={atLimit.error}
-            to="/quota"
+            to="/settings/quota"
           />
         </div>
       </section>

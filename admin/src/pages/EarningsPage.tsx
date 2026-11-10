@@ -421,7 +421,7 @@ export function EarningsPage() {
                   <tr key={payment.paymentId}>
                     <td>{formatDateTime(payment.submittedAt)}</td>
                     <td>
-                      <Link className="btn-link" to={`/driver-accounts/${payment.driverId}`}>
+                      <Link className="btn-link" to={`/drivers/all/${payment.driverId}`}>
                         {payment.driverName || '(no name)'}
                       </Link>
                     </td>
@@ -484,7 +484,7 @@ export function EarningsPage() {
                 {shownRows.map(({ driverId, driverName, account, summary }) => (
                   <tr key={driverId}>
                     <td>
-                      <Link className="btn-link" to={`/driver-accounts/${driverId}`}>
+                      <Link className="btn-link" to={`/drivers/all/${driverId}`}>
                         {driverName || '(no name)'}
                       </Link>
                     </td>

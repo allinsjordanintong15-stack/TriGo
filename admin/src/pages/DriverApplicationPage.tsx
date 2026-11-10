@@ -78,7 +78,7 @@ export function DriverApplicationPage() {
   }, [reload]);
 
   const backLink = (
-    <Link to="/drivers" className="back-link">
+    <Link to="/drivers/applications" className="back-link">
       ← Back to pending applications
     </Link>
   );
@@ -133,11 +133,11 @@ export function DriverApplicationPage() {
       if (decision === 'approve') {
         await approveApplication(application, { vehicleType, ...vehicleDetails }, approveRemarks);
         refreshCounts();
-        navigate('/drivers', { state: { message: `${application.fullName} was approved as a driver.` } });
+        navigate('/drivers/applications', { state: { message: `${application.fullName} was approved as a driver.` } });
       } else {
         await rejectApplication(application, rejectRemarks);
         refreshCounts();
-        navigate('/drivers', { state: { message: `${application.fullName}'s application was rejected.` } });
+        navigate('/drivers/applications', { state: { message: `${application.fullName}'s application was rejected.` } });
       }
     } catch (error) {
       const denied = (error as { code?: string }).code === 'permission-denied';

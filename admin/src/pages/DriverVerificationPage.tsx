@@ -85,7 +85,7 @@ export function DriverVerificationPage() {
                     <td className="mono">{application.vehiclePlate}</td>
                     <td>{formatDateTime(application.submittedAt)}</td>
                     <td className="cell-action">
-                      <Link className="btn-link" to={`/drivers/${application.uid}`}>
+                      <Link className="btn-link" to={`/drivers/applications/${application.uid}`}>
                         Review
                       </Link>
                     </td>

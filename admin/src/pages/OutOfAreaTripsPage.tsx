@@ -244,7 +244,7 @@ export function OutOfAreaTripsPage() {
                             )}
                           </td>
                           <td className="cell-action">
-                            <Link className="btn-link" to={`/out-of-area/${request.requestId}`}>
+                            <Link className="btn-link" to={`/trips/out-of-area/${request.requestId}`}>
                               View
                             </Link>
                           </td>

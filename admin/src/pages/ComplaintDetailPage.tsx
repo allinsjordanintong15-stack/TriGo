@@ -197,7 +197,7 @@ export function ComplaintDetailPage() {
                 <dt>Driver</dt>
                 <dd>
                   {booking.driverId ? (
-                    <Link className="btn-link" to={`/driver-accounts/${booking.driverId}`}>
+                    <Link className="btn-link" to={`/drivers/all/${booking.driverId}`}>
                       {detail.driverName || '(no name)'}
                     </Link>
                   ) : (
@@ -208,7 +208,7 @@ export function ComplaintDetailPage() {
             </dl>
             {booking.bookingType === 'out_of_area' && (
               <p>
-                <Link className="btn-link" to={`/out-of-area/${booking.bookingId}`}>
+                <Link className="btn-link" to={`/trips/out-of-area/${booking.bookingId}`}>
                   View the out-of-area request
                 </Link>
               </p>

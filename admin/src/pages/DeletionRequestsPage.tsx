@@ -15,6 +15,11 @@ import {
 
 const ROLE_LABELS: Record<string, string> = { passenger: 'Passenger', driver: 'Driver' };
 
+/** users/{uid}.role from the already-loaded profile; Unknown when missing or unrecognised. */
+function roleLabel(role: string | null | undefined): string {
+  return (role && ROLE_LABELS[role]) || 'Unknown';
+}
+
 function parseStatus(value: string | null): DeletionStatus {
   return DELETION_STATUSES.find((status) => status === value) ?? 'pending';
 }
@@ -101,6 +106,7 @@ export function DeletionRequestsPage() {
                 <thead>
                   <tr>
                     <th scope="col">Account</th>
+                    <th scope="col">Role</th>
                     <th scope="col">Requested</th>
                     <th scope="col">Reason</th>
                     <th scope="col">{status === 'pending' ? 'Sign-in account' : 'Outcome'}</th>
@@ -116,9 +122,9 @@ export function DeletionRequestsPage() {
                         <div className="cell-strong">{account?.fullName || '(no profile)'}</div>
                         <div className="muted small">
                           {account?.email || <span className="mono">{request.uid}</span>}
-                          {account?.role ? ` · ${ROLE_LABELS[account.role] ?? account.role}` : ''}
                         </div>
                       </td>
+                      <td>{roleLabel(account?.role)}</td>
                       <td>{formatDateTime(request.requestedAt)}</td>
                       <td className="cell-wrap">{request.reason ?? <span className="muted">—</span>}</td>
                       <td>

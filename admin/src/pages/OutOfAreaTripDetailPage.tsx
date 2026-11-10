@@ -35,7 +35,7 @@ export function OutOfAreaTripDetailPage() {
   }, [reload]);
 
   const backLink = (
-    <Link to="/out-of-area" className="back-link">
+    <Link to="/trips/out-of-area" className="back-link">
       ← Back to out-of-area trips
     </Link>
   );

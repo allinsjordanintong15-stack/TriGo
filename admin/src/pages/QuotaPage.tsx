@@ -247,7 +247,7 @@ export function QuotaPage() {
                         )}
                       </td>
                       <td className="cell-action">
-                        <Link className="btn-link" to={`/driver-accounts/${encodeURIComponent(row.uid)}`}>
+                        <Link className="btn-link" to={`/drivers/all/${encodeURIComponent(row.uid)}`}>
                           View
                         </Link>
                       </td>

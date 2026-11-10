@@ -3,8 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireAdmin } from './auth/RequireAdmin';
 import { AdminLayout } from './components/AdminLayout';
-import { BarangayTariffsPage } from './pages/BarangayTariffsPage';
-import { CommissionPage } from './pages/CommissionPage';
+import { enc, Redirect } from './components/Redirect';
 import { ComplaintDetailPage } from './pages/ComplaintDetailPage';
 import { ComplaintsPage } from './pages/ComplaintsPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -13,19 +12,18 @@ import { DriverDetailPage } from './pages/DriverDetailPage';
 import { DriversPage } from './pages/DriversPage';
 import { DriverVerificationPage } from './pages/DriverVerificationPage';
 import { EarningsPage } from './pages/EarningsPage';
-import { FareSettingsPage } from './pages/FareSettingsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
 import { PassengersPage } from './pages/PassengersPage';
-import { QuotaPage } from './pages/QuotaPage';
 import { ReportsLayout } from './pages/ReportsLayout';
 import { ReportsPage } from './pages/ReportsPage';
-import { SystemSettingsPage } from './pages/SystemSettingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { DeletionRequestPage } from './pages/DeletionRequestPage';
 import { DeletionRequestsPage } from './pages/DeletionRequestsPage';
 import { LegalPage } from './pages/LegalPage';
 import { OutOfAreaTripDetailPage } from './pages/OutOfAreaTripDetailPage';
 import { OutOfAreaTripsPage } from './pages/OutOfAreaTripsPage';
+import { DriversLayout, TripsLayout } from './pages/SectionLayouts';
+import { SettingsLayout } from './pages/SettingsLayout';
 
 export function App() {
   return (
@@ -44,27 +42,62 @@ export function App() {
             }
           >
             <Route path="/" element={<DashboardPage />} />
+
+            {/* Drivers: Applications | All drivers */}
+            <Route path="/drivers" element={<DriversLayout />}>
+              <Route index element={<Navigate to="applications" replace />} />
+              <Route path="applications" element={<DriverVerificationPage />} />
+              <Route path="applications/:uid" element={<DriverApplicationPage />} />
+              <Route path="all" element={<DriversPage />} />
+              <Route path="all/:uid" element={<DriverDetailPage />} />
+            </Route>
+
+            <Route path="/passengers" element={<PassengersPage />} />
+            <Route path="/passengers/:uid" element={<PassengerDetailPage />} />
+
+            {/* Trips: Out-of-area trips (an "All bookings" tab can be added here later) */}
+            <Route path="/trips" element={<TripsLayout />}>
+              <Route index element={<Navigate to="out-of-area" replace />} />
+              <Route path="out-of-area" element={<OutOfAreaTripsPage />} />
+              <Route path="out-of-area/:requestId" element={<OutOfAreaTripDetailPage />} />
+            </Route>
+
+            <Route path="/earnings" element={<EarningsPage />} />
+
             <Route path="/reports" element={<ReportsLayout />}>
               <Route index element={<ReportsPage />} />
               <Route path="complaints" element={<ComplaintsPage />} />
               <Route path="complaints/:complaintId" element={<ComplaintDetailPage />} />
             </Route>
-            <Route path="/fares" element={<FareSettingsPage />} />
-            <Route path="/tariffs" element={<BarangayTariffsPage />} />
-            <Route path="/commission" element={<CommissionPage />} />
-            <Route path="/earnings" element={<EarningsPage />} />
-            <Route path="/settings" element={<SystemSettingsPage />} />
-            <Route path="/passengers" element={<PassengersPage />} />
-            <Route path="/passengers/:uid" element={<PassengerDetailPage />} />
-            <Route path="/out-of-area" element={<OutOfAreaTripsPage />} />
-            <Route path="/out-of-area/:requestId" element={<OutOfAreaTripDetailPage />} />
-            <Route path="/driver-accounts" element={<DriversPage />} />
-            <Route path="/driver-accounts/:uid" element={<DriverDetailPage />} />
-            <Route path="/drivers" element={<DriverVerificationPage />} />
-            <Route path="/drivers/:uid" element={<DriverApplicationPage />} />
-            <Route path="/quota" element={<QuotaPage />} />
+
             <Route path="/account-deletion" element={<DeletionRequestsPage />} />
             <Route path="/account-deletion/:uid" element={<DeletionRequestPage />} />
+
+            {/* Settings: Fares | Barangay tariffs | Commission | Quota | System */}
+            <Route path="/settings/:tab" element={<SettingsLayout />} />
+
+            {/* Old URLs → new page/tab (query string, hash and state are kept). */}
+            {/* /drivers/:uid was a driver application; static tabs above take precedence. */}
+            <Route path="/drivers/:uid" element={<Redirect to={(p) => `/drivers/applications/${enc(p.uid)}`} />} />
+            <Route path="/driver-accounts" element={<Redirect to="/drivers/all" />} />
+            <Route path="/driver-accounts/:uid" element={<Redirect to={(p) => `/drivers/all/${enc(p.uid)}`} />} />
+            {/* Briefly a Passengers tab; static paths take precedence over /passengers/:uid. */}
+            <Route path="/passengers/deletion-requests" element={<Redirect to="/account-deletion" />} />
+            <Route
+              path="/passengers/deletion-requests/:uid"
+              element={<Redirect to={(p) => `/account-deletion/${enc(p.uid)}`} />}
+            />
+            <Route path="/out-of-area" element={<Redirect to="/trips/out-of-area" />} />
+            <Route
+              path="/out-of-area/:requestId"
+              element={<Redirect to={(p) => `/trips/out-of-area/${enc(p.requestId)}`} />}
+            />
+            {/* /settings was System settings. */}
+            <Route path="/settings" element={<Redirect to="/settings/system" />} />
+            <Route path="/fares" element={<Redirect to="/settings/fares" />} />
+            <Route path="/tariffs" element={<Redirect to="/settings/tariffs" />} />
+            <Route path="/commission" element={<Redirect to="/settings/commission" />} />
+            <Route path="/quota" element={<Redirect to="/settings/quota" />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

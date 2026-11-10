@@ -1477,7 +1477,7 @@ button.btn-link:disabled {
   margin: 0 0 var(--space-sm);
 }
 
-/* ─── Reports & Complaints ─────────────────────────────────────────────── */
+/* ─── Page tabs (Drivers, Settings, Reports) ─────────────── */
 
 .page-tabs {
   display: flex;
@@ -1498,6 +1498,12 @@ button.btn-link:disabled {
 
 .page-tabs a:hover {
   color: var(--color-primary);
+}
+
+.page-tabs .tab-badge {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: 1px;
 }
 
 .page-tabs a.active {

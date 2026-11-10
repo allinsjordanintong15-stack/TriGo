@@ -151,7 +151,7 @@ export function DriversPage() {
                         <td>{DUTY_LABELS[dutyStatus(driver)]}</td>
                         <td>{formatDriverRating(ratingSummary)}</td>
                         <td className="cell-action">
-                          <Link className="btn-link" to={`/driver-accounts/${driver.uid}`}>
+                          <Link className="btn-link" to={`/drivers/all/${driver.uid}`}>
                             View
                           </Link>
                         </td>

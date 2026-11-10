@@ -1,77 +1,58 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 
 import logo from '../assets/logo.png';
 import { useAuth } from '../auth/AuthContext';
 import { useAdminCounts, type AdminCounts } from '../lib/adminCounts';
 import { AdminCountsProvider } from './AdminCountsProvider';
 import { LegalLinks } from './LegalLinks';
+import { isUnder } from './PageTabs';
 import { NavIcon, type NavIconName } from './NavIcons';
 
 type NavItem = {
   to: string;
   label: string;
   icon: NavIconName;
-  end?: boolean;
+  /** Path prefix that marks the item active (its tabs and detail pages); exact match if omitted. */
+  section?: string;
   /** Sidebar badge: a count of work waiting, and how a screen reader names it. */
   badge?: { count: keyof AdminCounts; noun: [string, string] };
 };
 
-// Sidebar, grouped by importance. Add future admin pages here.
-const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
-  { label: null, items: [{ to: '/', label: 'Dashboard', icon: 'dashboard', end: true }] },
+// Sidebar. Sections with tabs link to their first tab; their tabs live in the URL (see App.tsx).
+const NAV_ITEMS: NavItem[] = [
+  { to: '/', label: 'Dashboard', icon: 'dashboard' },
   {
-    label: 'Money',
-    items: [
-      {
-        to: '/earnings',
-        label: 'Earnings',
-        icon: 'earnings',
-        badge: { count: 'pendingPayments', noun: ['pending payment', 'pending payments'] },
-      },
-    ],
-  },
-  {
+    to: '/drivers/applications',
     label: 'Drivers',
-    items: [
-      {
-        to: '/drivers',
-        label: 'Driver verification',
-        icon: 'verification',
-        badge: { count: 'pendingApplications', noun: ['pending application', 'pending applications'] },
-      },
-      { to: '/driver-accounts', label: 'Drivers', icon: 'drivers' },
-      { to: '/quota', label: 'Quota', icon: 'quota' },
-    ],
+    icon: 'drivers',
+    section: '/drivers',
+    badge: { count: 'pendingApplications', noun: ['pending application', 'pending applications'] },
+  },
+  { to: '/passengers', label: 'Passengers', icon: 'passengers', section: '/passengers' },
+  { to: '/trips/out-of-area', label: 'Trips', icon: 'outOfArea', section: '/trips' },
+  {
+    to: '/earnings',
+    label: 'Earnings',
+    icon: 'earnings',
+    section: '/earnings',
+    badge: { count: 'pendingPayments', noun: ['pending payment', 'pending payments'] },
   },
   {
-    label: 'Operations',
-    items: [
-      { to: '/passengers', label: 'Passengers', icon: 'passengers' },
-      { to: '/out-of-area', label: 'Out-of-area trips', icon: 'outOfArea' },
-      {
-        to: '/reports',
-        label: 'Reports & Complaints',
-        icon: 'reports',
-        badge: { count: 'openComplaints', noun: ['open complaint', 'open complaints'] },
-      },
-      {
-        to: '/account-deletion',
-        label: 'Account deletion',
-        icon: 'privacy',
-        badge: { count: 'pendingDeletions', noun: ['pending deletion request', 'pending deletion requests'] },
-      },
-    ],
+    to: '/reports',
+    label: 'Reports & Complaints',
+    icon: 'reports',
+    section: '/reports',
+    badge: { count: 'openComplaints', noun: ['open complaint', 'open complaints'] },
   },
   {
-    label: 'Settings',
-    items: [
-      { to: '/fares', label: 'Fare settings', icon: 'fares' },
-      { to: '/tariffs', label: 'Barangay tariffs', icon: 'tariffs' },
-      { to: '/commission', label: 'Commission', icon: 'commission' },
-      { to: '/settings', label: 'System settings', icon: 'settings' },
-    ],
+    to: '/account-deletion',
+    label: 'Account deletion',
+    icon: 'privacy',
+    section: '/account-deletion',
+    badge: { count: 'pendingDeletions', noun: ['pending deletion request', 'pending deletion requests'] },
   },
+  { to: '/settings/fares', label: 'Settings', icon: 'settings', section: '/settings' },
 ];
 
 export function AdminLayout() {
@@ -129,33 +110,30 @@ function Shell() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Admin">
-          {NAV_GROUPS.map((group) => (
-            <div key={group.label ?? 'top'} className="nav-group">
-              {group.label && <div className="nav-group-label">{group.label}</div>}
-              {group.items.map((item) => {
-                const count = item.badge && counts ? counts[item.badge.count] : 0;
-                const badgeText = item.badge
-                  ? `, ${count} ${item.badge.noun[count === 1 ? 0 : 1]}`
-                  : '';
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    aria-label={count > 0 ? `${item.label}${badgeText}` : undefined}
-                  >
-                    <NavIcon name={item.icon} />
-                    <span className="nav-label">{item.label}</span>
-                    {count > 0 && (
-                      <span className="nav-badge" aria-hidden="true">
-                        {count > 99 ? '99+' : count}
-                      </span>
-                    )}
-                  </NavLink>
-                );
-              })}
-            </div>
-          ))}
+          <div className="nav-group">
+          {NAV_ITEMS.map((item) => {
+            const active = item.section ? isUnder(location.pathname, item.section) : location.pathname === item.to;
+            const count = item.badge && counts ? counts[item.badge.count] : 0;
+            const badgeText = item.badge ? `, ${count} ${item.badge.noun[count === 1 ? 0 : 1]}` : '';
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={active ? 'active' : undefined}
+                aria-current={active ? 'page' : undefined}
+                aria-label={count > 0 ? `${item.label}${badgeText}` : undefined}
+              >
+                <NavIcon name={item.icon} />
+                <span className="nav-label">{item.label}</span>
+                {count > 0 && (
+                  <span className="nav-badge" aria-hidden="true">
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+          </div>
         </nav>
 
         <LegalLinks className="sidebar-legal" newTab />
