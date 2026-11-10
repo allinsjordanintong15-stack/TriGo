@@ -14,7 +14,6 @@ import { DriverVerificationPage } from './pages/DriverVerificationPage';
 import { EarningsPage } from './pages/EarningsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
 import { PassengersPage } from './pages/PassengersPage';
-import { ReportsLayout } from './pages/ReportsLayout';
 import { ReportsPage } from './pages/ReportsPage';
 import { LoginPage } from './pages/LoginPage';
 import { DeletionRequestPage } from './pages/DeletionRequestPage';
@@ -22,7 +21,7 @@ import { DeletionRequestsPage } from './pages/DeletionRequestsPage';
 import { LegalPage } from './pages/LegalPage';
 import { OutOfAreaTripDetailPage } from './pages/OutOfAreaTripDetailPage';
 import { OutOfAreaTripsPage } from './pages/OutOfAreaTripsPage';
-import { DriversLayout, TripsLayout } from './pages/SectionLayouts';
+import { ComplaintsLayout, DashboardLayout, DriversLayout, TripsLayout } from './pages/SectionLayouts';
 import { SettingsLayout } from './pages/SettingsLayout';
 
 export function App() {
@@ -41,7 +40,12 @@ export function App() {
               </RequireAdmin>
             }
           >
-            <Route path="/" element={<DashboardPage />} />
+            {/* Dashboard: Overview | Reports */}
+            <Route element={<DashboardLayout />}>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/dashboard/reports" element={<ReportsPage />} />
+            </Route>
+            <Route path="/dashboard" element={<Navigate to="/" replace />} />
 
             {/* Drivers: Applications | All drivers */}
             <Route path="/drivers" element={<DriversLayout />}>
@@ -64,10 +68,11 @@ export function App() {
 
             <Route path="/earnings" element={<EarningsPage />} />
 
-            <Route path="/reports" element={<ReportsLayout />}>
-              <Route index element={<ReportsPage />} />
-              <Route path="complaints" element={<ComplaintsPage />} />
-              <Route path="complaints/:complaintId" element={<ComplaintDetailPage />} />
+            {/* Complaints: Against drivers | Against passengers (by reporterRole) */}
+            <Route path="/complaints" element={<ComplaintsLayout />}>
+              <Route index element={<Redirect to="/complaints/against-drivers" />} />
+              <Route path=":tab" element={<ComplaintsPage />} />
+              <Route path=":tab/:complaintId" element={<ComplaintDetailPage />} />
             </Route>
 
             <Route path="/account-deletion" element={<DeletionRequestsPage />} />
@@ -77,6 +82,13 @@ export function App() {
             <Route path="/settings/:tab" element={<SettingsLayout />} />
 
             {/* Old URLs → new page/tab (query string, hash and state are kept). */}
+            <Route path="/reports" element={<Redirect to="/dashboard/reports" />} />
+            <Route path="/reports/complaints" element={<Redirect to="/complaints/against-drivers" />} />
+            {/* The detail page moves the URL to the complaint's own tab once loaded. */}
+            <Route
+              path="/reports/complaints/:complaintId"
+              element={<Redirect to={(p) => `/complaints/against-drivers/${enc(p.complaintId)}`} />}
+            />
             {/* /drivers/:uid was a driver application; static tabs above take precedence. */}
             <Route path="/drivers/:uid" element={<Redirect to={(p) => `/drivers/applications/${enc(p.uid)}`} />} />
             <Route path="/driver-accounts" element={<Redirect to="/drivers/all" />} />

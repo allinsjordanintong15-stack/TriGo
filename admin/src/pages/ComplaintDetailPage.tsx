@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -8,6 +8,7 @@ import {
   displayFare,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
+import { ComplaintsAgainst } from '../complaints/ComplaintsAgainst';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
@@ -16,10 +17,12 @@ import {
   COMPLAINT_STATUS_LABELS,
   COMPLAINT_STATUSES,
   ComplaintConflictError,
+  complaintTab,
   loadComplaintDetail,
   MAX_ADMIN_NOTES_LENGTH,
   reviewComplaint,
   ROLE_LABELS,
+  tabForRole,
   type ComplaintDetail,
   type ComplaintStatus,
 } from '../complaints/complaints';
@@ -27,8 +30,11 @@ import { useAdminCounts } from '../lib/adminCounts';
 import { formatDateTime, formatPeso } from '../lib/format';
 
 export function ComplaintDetailPage() {
-  const { complaintId = '' } = useParams();
+  const { complaintId = '', tab = '' } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { search } = useLocation();
+  const listTab = complaintTab(tab)?.tab ?? 'against-drivers';
   const { admin } = useAuth();
   const { refreshCounts } = useAdminCounts();
   const [detail, setDetail] = useState<ComplaintDetail | null | undefined>(undefined);
@@ -58,10 +64,19 @@ export function ComplaintDetailPage() {
     void reload();
   }, [reload]);
 
+  // Old links (/reports/complaints/:id) don't know the tab: once loaded, move the URL to the
+  // tab this complaint belongs to (same page, no reload).
+  const rightTab = detail ? tabForRole(detail.complaint.reporterRole) : null;
+  useEffect(() => {
+    if (rightTab && rightTab !== tab) {
+      navigate(`/complaints/${rightTab}/${encodeURIComponent(complaintId)}${search}`, { replace: true });
+    }
+  }, [rightTab, tab, complaintId, search, navigate]);
+
   // Back to the list with the filter it was opened from.
   const fromStatus = COMPLAINT_STATUSES.find((s) => s === searchParams.get('from'));
   const backLink = (
-    <Link to={`/reports/complaints${fromStatus ? `?status=${fromStatus}` : ''}`} className="back-link">
+    <Link to={`/complaints/${listTab}${fromStatus ? `?status=${fromStatus}` : ''}`} className="back-link">
       ← Back to complaints
     </Link>
   );
@@ -155,6 +170,29 @@ export function ComplaintDetailPage() {
             label="Reported by"
             value={`${detail.reporterName || '(no name)'} · ${complaint.reporterRole ? ROLE_LABELS[complaint.reporterRole] : 'Unknown role'}`}
           />
+          <div className="detail-item">
+            <dt>About</dt>
+            <dd>
+              {detail.reported ? (
+                <>
+                  <Link
+                    className="btn-link"
+                    to={
+                      detail.reported.role === 'driver'
+                        ? `/drivers/all/${encodeURIComponent(detail.reported.uid)}`
+                        : `/passengers/${encodeURIComponent(detail.reported.uid)}`
+                    }
+                  >
+                    {detail.reported.name || '(no name)'}
+                  </Link>
+                  {` · ${ROLE_LABELS[detail.reported.role]}`}
+                </>
+              ) : (
+                <span className="muted">Nobody (no driver on this booking)</span>
+              )}
+            </dd>
+          </div>
+          {detail.reported && <ComplaintsAgainst uid={detail.reported.uid} as={detail.reported.role} />}
           <Detail label="Category" value={complaint.category ? COMPLAINT_CATEGORY_LABELS[complaint.category] : ''} />
         </dl>
         <h3 className="complaint-message-title">Message</h3>

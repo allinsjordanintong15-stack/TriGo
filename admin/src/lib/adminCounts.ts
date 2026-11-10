@@ -13,8 +13,12 @@ export type AdminCounts = {
   pendingPayments: number;
   /** driverApplications with status 'pending' (Driver verification). */
   pendingApplications: number;
-  /** complaints with status 'open' (Reports & Complaints). */
+  /** complaints with status 'open' (Complaints; the sum of the two below). */
   openComplaints: number;
+  /** Open complaints reported by passengers (Complaints → Against drivers). */
+  openComplaintsAgainstDrivers: number;
+  /** Open complaints reported by drivers (Complaints → Against passengers). */
+  openComplaintsAgainstPassengers: number;
   /** deletionRequests with status 'pending' (Account deletion). */
   pendingDeletions: number;
 };
@@ -26,14 +30,32 @@ async function countWhere(collectionName: string, status: string): Promise<numbe
   return snapshot.data().count;
 }
 
+/** Open complaints from one kind of reporter (equality filters only: no composite index). */
+async function openComplaintsFrom(reporterRole: 'passenger' | 'driver'): Promise<number> {
+  const snapshot = await getCountFromServer(
+    query(collection(db, 'complaints'), where('reporterRole', '==', reporterRole), where('status', '==', 'open')),
+  );
+  return snapshot.data().count;
+}
+
 export async function loadAdminCounts(): Promise<AdminCounts> {
-  const [pendingPayments, pendingApplications, openComplaints, pendingDeletions] = await Promise.all([
-    countWhere('commissionPayments', 'pending'),
-    countWhere('driverApplications', 'pending'),
-    countWhere('complaints', 'open'),
-    countWhere('deletionRequests', 'pending'),
-  ]);
-  return { pendingPayments, pendingApplications, openComplaints, pendingDeletions };
+  const [pendingPayments, pendingApplications, againstDrivers, againstPassengers, pendingDeletions] =
+    await Promise.all([
+      countWhere('commissionPayments', 'pending'),
+      countWhere('driverApplications', 'pending'),
+      openComplaintsFrom('passenger'),
+      openComplaintsFrom('driver'),
+      countWhere('deletionRequests', 'pending'),
+    ]);
+  return {
+    pendingPayments,
+    pendingApplications,
+    // reporterRole is required by firestore.rules, so the two parts cover every complaint.
+    openComplaints: againstDrivers + againstPassengers,
+    openComplaintsAgainstDrivers: againstDrivers,
+    openComplaintsAgainstPassengers: againstPassengers,
+    pendingDeletions,
+  };
 }
 
 export type AdminCountsState = {

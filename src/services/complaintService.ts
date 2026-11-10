@@ -79,10 +79,15 @@ export async function getOwnComplaint(bookingId: string, uid: string): Promise<O
   };
 }
 
+/**
+ * reportedUserId: the other side of the booking (utils/complaintParty reportedUserIdFor);
+ * firestore.rules refuses anything else.
+ */
 export async function submitComplaint(
   bookingId: string,
   uid: string,
   role: ComplaintRole,
+  reportedUserId: string | null,
   category: ComplaintCategory,
   message: string,
 ): Promise<void> {
@@ -101,6 +106,7 @@ export async function submitComplaint(
       bookingId,
       reporterId: uid,
       reporterRole: role,
+      reportedUserId,
       category,
       message: trimmed,
       status: 'open',

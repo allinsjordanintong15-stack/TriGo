@@ -9,6 +9,7 @@ import {
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
+import { ComplaintsAgainst } from '../complaints/ComplaintsAgainst';
 import { BookingStatusBadge } from '../components/BookingStatusBadge';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
@@ -238,6 +239,7 @@ export function DriverDetailPage() {
           <Detail label="Model" value={driver.vehicleModel ?? 'Not set'} />
           <Detail label="Color" value={driver.vehicleColor ?? 'Not set'} />
           <Detail label="Rating" value={formatDriverRatingWithCount(detail.ratingSummary)} />
+          <ComplaintsAgainst uid={driver.uid} as="driver" />
           <Detail label="Now" value={DUTY_LABELS[duty]} />
           <Detail
             label="Account"

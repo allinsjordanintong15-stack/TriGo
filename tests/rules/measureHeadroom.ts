@@ -8,7 +8,8 @@
 // TRIGO_HEADROOM=vehicle: driver application submit/resubmit, approval and vehicle edit only;
 // TRIGO_HEADROOM=booking: standard booking create (older shape, per-km, barangay tariff) only;
 // TRIGO_HEADROOM=privacy: consent, re-consent, deletion request, anonymization and the driver
-// application submit/resubmit only.)
+// application submit/resubmit only;
+// TRIGO_HEADROOM=complaint: complaint create by a passenger and by a driver only.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
 // binary search finds the largest N at which the valid commit still succeeds. The same
@@ -120,6 +121,7 @@ type Target =
   | 'anonymize: driver'
   | 'anonymize: application'
   | 'anonymize: request complete'
+  | 'complaint create'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -240,6 +242,11 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'anonymize: request complete': [
     '        && request.resource.data.completedBy == request.auth.uid\n        && isAnonymizedInThisCommit(userPath(uid));',
     '        && request.resource.data.completedBy == request.auth.uid\n        && isAnonymizedInThisCommit(userPath(uid))\n        && pad();',
+  ],
+  // Before the category check, which every valid complaint create reaches.
+  'complaint create': [
+    "          && data.category in ['driver_behavior', 'passenger_behavior',",
+    "          && pad()\n          && data.category in ['driver_behavior', 'passenger_behavior',",
   ],
   'reference free': [
     '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
@@ -887,6 +894,35 @@ const privacyDeletionRequest: Scenario = {
   },
 };
 
+// Complaint create on a completed booking. reportedUserId is written only when the loaded
+// rules know it, so the same scenario measures the rules before and after that field.
+const COMPLAINT_HAS_REPORTED = BASE_RULES.includes("'reportedUserId'");
+
+function complaintCreate(role: 'passenger' | 'driver'): Scenario {
+  const reporter = role === 'passenger' ? PASSENGER : DRIVER;
+  const reported = role === 'passenger' ? DRIVER : PASSENGER;
+  return {
+    label: `complaint create by a ${role}${COMPLAINT_HAS_REPORTED ? ' (with reportedUserId)' : ''}`,
+    targets: ['complaint create'],
+    run: async () => {
+      await seed({
+        [`bookings/${BOOKING}`]: { passengerId: PASSENGER, driverId: DRIVER, status: 'completed' },
+      });
+      await setDoc(doc(db(reporter), 'complaints', `${BOOKING}_${reporter}`), {
+        bookingId: BOOKING,
+        reporterId: reporter,
+        reporterRole: role,
+        ...(COMPLAINT_HAS_REPORTED ? { reportedUserId: reported } : {}),
+        category: 'other',
+        message: 'Something went wrong on this trip.',
+        status: 'open',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    },
+  };
+}
+
 // The heaviest deletion: a driver with an approved application and a pending request.
 const privacyAnonymizeDriver: Scenario = {
   label: 'privacy: anonymize a driver account (users + contact + driver + application + request)',
@@ -1076,6 +1112,8 @@ const SCENARIOS: Scenario[] = [
   privacyReconsent,
   privacyDeletionRequest,
   privacyAnonymizeDriver,
+  complaintCreate('passenger'),
+  complaintCreate('driver'),
 ];
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
@@ -1088,6 +1126,8 @@ const ONLY_BOOKING = process.env.TRIGO_HEADROOM === 'booking';
 const BOOKING_LABELS = /^standard booking create/;
 const ONLY_PRIVACY = process.env.TRIGO_HEADROOM === 'privacy';
 const PRIVACY_LABELS = /^(privacy|driver application)/;
+const ONLY_COMPLAINT = process.env.TRIGO_HEADROOM === 'complaint';
+const COMPLAINT_LABELS = /^complaint/;
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -1140,7 +1180,8 @@ try {
       (!ONLY_ENFORCEMENT || ENFORCEMENT_LABELS.test(s.label)) &&
       (!ONLY_VEHICLE || VEHICLE_LABELS.test(s.label)) &&
       (!ONLY_BOOKING || BOOKING_LABELS.test(s.label)) &&
-      (!ONLY_PRIVACY || PRIVACY_LABELS.test(s.label)),
+      (!ONLY_PRIVACY || PRIVACY_LABELS.test(s.label)) &&
+      (!ONLY_COMPLAINT || COMPLAINT_LABELS.test(s.label)),
   );
   for (const scenario of selected) {
     console.log(scenario.label);

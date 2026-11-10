@@ -1477,7 +1477,7 @@ button.btn-link:disabled {
   margin: 0 0 var(--space-sm);
 }
 
-/* ─── Page tabs (Drivers, Settings, Reports) ─────────────── */
+/* ─── Page tabs (Dashboard, Drivers, Complaints, Settings) ─────────────── */
 
 .page-tabs {
   display: flex;
@@ -1517,7 +1517,7 @@ button.btn-link:disabled {
 }
 
 .complaints-table {
-  min-width: 720px;
+  min-width: 820px;
 }
 
 .complaint-status-in_review {

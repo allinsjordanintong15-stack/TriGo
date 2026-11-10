@@ -8,6 +8,7 @@ import {
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
+import { ComplaintsAgainst } from '../complaints/ComplaintsAgainst';
 import { BookingStatusBadge } from '../components/BookingStatusBadge';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
@@ -102,6 +103,7 @@ export function PassengerDetailPage() {
             label="Driver application"
             value={driverApplicationStatus ? APPLICATION_LABELS[driverApplicationStatus] : 'None'}
           />
+          <ComplaintsAgainst uid={passenger.uid} as="passenger" />
         </dl>
       </div>
 

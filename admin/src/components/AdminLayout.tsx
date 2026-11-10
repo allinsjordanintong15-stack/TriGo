@@ -21,7 +21,7 @@ type NavItem = {
 
 // Sidebar. Sections with tabs link to their first tab; their tabs live in the URL (see App.tsx).
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: 'dashboard' },
+  { to: '/', label: 'Dashboard', icon: 'dashboard', section: '/dashboard' },
   {
     to: '/drivers/applications',
     label: 'Drivers',
@@ -39,10 +39,10 @@ const NAV_ITEMS: NavItem[] = [
     badge: { count: 'pendingPayments', noun: ['pending payment', 'pending payments'] },
   },
   {
-    to: '/reports',
-    label: 'Reports & Complaints',
+    to: '/complaints/against-drivers',
+    label: 'Complaints',
     icon: 'reports',
-    section: '/reports',
+    section: '/complaints',
     badge: { count: 'openComplaints', noun: ['open complaint', 'open complaints'] },
   },
   {
@@ -112,7 +112,8 @@ function Shell() {
         <nav className="sidebar-nav" aria-label="Admin">
           <div className="nav-group">
           {NAV_ITEMS.map((item) => {
-            const active = item.section ? isUnder(location.pathname, item.section) : location.pathname === item.to;
+            const active =
+              location.pathname === item.to || (item.section ? isUnder(location.pathname, item.section) : false);
             const count = item.badge && counts ? counts[item.badge.count] : 0;
             const badgeText = item.badge ? `, ${count} ${item.badge.noun[count === 1 ? 0 : 1]}` : '';
             return (

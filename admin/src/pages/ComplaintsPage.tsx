@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 
 import {
   COMPLAINT_CATEGORY_LABELS,
   COMPLAINT_QUERY_LIMIT,
   COMPLAINT_STATUS_LABELS,
   COMPLAINT_STATUSES,
+  complaintTab,
   loadComplaintCounts,
   loadComplaints,
   ROLE_LABELS,
@@ -21,7 +22,16 @@ function parseStatus(value: string | null): ComplaintStatus | null {
   return COMPLAINT_STATUSES.find((status) => status === value) ?? null;
 }
 
+/** /complaints/:tab: one tab (who reported) of the Complaints section. */
 export function ComplaintsPage() {
+  const current = complaintTab(useParams().tab);
+  if (!current) return <Navigate to="/complaints" replace />;
+  // Keyed by tab so switching tabs starts with a fresh list.
+  return <ComplaintsTab key={current.tab} tab={current} />;
+}
+
+function ComplaintsTab({ tab }: { tab: NonNullable<ReturnType<typeof complaintTab>> }) {
+  const reporterRole = tab.reporterRole;
   // The filter lives in the URL (?status=open) so it survives refresh and the detail page's back link.
   const [searchParams, setSearchParams] = useSearchParams();
   const status = parseStatus(searchParams.get('status'));
@@ -34,14 +44,17 @@ export function ComplaintsPage() {
     setLoadError(null);
     setEntries(null);
     try {
-      const [loadedCounts, list] = await Promise.all([loadComplaintCounts(), loadComplaints(status)]);
+      const [loadedCounts, list] = await Promise.all([
+        loadComplaintCounts(reporterRole),
+        loadComplaints(reporterRole, status),
+      ]);
       setCounts(loadedCounts);
       setEntries(list.entries);
       setTruncated(list.truncated);
     } catch {
       setLoadError('Could not load complaints. Check your connection and reload the page.');
     }
-  }, [status]);
+  }, [reporterRole, status]);
 
   useEffect(() => {
     void reload();
@@ -58,8 +71,8 @@ export function ComplaintsPage() {
   return (
     <>
       <PageHeader
-        title="Complaints"
-        subtitle="Problems reported from bookings in the app. Reporters see the status, never your notes."
+        title={`Complaints ${tab.label.toLowerCase()}`}
+        subtitle={`Problems ${ROLE_LABELS[reporterRole].toLowerCase()}s reported from bookings in the app. Reporters see the status, never your notes.`}
         actions={
           <button type="button" className="btn-outline" onClick={() => void reload()} disabled={!entries && !loadError}>
             Refresh
@@ -116,6 +129,7 @@ export function ComplaintsPage() {
                       <thead>
                         <tr>
                           <th scope="col">Reported</th>
+                          <th scope="col">About</th>
                           <th scope="col">Booking</th>
                           <th scope="col">Reported by</th>
                           <th scope="col">Category</th>
@@ -126,9 +140,11 @@ export function ComplaintsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {entries.map(({ complaint, reporterName }) => (
+                        {entries.map(({ complaint, reporterName, reportedName }) => (
                           <tr key={complaint.complaintId}>
                             <td>{formatDateTime(complaint.createdAt)}</td>
+                            {/* "—" for older complaints (no reportedUserId; the detail page looks it up) or no driver. */}
+                            <td>{reportedName === null ? <span className="muted">—</span> : reportedName || '(no name)'}</td>
                             <td className="mono">{complaint.bookingId || '—'}</td>
                             <td>
                               <div>{reporterName || '(no name)'}</div>
@@ -145,7 +161,7 @@ export function ComplaintsPage() {
                             <td className="cell-action">
                               <Link
                                 className="btn-link"
-                                to={`/reports/complaints/${encodeURIComponent(complaint.complaintId)}${detailSearch}`}
+                                to={`/complaints/${tab.tab}/${encodeURIComponent(complaint.complaintId)}${detailSearch}`}
                               >
                                 View
                               </Link>

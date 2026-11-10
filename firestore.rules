@@ -2137,16 +2137,21 @@ service cloud.firestore {
     // ─── Complaints ────────────────────────────────────────────────────────
     // complaints/{bookingId}_{reporterUid}: "Report a problem" on a booking, by its passenger
     // or its assigned driver; the fixed ID allows one report per booking per person.
-    // { bookingId, reporterId, reporterRole, category, message, status, createdAt, updatedAt }
-    // on create; admins later set status (open / in_review / resolved), adminNotes and
-    // updatedBy. The reporter can read their own report (the ID ends in their uid, so a
-    // missing report can be checked too); only admins list. Nobody deletes.
+    // { bookingId, reporterId, reporterRole, reportedUserId, category, message, status,
+    // createdAt, updatedAt } on create. reportedUserId is the other side of the booking (the
+    // driver when a passenger reports, the passenger when a driver reports), or null when the
+    // booking has no driver (a passenger reporting a request nobody accepted); never the
+    // reporter. Complaints from before 2026-11-10 have no reportedUserId. Admins later set
+    // status (open / in_review / resolved), adminNotes and updatedBy. The reporter can read
+    // their own report (the ID ends in their uid, so a missing report can be checked too);
+    // only admins list. Nobody deletes.
     // Independent of the booking and out-of-area rules (it only reads bookings/{id}).
 
     match /complaints/{complaintId} {
       function isValidComplaintCreate() {
         let data = request.resource.data;
-        let keys = ['bookingId', 'reporterId', 'reporterRole', 'category', 'message', 'status', 'createdAt', 'updatedAt'];
+        let keys = ['bookingId', 'reporterId', 'reporterRole', 'reportedUserId', 'category', 'message', 'status', 'createdAt', 'updatedAt'];
+        let booking = get(bookingPath(data.bookingId)).data;
         return isSignedIn()
           && data.keys().hasAll(keys)
           && data.keys().hasOnly(keys)
@@ -2155,7 +2160,8 @@ service cloud.firestore {
           && data.bookingId.matches('[^_/]+')
           && complaintId == data.bookingId + '_' + request.auth.uid
           && exists(bookingPath(data.bookingId))
-          && isOwnBookingAs(get(bookingPath(data.bookingId)).data, data.reporterRole)
+          && isOwnBookingAs(booking, data.reporterRole)
+          && isReportedPartyOf(booking, data.reporterRole, data.reportedUserId)
           && data.category in ['driver_behavior', 'passenger_behavior', 'fare_or_payment', 'safety', 'lost_item', 'app_problem', 'other']
           && !(data.reporterRole == 'passenger' && data.category == 'passenger_behavior')
           && !(data.reporterRole == 'driver' && data.category == 'driver_behavior')
@@ -2170,6 +2176,13 @@ service cloud.firestore {
       function isOwnBookingAs(booking, role) {
         return (role == 'passenger' && booking.passengerId == request.auth.uid)
           || (role == 'driver' && booking.driverId == request.auth.uid);
+      }
+
+      // The other side of the booking; null only when that side is empty (no driver yet).
+      function isReportedPartyOf(booking, role, reported) {
+        let other = role == 'passenger' ? booking.get('driverId', null) : booking.get('passengerId', null);
+        return reported == other
+          && (reported == null || (reported is string && reported != request.auth.uid));
       }
 
       function isValidComplaintReview() {

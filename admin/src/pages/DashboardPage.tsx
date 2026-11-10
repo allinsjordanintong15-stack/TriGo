@@ -142,7 +142,11 @@ export function DashboardPage() {
           <AttentionCard
             label="Open complaints"
             count={counts?.openComplaints ?? null}
-            to="/reports/complaints?status=open"
+            to={`/complaints/${
+              counts && counts.openComplaintsAgainstDrivers === 0 && counts.openComplaintsAgainstPassengers > 0
+                ? 'against-passengers'
+                : 'against-drivers'
+            }?status=open`}
           />
           <AttentionCard
             label="Drivers behind on commission"

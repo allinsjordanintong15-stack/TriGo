@@ -2,7 +2,8 @@
 
 // Firestore rules tests for complaints/{bookingId}_{uid}: the booking's passenger or its
 // assigned driver creates one report per booking (category + message up to 1000
-// characters, status open, server timestamps); the reporter reads only their own; admins
+// characters, status open, server timestamps, reportedUserId = the other side of the
+// booking or null when there is no driver, never the reporter); the reporter reads only their own; admins
 // (custom claim `admin: true`) list and review (status, adminNotes, updatedAt, updatedBy).
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
@@ -48,6 +49,8 @@ const OTHER_PASSENGER = 'passenger2';
 const OTHER_DRIVER = 'driver2';
 const BOOKING = 'booking1';
 const UNASSIGNED = 'booking2';
+/** A booking whose passenger is also its driver (a reporter must never name themselves). */
+const SELF_BOOKING = 'booking3';
 
 let testEnv: RulesTestEnvironment;
 
@@ -70,6 +73,8 @@ function complaint(uid: string, role: 'passenger' | 'driver', overrides: Documen
     bookingId: BOOKING,
     reporterId: uid,
     reporterRole: role,
+    // The other side of BOOKING (src/utils/complaintParty.ts reportedUserIdFor).
+    reportedUserId: role === 'passenger' ? DRIVER : PASSENGER,
     category: role === 'passenger' ? 'driver_behavior' : 'passenger_behavior',
     message: 'The trip did not go as expected.',
     status: 'open',
@@ -106,6 +111,12 @@ async function seedBookings(): Promise<void> {
       passengerId: PASSENGER,
       driverId: null,
       status: 'cancelled',
+      createdAt: Timestamp.now(),
+    });
+    await setDoc(doc(firestore, 'bookings', SELF_BOOKING), {
+      passengerId: PASSENGER,
+      driverId: PASSENGER,
+      status: 'completed',
       createdAt: Timestamp.now(),
     });
   });
@@ -153,7 +164,9 @@ describe('complaints: create', () => {
   });
 
   it('lets the passenger report a booking that never had a driver', async () => {
-    await assertSucceeds(report(PASSENGER, 'passenger', { category: 'app_problem' }, UNASSIGNED));
+    await assertSucceeds(
+      report(PASSENGER, 'passenger', { category: 'app_problem', reportedUserId: null }, UNASSIGNED),
+    );
   });
 
   it('allows every category open to each role', async () => {
@@ -235,6 +248,68 @@ describe('complaints: create', () => {
     const data = complaint(PASSENGER, 'passenger');
     delete data.category;
     await assertFails(setDoc(doc(db(PASSENGER), complaintPath(BOOKING, PASSENGER)), data));
+  });
+});
+
+describe('complaints: reportedUserId', () => {
+  it('accepts the driver when the passenger reports, and the passenger when the driver reports', async () => {
+    await assertSucceeds(report(PASSENGER, 'passenger', { reportedUserId: DRIVER }));
+    await assertSucceeds(report(DRIVER, 'driver', { reportedUserId: PASSENGER }));
+  });
+
+  it('denies a complaint without reportedUserId (older app versions)', async () => {
+    for (const [uid, role] of [[PASSENGER, 'passenger'], [DRIVER, 'driver']] as const) {
+      const data = complaint(uid, role);
+      delete data.reportedUserId;
+      await assertFails(setDoc(doc(db(uid), complaintPath(BOOKING, uid)), data));
+    }
+  });
+
+  it('denies naming someone who is not the other side of the booking', async () => {
+    await assertFails(report(PASSENGER, 'passenger', { reportedUserId: OTHER_DRIVER }));
+    await assertFails(report(DRIVER, 'driver', { reportedUserId: OTHER_PASSENGER }));
+    await assertFails(report(PASSENGER, 'passenger', { reportedUserId: ADMIN }));
+  });
+
+  it('denies null when the booking has a driver', async () => {
+    await assertFails(report(PASSENGER, 'passenger', { reportedUserId: null }));
+    await assertFails(report(DRIVER, 'driver', { reportedUserId: null }));
+  });
+
+  it('denies naming someone on a booking that never had a driver', async () => {
+    await assertFails(report(PASSENGER, 'passenger', { category: 'app_problem', reportedUserId: DRIVER }, UNASSIGNED));
+  });
+
+  it('denies a reporter naming themselves', async () => {
+    await assertFails(report(PASSENGER, 'passenger', { reportedUserId: PASSENGER }));
+    await assertFails(report(DRIVER, 'driver', { reportedUserId: DRIVER }));
+    // Even when they really are the other side of the booking.
+    await assertFails(report(PASSENGER, 'passenger', { category: 'other', reportedUserId: PASSENGER }, SELF_BOOKING));
+    await assertFails(report(PASSENGER, 'driver', { category: 'other', reportedUserId: PASSENGER }, SELF_BOOKING));
+    await assertFails(report(PASSENGER, 'passenger', { category: 'other', reportedUserId: null }, SELF_BOOKING));
+  });
+
+  it('denies a reportedUserId that is not a string', async () => {
+    await assertFails(report(PASSENGER, 'passenger', { reportedUserId: 42 }));
+    await assertFails(report(PASSENGER, 'passenger', { reportedUserId: [DRIVER] }));
+  });
+
+  it('lets an admin list and count complaints against one person', async () => {
+    await seedComplaint(PASSENGER, 'passenger');
+    await seedComplaint(DRIVER, 'driver');
+    await assertSucceeds(
+      getDocs(
+        query(collection(adminDb(), 'complaints'), where('reportedUserId', '==', DRIVER), orderBy('createdAt', 'desc'), limit(200)),
+      ),
+    );
+    const count = await assertSucceeds(
+      getCountFromServer(query(collection(adminDb(), 'complaints'), where('reportedUserId', '==', DRIVER))),
+    );
+    if (count.data().count !== 1) throw new Error(`expected 1 complaint against the driver, got ${count.data().count}`);
+  });
+
+  it('denies non-admins counting complaints against a person, even against themselves', async () => {
+    await assertFails(getCountFromServer(query(collection(db(DRIVER), 'complaints'), where('reportedUserId', '==', DRIVER))));
   });
 });
 

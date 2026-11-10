@@ -25,6 +25,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatDate } from '@/utils/dateTime';
+import { reportedUserIdFor } from '@/utils/complaintParty';
 
 interface ReportProblemScreenProps {
   bookingId: string;
@@ -79,10 +80,12 @@ export function ReportProblemScreen({ bookingId, role, onBack }: ReportProblemSc
       setError('Please choose what the problem is about.');
       return;
     }
+    if (loaded.kind !== 'ready') return;
+    const reportedUserId = reportedUserIdFor(loaded.booking, role, uid);
     setSubmitting(true);
     setError('');
     try {
-      await submitComplaint(bookingId, uid, role, category, message);
+      await submitComplaint(bookingId, uid, role, reportedUserId, category, message);
       await load();
     } catch (submitError) {
       setError(

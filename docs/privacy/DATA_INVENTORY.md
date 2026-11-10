@@ -46,7 +46,7 @@ website.
 | `outOfAreaRequests/{id}` | Same kind of trip data as bookings, plus the driver who accepted and the fare agreement | Out-of-area trips | The passenger; verified drivers of the same vehicle type while it is searching; the driver handling it; admins | Passenger and driver |
 | `ratings/{id}` | `passengerId`, `driverId`, `bookingId`, rating 1–5, optional `comment` | Driver rating (display only; no rating screen writes these today) | The passenger who wrote it | Passenger |
 | `notifications/{id}` | `userId`, `bookingId`, title, body, read flag | In-app Notifications screen | The user it belongs to | Nothing creates them today (no client may) |
-| `complaints/{bookingId_uid}` | `reporterId`, `reporterRole`, `bookingId`, `category` (including safety), free-text `message`, `status`, `adminNotes`, `updatedBy` (admin uid), times | Handling complaints | The reporter (their own); admins | Reporter creates; admins review |
+| `complaints/{bookingId_uid}` | `reporterId`, `reporterRole`, `reportedUserId` (since 2026-11-10: the uid of the other side of the booking, the driver when a passenger reports and the passenger when a driver reports; `null` when the booking had no driver; never the reporter), `bookingId`, `category` (including safety), free-text `message`, `status`, `adminNotes`, `updatedBy` (admin uid), times | Handling complaints. `reportedUserId` lets admins see who a complaint is about and how many complaints a person has received (admin complaint, driver and passenger pages); it is a uid only, and the name shown is read from the person's profile | The reporter (their own, including `reportedUserId`); admins. The reported person cannot read complaints about them | Reporter creates (the rules check `reportedUserId` against the booking); admins review (cannot change `reportedUserId`) |
 
 ### 2.4 Commission and money records
 
@@ -131,7 +131,7 @@ Console. Proposed retention periods are for the DPO to decide:
 | Accounts and profiles | Until account deletion (anonymized) | ⟦TO FILL: confirm with the DPO⟧ |
 | Trips, commission and payment records | Kept without names after deletion, for financial records | ⟦TO FILL: retention period⟧ |
 | Driver applications | ⟦TO FILL: retention period after approval or rejection⟧ | |
-| Complaints | ⟦TO FILL: retention period⟧ | |
+| Complaints | ⟦TO FILL: retention period⟧ | Account deletion does not change complaints today: `reporterId` and `reportedUserId` stay as uids, but once `users/{uid}` is anonymized they no longer lead to a real name, so the admin pages show "Deleted user". The free-text `message` and `adminNotes` are not cleared and may contain names. |
 
 ## 7. Findings to note in the privacy notice or to fix
 

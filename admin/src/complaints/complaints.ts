@@ -16,6 +16,7 @@ import {
 
 import { readBooking, type AdminBooking } from '../bookings/bookings';
 import { db } from '../firebase/config';
+import { reportedRoleFor, reportedUserOf } from './reportedParty';
 
 // complaints/{bookingId}_{reporterUid}: "Report a problem" from the mobile app, by the
 // booking's passenger or its assigned driver. Admins list them and set status + notes
@@ -44,6 +45,26 @@ export const COMPLAINT_CATEGORY_LABELS = {
 
 export const ROLE_LABELS: Record<ComplaintRole, string> = { passenger: 'Passenger', driver: 'Driver' };
 
+/**
+ * Admin Complaints tabs (/complaints/:tab), by who reported: passengers report drivers,
+ * drivers report passengers.
+ */
+export type ComplaintTab = 'against-drivers' | 'against-passengers';
+
+export const COMPLAINT_TABS: { tab: ComplaintTab; reporterRole: ComplaintRole; label: string }[] = [
+  { tab: 'against-drivers', reporterRole: 'passenger', label: 'Against drivers' },
+  { tab: 'against-passengers', reporterRole: 'driver', label: 'Against passengers' },
+];
+
+export function complaintTab(value: string | undefined): (typeof COMPLAINT_TABS)[number] | undefined {
+  return COMPLAINT_TABS.find((t) => t.tab === value);
+}
+
+/** The tab a complaint is listed under; null when its reporterRole is unreadable. */
+export function tabForRole(role: ComplaintRole | null): ComplaintTab | null {
+  return COMPLAINT_TABS.find((t) => t.reporterRole === role)?.tab ?? null;
+}
+
 /** Same limit as firestore.rules (adminNotes.size() <= 1000). */
 export const MAX_ADMIN_NOTES_LENGTH = 1000;
 
@@ -55,6 +76,11 @@ export type AdminComplaint = {
   bookingId: string;
   reporterId: string;
   reporterRole: ComplaintRole | null;
+  /**
+   * Who the complaint is about (the other side of the booking); null when the booking had no
+   * driver; undefined on complaints from before 2026-11-10, which don't store it.
+   */
+  reportedUserId: string | null | undefined;
   category: keyof typeof COMPLAINT_CATEGORY_LABELS | null;
   message: string;
   status: ComplaintStatus;
@@ -78,6 +104,12 @@ export function readComplaint(complaintId: string, data: DocumentData): AdminCom
     bookingId: typeof data.bookingId === 'string' ? data.bookingId : '',
     reporterId: typeof data.reporterId === 'string' ? data.reporterId : '',
     reporterRole: data.reporterRole === 'passenger' || data.reporterRole === 'driver' ? data.reporterRole : null,
+    reportedUserId:
+      typeof data.reportedUserId === 'string' && data.reportedUserId
+        ? data.reportedUserId
+        : 'reportedUserId' in data
+          ? null
+          : undefined,
     category:
       typeof data.category === 'string' && data.category in COMPLAINT_CATEGORY_LABELS
         ? (data.category as keyof typeof COMPLAINT_CATEGORY_LABELS)
@@ -101,17 +133,46 @@ async function loadNames(uids: string[]): Promise<Map<string, string>> {
   return names;
 }
 
-/** Complaints per status, counted by Firestore (no documents downloaded). */
-export async function loadComplaintCounts(): Promise<Record<ComplaintStatus, number>> {
+/**
+ * Complaints per status from one kind of reporter, counted by Firestore (no documents
+ * downloaded). Equality filters only, so no composite index is needed.
+ */
+export async function loadComplaintCounts(reporterRole: ComplaintRole): Promise<Record<ComplaintStatus, number>> {
   const counts = await Promise.all(
     COMPLAINT_STATUSES.map(async (status) =>
-      (await getCountFromServer(query(collection(db, 'complaints'), where('status', '==', status)))).data().count,
+      (
+        await getCountFromServer(
+          query(
+            collection(db, 'complaints'),
+            where('reporterRole', '==', reporterRole),
+            where('status', '==', status),
+          ),
+        )
+      ).data().count,
     ),
   );
   return { open: counts[0], in_review: counts[1], resolved: counts[2] };
 }
 
-export type ComplaintListEntry = { complaint: AdminComplaint; reporterName: string };
+/**
+ * Complaints against one person in one role (as a driver: reported by passengers; as a
+ * passenger: reported by drivers), counted by Firestore. Only complaints that store
+ * reportedUserId (from 2026-11-10) are counted. Equality filters only: no composite index.
+ */
+export async function countComplaintsAgainst(uid: string, as: ComplaintRole): Promise<number> {
+  const reporterRole: ComplaintRole = as === 'driver' ? 'passenger' : 'driver';
+  const snapshot = await getCountFromServer(
+    query(collection(db, 'complaints'), where('reportedUserId', '==', uid), where('reporterRole', '==', reporterRole)),
+  );
+  return snapshot.data().count;
+}
+
+export type ComplaintListEntry = {
+  complaint: AdminComplaint;
+  reporterName: string;
+  /** Null when the complaint doesn't store reportedUserId (older) or names nobody (no driver). */
+  reportedName: string | null;
+};
 
 export type ComplaintList = {
   entries: ComplaintListEntry[];
@@ -120,22 +181,33 @@ export type ComplaintList = {
 };
 
 /**
- * Newest first, at most COMPLAINT_QUERY_LIMIT, optionally one status. The status filter uses
- * the composite index complaints (status ASC, createdAt DESC) in firestore.indexes.json.
+ * One kind of reporter's complaints, newest first, at most COMPLAINT_QUERY_LIMIT, optionally
+ * one status. Composite indexes in firestore.indexes.json: complaints (reporterRole ASC,
+ * createdAt DESC) and (reporterRole ASC, status ASC, createdAt DESC).
  */
-export async function loadComplaints(status: ComplaintStatus | null): Promise<ComplaintList> {
+export async function loadComplaints(
+  reporterRole: ComplaintRole,
+  status: ComplaintStatus | null,
+): Promise<ComplaintList> {
   const snapshot = await getDocs(
     query(
       collection(db, 'complaints'),
+      where('reporterRole', '==', reporterRole),
       ...(status ? [where('status', '==', status)] : []),
       orderBy('createdAt', 'desc'),
       limit(COMPLAINT_QUERY_LIMIT),
     ),
   );
   const complaints = snapshot.docs.map((d) => readComplaint(d.id, d.data()));
-  const names = await loadNames([...new Set(complaints.map((c) => c.reporterId).filter(Boolean))]);
+  // One profile read per distinct person (reporters and reported together), not per row.
+  const uids = complaints.flatMap((c) => [c.reporterId, c.reportedUserId ?? '']).filter(Boolean);
+  const names = await loadNames([...new Set(uids)]);
   return {
-    entries: complaints.map((complaint) => ({ complaint, reporterName: names.get(complaint.reporterId) ?? '' })),
+    entries: complaints.map((complaint) => ({
+      complaint,
+      reporterName: names.get(complaint.reporterId) ?? '',
+      reportedName: complaint.reportedUserId ? (names.get(complaint.reportedUserId) ?? '') : null,
+    })),
     truncated: snapshot.size >= COMPLAINT_QUERY_LIMIT,
   };
 }
@@ -146,6 +218,8 @@ export type ComplaintDetail = {
   reporterName: string;
   passengerName: string;
   driverName: string;
+  /** Who the complaint is about (stored, or from the booking for older complaints). */
+  reported: { uid: string; role: ComplaintRole; name: string } | null;
   /** Email of the admin who last changed it, when it is still a user profile. */
   updatedByEmail: string | null;
 };
@@ -158,7 +232,10 @@ export async function loadComplaintDetail(complaintId: string): Promise<Complain
   const bookingSnap = complaint.bookingId ? await getDoc(doc(db, 'bookings', complaint.bookingId)) : null;
   const booking = bookingSnap?.exists() ? readBooking(bookingSnap.id, bookingSnap.data()) : null;
 
-  const uids = [complaint.reporterId, booking?.passengerId, booking?.driverId, complaint.updatedBy].filter(
+  const reportedUid = reportedUserOf(complaint, booking);
+  const reportedRole = reportedRoleFor(complaint.reporterRole);
+
+  const uids = [complaint.reporterId, booking?.passengerId, booking?.driverId, reportedUid, complaint.updatedBy].filter(
     (uid): uid is string => typeof uid === 'string' && uid !== '',
   );
   // Admin accounts may have no users/{uid} profile; a failed or missing read shows the uid.
@@ -175,6 +252,7 @@ export async function loadComplaintDetail(complaintId: string): Promise<Complain
     reporterName: name(complaint.reporterId),
     passengerName: name(booking?.passengerId),
     driverName: name(booking?.driverId),
+    reported: reportedUid && reportedRole ? { uid: reportedUid, role: reportedRole, name: name(reportedUid) } : null,
     updatedByEmail: typeof updatedByEmail === 'string' ? updatedByEmail : null,
   };
 }
