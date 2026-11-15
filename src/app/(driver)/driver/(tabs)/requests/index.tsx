@@ -246,7 +246,7 @@ export default function DriverRequestsScreen() {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader title="Ride Requests" />
+      <ScreenHeader brand />
       {status === 'verified' ? (
         <CommissionBanner
           state={commission}

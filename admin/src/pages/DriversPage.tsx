@@ -17,6 +17,7 @@ import {
 import { formatDriverRating } from '../drivers/driverRatings';
 import { loadDrivers, type DriverListEntry } from '../drivers/drivers';
 import { plural } from '../lib/format';
+import { listLoadErrorMessage } from '../lib/loadError';
 
 type Filter = 'all' | VerificationStatus;
 
@@ -32,8 +33,8 @@ export function DriversPage() {
     setLoadError(null);
     try {
       setEntries(await loadDrivers());
-    } catch {
-      setLoadError('Could not load drivers. Check your connection and reload the page.');
+    } catch (error) {
+      setLoadError(listLoadErrorMessage(error, 'Could not load drivers. Check your connection and reload the page.'));
     }
   }, []);
 

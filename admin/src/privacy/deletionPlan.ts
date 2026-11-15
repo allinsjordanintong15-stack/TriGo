@@ -5,7 +5,9 @@
 // One commit anonymizes the account (firestore.rules, Users / Contacts / Drivers / Driver
 // applications / Account deletion requests): users/{uid} blanked, contacts/{uid} deleted,
 // drivers/{uid} and driverApplications/{uid} blanked when they exist, and the pending
-// request completed. Bookings hold only IDs, so they stay as they are. The sign-in account
+// request completed. The user's warnings keep their record with the reason cleared
+// (clearedReasonUpdate in admin/src/warnings/warningPlan.ts, same commit). Bookings hold
+// only IDs, so they stay as they are. The sign-in account
 // is deleted by hand in the Firebase Console afterwards (no Cloud Functions).
 
 /** The name every anonymized record shows. */

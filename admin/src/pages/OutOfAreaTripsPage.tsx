@@ -15,6 +15,7 @@ import {
   REQUEST_QUERY_LIMIT,
   type DisplayStatus,
 } from '../outOfArea/requests';
+import { listLoadErrorMessage } from '../lib/loadError';
 
 type Filter = 'all' | DisplayStatus;
 
@@ -40,8 +41,8 @@ export function OutOfAreaTripsPage() {
       setTrips(loaded.trips);
       setTruncated(loaded.truncated);
       setLoadedAt(new Date());
-    } catch {
-      setLoadError('Could not load out-of-area trips. Check your connection and reload the page.');
+    } catch (error) {
+      setLoadError(listLoadErrorMessage(error, 'Could not load out-of-area trips. Check your connection and reload the page.'));
     }
   }, [applied]);
 

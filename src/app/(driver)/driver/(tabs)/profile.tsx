@@ -9,6 +9,7 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
+import { useInbox } from '@/hooks/useInbox';
 import { DRIVER_ACCESS_REVOKED, useDriverAccess } from '@/hooks/useDriverAccess';
 import { useNotificationPermission } from '@/hooks/useNotificationPermission';
 import { logout } from '@/services/authService';
@@ -69,6 +70,7 @@ export default function DriverProfileScreen() {
   const { profile: driver, role } = useAuth();
   const [switchingMode, setSwitchingMode] = useState(false);
   const { status, driverRecord } = useDriverAccess();
+  const { unread: unreadMessages } = useInbox();
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState('');
@@ -158,6 +160,20 @@ export default function DriverProfileScreen() {
             {DRIVER_ACCESS_REVOKED.title}. {DRIVER_ACCESS_REVOKED.message}
           </Text>
         ) : null}
+
+        <ProfileMenuSection title="Messages">
+          <ProfileMenuItem
+            icon="mail-unread-outline"
+            label="Messages from TriGo"
+            description={
+              unreadMessages > 0
+                ? `${unreadMessages} unread message${unreadMessages === 1 ? '' : 's'}`
+                : 'Warnings and notices from the TriGo team'
+            }
+            onPress={() => router.push('/inbox')}
+            last
+          />
+        </ProfileMenuSection>
 
         <ProfileMenuSection title="Account">
           <ProfileMenuItem icon="mail-outline" label="Email" value={driver.email} />

@@ -39,7 +39,9 @@ import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
+  LayoutAnimation,
   Platform,
   Pressable,
   ScrollView,
@@ -126,6 +128,8 @@ export default function PassengerHomeScreen() {
   const destinationIsOutOfArea =
     destination !== null && !isLocationWithinServiceArea(destination);
   const tripIsOutOfArea = pickupIsOutOfArea || destinationIsOutOfArea;
+  // Welcome until a destination is chosen; then the sheet shrinks to the booking essentials.
+  const sheetMode: 'welcome' | 'booking' = destination ? 'booking' : 'welcome';
   const pendingAreaStatus = pendingQuote
     ? getTripServiceAreaStatus(pendingQuote.pickupLocation, pendingQuote.destination)
     : null;
@@ -320,12 +324,19 @@ export default function PassengerHomeScreen() {
     }
   }
 
+  // Eases the sheet between its welcome and booking layouts; call just before the
+  // destination is set or cleared.
+  function animateSheetModeChange() {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+  }
+
   // Sets only the field being chosen, so picking a destination never touches the pickup.
   function applySelectedLocation(target: 'pickup' | 'destination', location: Location) {
     if (target === 'pickup') {
       pickupChosenByPassenger.current = true;
       setPickupLocation(location);
     } else {
+      if (!destination) animateSheetModeChange();
       setDestination(location);
     }
 
@@ -369,6 +380,7 @@ export default function PassengerHomeScreen() {
 
   // Clears the destination (pickup stays) and opens the field for a new one.
   function handleClearDestination() {
+    animateSheetModeChange();
     setDestination(null);
     setPinHint((hint) => (hint?.target === 'destination' ? null : hint));
     openLocationField('destination');
@@ -458,6 +470,15 @@ export default function PassengerHomeScreen() {
     } finally {
       setCreatingRequest(false);
     }
+  }
+
+  // The full service-area explanation; the sheet only shows a one-line hint.
+  function showServiceAreaInfo() {
+    Alert.alert(
+      'Service area',
+      `TriGo rides run within ${getServiceAreaLabel()}. Trips to or from other places can be ` +
+        'sent as out-of-area requests for a driver to review.',
+    );
   }
 
   function handleChangeLocation() {
@@ -593,6 +614,20 @@ export default function PassengerHomeScreen() {
           ) : null}
         </View>
 
+        {/* Service-area info, bottom-left over the map, just above the booking sheet. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Service area information"
+          style={({ pressed }) => [
+            styles.infoButton,
+            { bottom: (selectionMode ? 0 : sheetHeight) + spacing.md },
+            pressed ? styles.currentLocationButtonPressed : null,
+          ]}
+          onPress={showServiceAreaInfo}
+        >
+          <Ionicons name="information-circle-outline" size={24} color={colors.primary} />
+        </Pressable>
+
         {/* Floats over the map, just above the booking sheet. */}
         <Pressable
           accessibilityRole="button"
@@ -645,15 +680,23 @@ export default function PassengerHomeScreen() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                <HomeHeader />
+                {/* Welcome (no destination yet): greeting with tagline, heading and the
+                    full service-area text. Booking: one short greeting line only, so the
+                    vehicle options, fare and Book button fit without scrolling. The (i)
+                    button on the map always has the full explanation. */}
+                <HomeHeader compact={sheetMode === 'booking'} />
 
-                <Text style={styles.heading}>Where are you going?</Text>
-                {/* The out-of-area hint below already explains the service area. */}
-                {!tripIsOutOfArea ? (
-                  <Text style={styles.serviceAreaNote}>
-                    Service area: {getServiceAreaLabel()}. Trips to or from other places can be sent
-                    as out-of-area requests.
-                  </Text>
+                {sheetMode === 'welcome' ? (
+                  <>
+                    <Text style={styles.heading}>Where are you going?</Text>
+                    {/* The out-of-area hint below already explains the service area. */}
+                    {!tripIsOutOfArea ? (
+                      <Text style={styles.serviceAreaNote}>
+                        Service area: {getServiceAreaLabel()}. Trips to or from other places can
+                        be sent as out-of-area requests.
+                      </Text>
+                    ) : null}
+                  </>
                 ) : null}
 
                 <ErrorBanner message={formError} />
@@ -674,7 +717,7 @@ export default function PassengerHomeScreen() {
                   </View>
                 ) : null}
 
-                <VehicleSelector selected={vehicleType} onSelect={setVehicleType} />
+                <VehicleSelector compact selected={vehicleType} onSelect={setVehicleType} />
               </ScrollView>
             ) : null}
 
@@ -776,6 +819,19 @@ const styles = StyleSheet.create({
     zIndex: 4,
     ...shadow.floating,
   },
+  infoButton: {
+    position: 'absolute',
+    left: spacing.md,
+    // `bottom` is set inline, level with the current-location button.
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.white,
+    zIndex: 4,
+    ...shadow.floating,
+  },
   currentLocationButtonPressed: {
     backgroundColor: colors.primaryLight,
   },
@@ -857,7 +913,7 @@ const styles = StyleSheet.create({
   serviceAreaNote: {
     ...typography.caption,
     color: colors.textMuted,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
     lineHeight: 18,
   },
   outOfAreaHint: {

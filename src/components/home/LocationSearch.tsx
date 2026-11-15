@@ -26,7 +26,7 @@ interface LocationSearchProps {
   label: string;
   placeholder: string;
   onSelect: (result: LocationSearchResult) => void;
-  /** Keeps the suggestion list within the visible map area (above the keyboard). */
+  /** Optional cap on the suggestion list height; it grows with its rows when unset. */
   resultsMaxHeight?: number;
   /** False when the field is opened only for a map tap (Move pin), so no keyboard opens. */
   autoFocus?: boolean;
@@ -36,6 +36,8 @@ interface LocationSearchProps {
  * Editable pickup/destination field for the floating map card. Suggestions appear below
  * the field while the passenger types: matching barangays of Trinidad first (offline, from
  * 2 characters), then geocoder places; out-of-area places are listed, never filtered out.
+ * Pressing the keyboard's search key picks the result when exactly one is shown; typing
+ * alone never picks one.
  */
 export function LocationSearch({
   target,
@@ -52,6 +54,11 @@ export function LocationSearch({
   const [message, setMessage] = useState('');
   // Only the newest search may update the list; slower, older ones are ignored.
   const latestSearchId = useRef(0);
+  // Text the passenger submitted with the search key while its search was still running:
+  // when that search ends with exactly one result, it is picked.
+  const autoSelectText = useRef<string | null>(null);
+  // Text whose place search last finished, so a stale list is never auto-picked.
+  const completedText = useRef<string | null>(null);
 
   const barangayResults = useMemo(() => searchBarangayLocations(searchText), [searchText]);
   const results = [...barangayResults, ...placeResults];
@@ -67,8 +74,15 @@ export function LocationSearch({
       if (searchId !== latestSearchId.current) return;
       setPlaceResults(found);
       setNoPlaceMatches(found.length === 0);
+      completedText.current = text;
+      if (autoSelectText.current === text) {
+        autoSelectText.current = null;
+        const shown = [...barangayResults, ...found];
+        if (shown.length === 1) onSelect(shown[0]);
+      }
     } catch (error) {
       if (searchId !== latestSearchId.current) return;
+      if (autoSelectText.current === text) autoSelectText.current = null;
       setPlaceResults([]);
       setMessage(
         error instanceof LocationServiceError
@@ -82,6 +96,8 @@ export function LocationSearch({
 
   useEffect(() => {
     const trimmed = searchText.trim();
+    // New text: an earlier search-key press no longer applies.
+    if (autoSelectText.current !== trimmed) autoSelectText.current = null;
 
     if (trimmed.length < MIN_PLACE_SEARCH_LENGTH) {
       // Drop any in-flight search and clear stale suggestions.
@@ -90,6 +106,7 @@ export function LocationSearch({
       setNoPlaceMatches(false);
       setMessage('');
       setSearching(false);
+      completedText.current = null;
       return;
     }
 
@@ -99,7 +116,19 @@ export function LocationSearch({
 
   function handleSubmit() {
     const trimmed = searchText.trim();
-    if (trimmed.length >= MIN_PLACE_SEARCH_LENGTH) runSearch(trimmed);
+    // The list on screen is final for this text: pick it when it has exactly one row.
+    const listIsCurrent =
+      trimmed.length < MIN_PLACE_SEARCH_LENGTH || completedText.current === trimmed;
+    if (!searching && listIsCurrent && results.length === 1) {
+      onSelect(results[0]);
+      return;
+    }
+    if (trimmed.length >= MIN_PLACE_SEARCH_LENGTH) {
+      // Same search as typing (the ORS session cache answers repeats); it picks the
+      // result if it ends with exactly one.
+      autoSelectText.current = trimmed;
+      runSearch(trimmed);
+    }
   }
 
   return (

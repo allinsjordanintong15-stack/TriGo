@@ -6,6 +6,7 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
 import { formatDateTime } from '../lib/format';
+import { listLoadErrorMessage } from '../lib/loadError';
 
 export function DriverVerificationPage() {
   const location = useLocation();
@@ -19,8 +20,8 @@ export function DriverVerificationPage() {
     setLoadError(null);
     try {
       setApplications(await loadPendingApplications());
-    } catch {
-      setLoadError('Could not load driver applications. Check your connection and reload the page.');
+    } catch (error) {
+      setLoadError(listLoadErrorMessage(error, 'Could not load driver applications. Check your connection and reload the page.'));
     }
   }, []);
 

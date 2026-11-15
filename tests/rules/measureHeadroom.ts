@@ -9,7 +9,8 @@
 // TRIGO_HEADROOM=booking: standard booking create (older shape, per-km, barangay tariff) only;
 // TRIGO_HEADROOM=privacy: consent, re-consent, deletion request, anonymization and the driver
 // application submit/resubmit only;
-// TRIGO_HEADROOM=complaint: complaint create by a passenger and by a driver only.)
+// TRIGO_HEADROOM=complaint: complaint create by a passenger and by a driver only;
+// TRIGO_HEADROOM=warning: warning create, acknowledge, withdraw and reason clear only.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
 // binary search finds the largest N at which the valid commit still succeeds. The same
@@ -122,6 +123,10 @@ type Target =
   | 'anonymize: application'
   | 'anonymize: request complete'
   | 'complaint create'
+  | 'warning create'
+  | 'warning acknowledge'
+  | 'warning withdraw'
+  | 'warning reason clear'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -247,6 +252,23 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'complaint create': [
     "          && data.category in ['driver_behavior', 'passenger_behavior',",
     "          && pad()\n          && data.category in ['driver_behavior', 'passenger_behavior',",
+  ],
+  // Warnings: right after the first term of each branch the valid write passes through.
+  'warning create': [
+    '          && data.keys().hasAll(keys)\n          && data.keys().hasOnly(keys)\n          && data.userId is string\n',
+    '          && data.keys().hasAll(keys)\n          && pad()\n          && data.keys().hasOnly(keys)\n          && data.userId is string\n',
+  ],
+  'warning acknowledge': [
+    "          && onlyChanged(['acknowledgedAt'])\n",
+    "          && onlyChanged(['acknowledgedAt'])\n          && pad()\n",
+  ],
+  'warning withdraw': [
+    "          && onlyChanged(['status', 'withdrawnAt', 'withdrawnBy'])\n",
+    "          && onlyChanged(['status', 'withdrawnAt', 'withdrawnBy'])\n          && pad()\n",
+  ],
+  'warning reason clear': [
+    '          && isAnonymizedInThisCommit(userPath(resource.data.userId));',
+    '          && isAnonymizedInThisCommit(userPath(resource.data.userId))\n          && pad();',
   ],
   'reference free': [
     '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
@@ -1019,6 +1041,103 @@ const privacyAnonymizeDriver: Scenario = {
   },
 };
 
+// Warnings: a passenger's complaint about the driver, then the warning on the driver.
+const WARNING_ID = `${BOOKING}_${PASSENGER}`;
+
+async function seedWarningDocs(warning: DocumentData | null): Promise<void> {
+  await seed({
+    [`users/${DRIVER}`]: {
+      uid: DRIVER,
+      role: 'driver',
+      email: `${DRIVER}@example.com`,
+      fullName: 'Pedro Reyes',
+      mobileNumber: '+639191234567',
+      profileImage: null,
+      legalConsent: { version: LEGAL_VERSION, acceptedAt: Timestamp.now() },
+    },
+    [`complaints/${WARNING_ID}`]: {
+      bookingId: BOOKING,
+      reporterId: PASSENGER,
+      reporterRole: 'passenger',
+      reportedUserId: DRIVER,
+      category: 'other',
+      message: 'Something went wrong on this trip.',
+      status: 'open',
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    },
+    ...(warning ? { [`warnings/${WARNING_ID}`]: warning } : {}),
+  });
+}
+
+function activeWarning(): DocumentData {
+  return {
+    userId: DRIVER,
+    role: 'driver',
+    complaintId: WARNING_ID,
+    bookingId: BOOKING,
+    reason: 'Please be on time.',
+    adminId: ADMIN,
+    createdAt: Timestamp.now(),
+    status: 'active',
+    acknowledgedAt: null,
+  };
+}
+
+const warningCreate: Scenario = {
+  label: 'warning create from a complaint (admin)',
+  targets: ['warning create'],
+  run: async () => {
+    await seedWarningDocs(null);
+    await setDoc(doc(db(ADMIN, { admin: true }), 'warnings', WARNING_ID), {
+      ...activeWarning(),
+      createdAt: serverTimestamp(),
+    });
+  },
+};
+
+const warningAcknowledge: Scenario = {
+  label: 'warning acknowledge (warned user)',
+  targets: ['warning acknowledge'],
+  run: async () => {
+    await seedWarningDocs(activeWarning());
+    await updateDoc(doc(db(DRIVER), 'warnings', WARNING_ID), { acknowledgedAt: serverTimestamp() });
+  },
+};
+
+const warningWithdraw: Scenario = {
+  label: 'warning withdraw (admin)',
+  targets: ['warning withdraw'],
+  run: async () => {
+    await seedWarningDocs(activeWarning());
+    await updateDoc(doc(db(ADMIN, { admin: true }), 'warnings', WARNING_ID), {
+      status: 'withdrawn',
+      withdrawnAt: serverTimestamp(),
+      withdrawnBy: ADMIN,
+    });
+  },
+};
+
+const warningReasonClear: Scenario = {
+  label: 'warning reason clear (in the anonymizing commit)',
+  targets: ['warning reason clear'],
+  run: async () => {
+    await seedWarningDocs(activeWarning());
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'users', DRIVER), {
+      fullName: 'Deleted user',
+      email: '',
+      mobileNumber: '',
+      profileImage: null,
+      anonymizedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(firestore, 'warnings', WARNING_ID), { reason: '', reasonClearedAt: serverTimestamp() });
+    await batch.commit();
+  },
+};
+
 const SCENARIOS: Scenario[] = [
   completion('completion: no commission settings', () => tripDocs({ settings: null }), () => appWrites({ settings: null })),
   completion('completion: standard, first trip (account create)', () => tripDocs(), () => appWrites()),
@@ -1114,6 +1233,10 @@ const SCENARIOS: Scenario[] = [
   privacyAnonymizeDriver,
   complaintCreate('passenger'),
   complaintCreate('driver'),
+  warningCreate,
+  warningAcknowledge,
+  warningWithdraw,
+  warningReasonClear,
 ];
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
@@ -1128,6 +1251,8 @@ const ONLY_PRIVACY = process.env.TRIGO_HEADROOM === 'privacy';
 const PRIVACY_LABELS = /^(privacy|driver application)/;
 const ONLY_COMPLAINT = process.env.TRIGO_HEADROOM === 'complaint';
 const COMPLAINT_LABELS = /^complaint/;
+const ONLY_WARNING = process.env.TRIGO_HEADROOM === 'warning';
+const WARNING_LABELS = /^warning/;
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -1181,7 +1306,8 @@ try {
       (!ONLY_VEHICLE || VEHICLE_LABELS.test(s.label)) &&
       (!ONLY_BOOKING || BOOKING_LABELS.test(s.label)) &&
       (!ONLY_PRIVACY || PRIVACY_LABELS.test(s.label)) &&
-      (!ONLY_COMPLAINT || COMPLAINT_LABELS.test(s.label)),
+      (!ONLY_COMPLAINT || COMPLAINT_LABELS.test(s.label)) &&
+      (!ONLY_WARNING || WARNING_LABELS.test(s.label)),
   );
   for (const scenario of selected) {
     console.log(scenario.label);

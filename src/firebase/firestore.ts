@@ -9,7 +9,6 @@ export const COLLECTIONS = {
   bookings: 'bookings',
   ratings: 'ratings',
   driverRatings: 'driverRatings',
-  notifications: 'notifications',
   fareSettings: 'fareSettings',
   barangayTariffs: 'barangayTariffs',
   outOfAreaRequests: 'outOfAreaRequests',
@@ -26,4 +25,5 @@ export const COLLECTIONS = {
   paymentReferences: 'paymentReferences',
   quotaSettings: 'quotaSettings',
   deletionRequests: 'deletionRequests',
+  warnings: 'warnings',
 } as const;

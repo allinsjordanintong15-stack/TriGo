@@ -6,6 +6,7 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
 import { formatDate, plural } from '../lib/format';
 import { loadPassengers, matchesSearch, type Passenger } from '../passengers/passengers';
+import { listLoadErrorMessage } from '../lib/loadError';
 
 export function PassengersPage() {
   const [passengers, setPassengers] = useState<Passenger[] | null>(null);
@@ -16,8 +17,8 @@ export function PassengersPage() {
     setLoadError(null);
     try {
       setPassengers(await loadPassengers());
-    } catch {
-      setLoadError('Could not load passengers. Check your connection and reload the page.');
+    } catch (error) {
+      setLoadError(listLoadErrorMessage(error, 'Could not load passengers. Check your connection and reload the page.'));
     }
   }, []);
 

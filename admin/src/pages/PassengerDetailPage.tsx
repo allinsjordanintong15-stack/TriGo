@@ -8,13 +8,13 @@ import {
   PAYMENT_METHOD_LABELS,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
-import { ComplaintsAgainst } from '../complaints/ComplaintsAgainst';
 import { BookingStatusBadge } from '../components/BookingStatusBadge';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
 import { formatDate, formatDateTime, formatPeso } from '../lib/format';
 import { loadPassengerDetail, type PassengerDetail } from '../passengers/passengers';
+import { WarningsCard } from '../warnings/WarningsCard';
 
 const APPLICATION_LABELS = { pending: 'Pending', approved: 'Approved (also a driver)', rejected: 'Rejected' } as const;
 
@@ -103,9 +103,10 @@ export function PassengerDetailPage() {
             label="Driver application"
             value={driverApplicationStatus ? APPLICATION_LABELS[driverApplicationStatus] : 'None'}
           />
-          <ComplaintsAgainst uid={passenger.uid} as="passenger" />
         </dl>
       </div>
+
+      <WarningsCard uid={passenger.uid} role="passenger" />
 
       <div className="stat-grid">
         <Stat label="Bookings" value={String(bookings.length)} />

@@ -14,6 +14,8 @@ import {
 
 import { readAccount } from '../earnings/earnings';
 import { db } from '../firebase/config';
+import { clearedReasonUpdate } from '../warnings/warningPlan';
+import { warningIdsWithReason } from '../warnings/warnings';
 import {
   ACTIVE_TRIP_STATUSES,
   anonymizedApplicationUpdate,
@@ -156,6 +158,9 @@ export async function loadDeletionDetail(uid: string): Promise<DeletionDetail | 
  * the transaction, so a trip or request taken meanwhile stops it with a clear message.
  */
 export async function anonymizeAndComplete(uid: string, adminUid: string): Promise<void> {
+  // Warnings stay on record without their reason. Admins only create or withdraw warnings,
+  // so the list read here cannot gain a reason before the commit.
+  const warningIds = await warningIdsWithReason(uid);
   const requestRef = doc(db, 'deletionRequests', uid);
   const userRef = doc(db, 'users', uid);
   const driverRef = doc(db, 'drivers', uid);
@@ -192,6 +197,9 @@ export async function anonymizeAndComplete(uid: string, adminUid: string): Promi
     }
     if (applicationSnap.exists() && applicationSnap.data().anonymizedAt == null) {
       transaction.update(applicationRef, anonymizedApplicationUpdate(now));
+    }
+    for (const warningId of warningIds) {
+      transaction.update(doc(db, 'warnings', warningId), clearedReasonUpdate(now));
     }
     transaction.update(requestRef, completedRequestUpdate(now, adminUid));
   });

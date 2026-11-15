@@ -15,6 +15,7 @@ import { formatExpiresIn } from '@/components/driver/OutOfAreaRequestCard';
 import { Avatar } from '@/components/ui/Avatar';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { WarningBanner } from '@/components/inbox/WarningBanner';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { colors, spacing, typography } from '@/constants/theme';
 import { formatVehicleDescription } from '@/constants/vehicles';
@@ -441,7 +442,7 @@ export default function DriverHomeScreen() {
   if (status === 'verified' && !loaded) {
     return (
       <View style={styles.container}>
-        <ScreenHeader title="Home" />
+        <ScreenHeader brand />
         <LoadingScreen />
       </View>
     );
@@ -450,8 +451,7 @@ export default function DriverHomeScreen() {
   return (
     <View style={styles.container}>
       <ScreenHeader
-        title="Home"
-        wideRight
+        brand
         right={
           driverRecord ? (
             <CommissionChip
@@ -527,6 +527,8 @@ export default function DriverHomeScreen() {
 
         {/* Directly under the duty section, so an active trip is never pushed down. */}
         {statusCard}
+
+        <WarningBanner />
 
         {driverRecord ? (
           <CommissionBanner

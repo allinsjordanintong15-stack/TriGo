@@ -12,6 +12,7 @@ import {
   type DeletionListEntry,
   type DeletionStatus,
 } from '../privacy/deletionRequests';
+import { listLoadErrorMessage } from '../lib/loadError';
 
 const ROLE_LABELS: Record<string, string> = { passenger: 'Passenger', driver: 'Driver' };
 
@@ -40,8 +41,8 @@ export function DeletionRequestsPage() {
     setLoadError(null);
     try {
       setEntries(await loadDeletionRequests(status));
-    } catch {
-      setLoadError('Could not load deletion requests. Check your connection and reload the page.');
+    } catch (error) {
+      setLoadError(listLoadErrorMessage(error, 'Could not load deletion requests. Check your connection and reload the page.'));
     }
   }, [status]);
 

@@ -2,10 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography } from '@/constants/theme';
 import { router } from 'expo-router';
 import { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import logo from '../../../assets/images/logo.png';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-interface ScreenHeaderProps {
+const BRAND_LOGO_SIZE = 30;
+
+interface TitleHeaderProps {
+  brand?: false;
   title: string;
   onBack?: () => void;
   right?: ReactNode;
@@ -16,7 +20,44 @@ interface ScreenHeaderProps {
   wideRight?: boolean;
 }
 
-export function ScreenHeader({ title, onBack, right, wideRight = false }: ScreenHeaderProps) {
+/**
+ * Brand mode for main tab screens: logo + "TriGo" on the left, the right slot on the
+ * right, no back button and no centred title.
+ */
+interface BrandHeaderProps {
+  brand: true;
+  right?: ReactNode;
+}
+
+type ScreenHeaderProps = TitleHeaderProps | BrandHeaderProps;
+
+export function ScreenHeader(props: ScreenHeaderProps) {
+  if (props.brand) {
+    return <BrandHeader right={props.right} />;
+  }
+  return <TitleHeader {...props} />;
+}
+
+function BrandHeader({ right }: { right?: ReactNode }) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
+      <View style={[styles.row, styles.brandRow]}>
+        <View style={styles.brand} accessible accessibilityRole="header" accessibilityLabel="TriGo">
+          {/* logo.png is square, so equal sides keep its aspect ratio. */}
+          <Image source={logo} style={styles.brandLogo} resizeMode="contain" />
+          <Text style={styles.brandName} numberOfLines={1}>
+            TriGo
+          </Text>
+        </View>
+        <View style={styles.brandRight}>{right}</View>
+      </View>
+    </View>
+  );
+}
+
+function TitleHeader({ title, onBack, right, wideRight = false }: TitleHeaderProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -103,6 +144,33 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.sm,
   },
   rightWide: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  // Brand mode: same 48 dp row height as the back-button header.
+  brandRow: {
+    minHeight: 48,
+  },
+  brand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 0,
+  },
+  brandLogo: {
+    width: BRAND_LOGO_SIZE,
+    height: BRAND_LOGO_SIZE,
+  },
+  brandName: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.primaryDark,
+  },
+  // Takes the rest of the row so a wide chip shrinks instead of overlapping the brand.
+  brandRight: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: spacing.md,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },

@@ -64,7 +64,7 @@ export default function ActivityScreen() {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader title="Activity" />
+      <ScreenHeader brand />
       {error ? (
         <View style={styles.errorWrap}>
           <ErrorBanner message={error} />

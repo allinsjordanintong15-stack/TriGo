@@ -192,9 +192,10 @@ export function DeletionRequestPage() {
               One step removes the name, email, mobile number and photo from the profile, deletes
               the contact card
               {detail.hasDriverRecord ? ', blanks the driver record (name, plate, vehicle; unverified and offline for good)' : ''}
-              {detail.hasApplication ? ', blanks the driver application (names, contact, vehicle, documents, remarks)' : ''}{' '}
-              and completes the request. Trips, ratings, complaints and commission records stay, without
-              the name. This cannot be undone.
+              {detail.hasApplication ? ', blanks the driver application (names, contact, vehicle, documents, remarks)' : ''},
+              clears the reason on any warnings they received{' '}
+              and completes the request. Trips, ratings, complaints, warnings and commission records stay,
+              without the name. This cannot be undone.
             </p>
             {request.status === 'completed' ? (
               <p className="alert-success">Completed {formatDateTime(request.completedAt)}.</p>

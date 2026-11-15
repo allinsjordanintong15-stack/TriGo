@@ -56,7 +56,10 @@ things stand.
   is shown there. Drivers' ratings show as the average (one decimal) or "New".
 - **Driver application:** personal and vehicle details, plus OR/CR and LTO license photos
   (blocked by Storage, see Known limits).
-- **Notifications screen:** lists the user's notification documents and marks them as read.
+- **Notifications tab = inbox ("Messages from TriGo"):** the passenger's warnings, newest
+  first, unread highlighted; a warning opens with its reason, date, related trip and an
+  "I understand" button. The Home bell shows the number of unread warnings. Built to take
+  announcements later. (Built 2026-11-15, not deployed.)
 
 ### Driver (mobile app)
 - Tabs: Home, Requests, Trips, Earnings, Profile.
@@ -87,6 +90,8 @@ things stand.
   - A form to report a GCash payment with its reference number, plus a list of submitted
     payments.
 - **Commission warnings:** an overdue or suspended banner on Home and Requests.
+- **Warnings from TriGo:** a Home banner while a warning is unread (opens it); Profile →
+  Messages from TriGo opens the same inbox as passengers. (Built 2026-11-15, not deployed.)
 - **Suspension:** a suspended driver cannot accept standard bookings or out-of-area
   requests. They can still finish current trips, log in and pay.
 - **Daily acceptance quota:** each driver may accept at most the admin's daily limit of
@@ -111,6 +116,10 @@ things stand.
     drivers behind on commission and drivers at the daily limit. Each card links to where
     the item is handled, also when all is clear ("Review →" / "View →").
 - **Complaints:** list and detail, status (open / in review / resolved) and admin notes.
+- **Warnings:** "Warn <name>" on a complaint (reason + confirmation; one warning per
+  complaint, shown once it exists). Driver and passenger pages show "N warnings · N
+  complaints" and the warning history with Withdraw. Counted only; suspension stays the
+  admin's decision. Account deletion clears warning reasons. (Built 2026-11-15, not deployed.)
 - **Driver verification:** review applications, then approve or reject them with remarks.
 - **Driver accounts:** revoke or restore verification. Revoking needs a reason. The vehicle
   can be edited.
@@ -160,13 +169,13 @@ things stand.
 
 - **Firestore rules tests:** `npm run test:rules` runs the Firestore emulator under the
   demo project `demo-trigo-rules`.
-  - **889 tests in 24 files, all passing** (2026-11-08).
+  - **926 tests in 25 files, all passing** (2026-11-15).
   - Every rule branch has tests for both allowed and denied writes. This covers bookings,
     out-of-area requests, driver verification, fares, barangay tariffs, complaints, support
     contacts, admin reads, commission accrual, payments, enforcement, cash-outs, the
     daily acceptance quota, privacy, passenger cancellation and ratings.
-- **Unit tests:** `npm run test:unit` (plain Node, no emulator): **314 tests in 29 files,
-  all passing** (2026-11-08). `tests/booking/dailyQuotaSync.test.ts` checks that the
+- **Unit tests:** `npm run test:unit` (plain Node, no emulator): **356 tests in 35 files,
+  all passing** (2026-11-15). `tests/booking/dailyQuotaSync.test.ts` checks that the
   default daily limit (20) and its range (1–100) are the same in the app, `firestore.rules`
   and the admin website; `passengerCancelSync.test.ts` and `ratingSync.test.ts` do the
   same for the late-driver cancel limit and the rating window, tags, comment length and
@@ -246,8 +255,6 @@ things stand.
   - Future option without Blaze: an Android foreground service ("TriGo: you're online")
     to keep the listener running; it needs another native library and a Play Store
     declaration.
-  - The Notifications screen only lists `notifications` documents, and nothing in the app
-    creates them (the rules allow no client writes).
 - **Drivers stay online after closing the app.** `drivers/{uid}.isOnline` stays true when
   the app is closed or killed, so passengers can wait on a driver who sees nothing until
   the request expires. Future fix: presence or a heartbeat (a `lastSeenAt` the app
@@ -307,3 +314,6 @@ things stand.
   `docs/SRS.md` and `docs/SPMP.md` yet; every entry is still "No".
 - **Payment provider (future):** automatic payments or disbursement (for example PayMongo)
   would need a registered business and Blaze.
+- **TODO: Update privacy notice (warnings + announcements) after Task B2, single version
+  bump and re-consent, before defense.** The current notice (1.0) does not mention
+  `warnings/{id}` or the in-app inbox.

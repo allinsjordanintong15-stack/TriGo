@@ -16,6 +16,11 @@ export default function RootLayout() {
           <Stack.Screen name="(driver)" />
           <Stack.Screen name="legal/index" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="legal/[document]" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="inbox/index" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen
+            name="inbox/warning/[warningId]"
+            options={{ animation: 'slide_from_right' }}
+          />
         </Stack>
         {/* Over every screen: passengers and drivers without the current legal version. */}
         <LegalConsentGate />

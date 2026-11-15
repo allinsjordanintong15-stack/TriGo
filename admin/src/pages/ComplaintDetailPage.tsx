@@ -28,6 +28,7 @@ import {
 } from '../complaints/complaints';
 import { useAdminCounts } from '../lib/adminCounts';
 import { formatDateTime, formatPeso } from '../lib/format';
+import { ComplaintWarningPanel } from '../warnings/ComplaintWarningPanel';
 
 export function ComplaintDetailPage() {
   const { complaintId = '', tab = '' } = useParams();
@@ -330,6 +331,8 @@ export function ComplaintDetailPage() {
           )}
         </div>
       </section>
+
+      <ComplaintWarningPanel key={complaint.complaintId} complaint={complaint} reported={detail.reported} />
 
       {confirming && (
         <ConfirmDialog

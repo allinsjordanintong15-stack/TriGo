@@ -1012,17 +1012,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ─── Notifications ─────────────────────────────────────────────────────
-
-    match /notifications/{notificationId} {
-      allow read: if isSignedIn()
-        && resource.data.userId == request.auth.uid;
-
-      allow update: if isSignedIn()
-        && resource.data.userId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-    }
-
     // ─── Drivers (read-only for passengers during driver search) ───────────
 
     match /drivers/{driverId} {
@@ -2146,6 +2135,82 @@ service cloud.firestore {
     // their own report (the ID ends in their uid, so a missing report can be checked too);
     // only admins list. Nobody deletes.
     // Independent of the booking and out-of-area rules (it only reads bookings/{id}).
+
+    // ─── Warnings (admin → user, counted; the admin decides any suspension) ───
+    //
+    // warnings/{warningId}: the ID is the complaint's ID when the warning comes from a
+    // complaint (so one warning per complaint: a second create is an update and refused).
+    // Admins create and may only withdraw; the warned user reads their own and sets
+    // acknowledgedAt once ("I understand"). In the commit that anonymizes the user, an admin
+    // clears the reason (the record stays). Nobody deletes.
+    match /warnings/{warningId} {
+      function isValidWarningCreate() {
+        let data = request.resource.data;
+        let keys = ['userId', 'role', 'complaintId', 'bookingId', 'reason', 'adminId', 'createdAt', 'status', 'acknowledgedAt'];
+        return isAdmin()
+          && data.keys().hasAll(keys)
+          && data.keys().hasOnly(keys)
+          && data.userId is string
+          && data.userId.size() > 0
+          && data.role in ['driver', 'passenger']
+          && data.reason is string
+          && data.reason.trim().size() > 0
+          && data.reason.size() <= 500
+          && data.adminId == request.auth.uid
+          && data.createdAt == request.time
+          && data.status == 'active'
+          && data.acknowledgedAt == null
+          && (
+            (data.complaintId == null && data.bookingId == null)
+            || (data.complaintId is string && isFromComplaint(data))
+          );
+      }
+
+      // The complaint names this user as the reported side, in this role, on this booking.
+      function isFromComplaint(data) {
+        let complaint = get(/databases/$(database)/documents/complaints/$(data.complaintId)).data;
+        return warningId == data.complaintId
+          && complaint.get('reportedUserId', null) == data.userId
+          && complaint.bookingId == data.bookingId
+          && ((complaint.reporterRole == 'passenger' && data.role == 'driver')
+            || (complaint.reporterRole == 'driver' && data.role == 'passenger'));
+      }
+
+      function isAcknowledge() {
+        return isSignedIn()
+          && resource.data.userId == request.auth.uid
+          && resource.data.status == 'active'
+          && resource.data.acknowledgedAt == null
+          && onlyChanged(['acknowledgedAt'])
+          && request.resource.data.acknowledgedAt == request.time;
+      }
+
+      function isWithdraw() {
+        let data = request.resource.data;
+        return isAdmin()
+          && resource.data.status == 'active'
+          && onlyChanged(['status', 'withdrawnAt', 'withdrawnBy'])
+          && data.status == 'withdrawn'
+          && data.withdrawnAt == request.time
+          && data.withdrawnBy == request.auth.uid;
+      }
+
+      // Account deletion: the reason is cleared in the commit that anonymizes users/{uid}.
+      function isReasonCleared() {
+        let data = request.resource.data;
+        return isAdmin()
+          && onlyChanged(['reason', 'reasonClearedAt'])
+          && data.reason == ''
+          && data.reasonClearedAt == request.time
+          && isAnonymizedInThisCommit(userPath(resource.data.userId));
+      }
+
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isValidWarningCreate();
+      allow update: if isAcknowledge() || isWithdraw() || isReasonCleared();
+      allow delete: if false;
+    }
 
     match /complaints/{complaintId} {
       function isValidComplaintCreate() {

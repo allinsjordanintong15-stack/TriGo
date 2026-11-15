@@ -84,7 +84,7 @@ export default function DriverTripsScreen() {
   if (trips === null) {
     return (
       <View style={styles.container}>
-        <ScreenHeader title="Trips" />
+        <ScreenHeader brand />
         <LoadingScreen />
       </View>
     );
@@ -92,7 +92,7 @@ export default function DriverTripsScreen() {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader title="Trips" />
+      <ScreenHeader brand />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}

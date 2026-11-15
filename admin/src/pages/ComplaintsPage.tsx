@@ -17,6 +17,13 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
 import { formatCount, formatDateTime, plural } from '../lib/format';
+import { listLoadErrorMessage } from '../lib/loadError';
+import { DELETED_NAME } from '../privacy/deletionPlan';
+
+/** A loaded profile name; "Unknown user" for a missing profile or a deleted (anonymized) account. */
+function displayName(name: string): string {
+  return name && name !== DELETED_NAME ? name : 'Unknown user';
+}
 
 function parseStatus(value: string | null): ComplaintStatus | null {
   return COMPLAINT_STATUSES.find((status) => status === value) ?? null;
@@ -51,8 +58,8 @@ function ComplaintsTab({ tab }: { tab: NonNullable<ReturnType<typeof complaintTa
       setCounts(loadedCounts);
       setEntries(list.entries);
       setTruncated(list.truncated);
-    } catch {
-      setLoadError('Could not load complaints. Check your connection and reload the page.');
+    } catch (error) {
+      setLoadError(listLoadErrorMessage(error, 'Could not load complaints. Check your connection and reload the page.'));
     }
   }, [reporterRole, status]);
 
@@ -130,7 +137,6 @@ function ComplaintsTab({ tab }: { tab: NonNullable<ReturnType<typeof complaintTa
                         <tr>
                           <th scope="col">Reported</th>
                           <th scope="col">About</th>
-                          <th scope="col">Booking</th>
                           <th scope="col">Reported by</th>
                           <th scope="col">Category</th>
                           <th scope="col">Status</th>
@@ -144,14 +150,8 @@ function ComplaintsTab({ tab }: { tab: NonNullable<ReturnType<typeof complaintTa
                           <tr key={complaint.complaintId}>
                             <td>{formatDateTime(complaint.createdAt)}</td>
                             {/* "—" for older complaints (no reportedUserId; the detail page looks it up) or no driver. */}
-                            <td>{reportedName === null ? <span className="muted">—</span> : reportedName || '(no name)'}</td>
-                            <td className="mono">{complaint.bookingId || '—'}</td>
-                            <td>
-                              <div>{reporterName || '(no name)'}</div>
-                              <div className="muted small">
-                                {complaint.reporterRole ? ROLE_LABELS[complaint.reporterRole] : 'Unknown role'}
-                              </div>
-                            </td>
+                            <td>{reportedName === null ? <span className="muted">—</span> : displayName(reportedName)}</td>
+                            <td>{displayName(reporterName)}</td>
                             <td>{complaint.category ? COMPLAINT_CATEGORY_LABELS[complaint.category] : '—'}</td>
                             <td>
                               <span className={`booking-status complaint-status-${complaint.status}`}>

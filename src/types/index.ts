@@ -300,25 +300,6 @@ export interface Rating {
   createdAt: Date | null;
 }
 
-export type NotificationType =
-  | 'booking_created'
-  | 'driver_accepted'
-  | 'driver_arrived'
-  | 'ride_started'
-  | 'ride_completed'
-  | 'booking_cancelled';
-
-export interface AppNotification {
-  notificationId: string;
-  userId: string;
-  bookingId: string | null;
-  type: NotificationType;
-  title: string;
-  body: string;
-  read: boolean;
-  createdAt: Date;
-}
-
 export interface RegisterPassengerInput {
   fullName: string;
   email: string;

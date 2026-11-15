@@ -261,7 +261,7 @@ export default function DriverEarningsScreen() {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader title="Earnings" />
+      <ScreenHeader brand />
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
