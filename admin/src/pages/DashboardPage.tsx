@@ -129,7 +129,7 @@ export function DashboardPage() {
           <AttentionCard
             label="Pending payments"
             count={counts?.pendingPayments ?? null}
-            to="/earnings#pending-payments"
+            to="/earnings/payments"
           />
           <AttentionCard
             label="Driver applications"
@@ -154,7 +154,7 @@ export function DashboardPage() {
                 ? `${formatCount(alerts.data.suspended)} suspended · ${formatCount(alerts.data.overdue)} overdue`
                 : undefined
             }
-            to="/earnings?balances=behind#balances"
+            to="/earnings/balances?status=behind"
           />
           <AttentionCard
             label="Drivers at daily limit"
@@ -296,7 +296,7 @@ export function DashboardPage() {
               </div>
             </dl>
           )}
-          <Link to="/earnings" className="btn-link">
+          <Link to="/earnings/overview" className="btn-link">
             Open Earnings →
           </Link>
         </section>

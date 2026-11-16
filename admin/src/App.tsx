@@ -13,7 +13,7 @@ import { DriverApplicationPage } from './pages/DriverApplicationPage';
 import { DriverDetailPage } from './pages/DriverDetailPage';
 import { DriversPage } from './pages/DriversPage';
 import { DriverVerificationPage } from './pages/DriverVerificationPage';
-import { EarningsPage } from './pages/EarningsPage';
+import { EarningsIndexRedirect, EarningsPage } from './pages/EarningsPage';
 import { PassengerDetailPage } from './pages/PassengerDetailPage';
 import { PassengersPage } from './pages/PassengersPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -70,7 +70,8 @@ export function App() {
               <Route path="out-of-area/:requestId" element={<OutOfAreaTripDetailPage />} />
             </Route>
 
-            <Route path="/earnings" element={<EarningsPage />} />
+            <Route path="/earnings" element={<EarningsIndexRedirect />} />
+            <Route path="/earnings/:tab" element={<EarningsPage />} />
 
             {/* Complaints: Against drivers | Against passengers (by reporterRole) */}
             <Route path="/complaints" element={<ComplaintsLayout />}>

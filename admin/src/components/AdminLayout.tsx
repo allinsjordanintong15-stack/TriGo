@@ -17,6 +17,8 @@ type NavItem = {
   section?: string;
   /** Sidebar badge: a count of work waiting, and how a screen reader names it. */
   badge?: { count: keyof AdminCounts; noun: [string, string] };
+  /** Where the item goes while its badge shows a count (e.g. straight to the work waiting). */
+  toWhenBadged?: string;
 };
 
 // Sidebar. Sections with tabs link to their first tab; their tabs live in the URL (see App.tsx).
@@ -32,7 +34,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/passengers', label: 'Passengers', icon: 'passengers', section: '/passengers' },
   { to: '/trips/bookings', label: 'Trips', icon: 'outOfArea', section: '/trips' },
   {
-    to: '/earnings',
+    to: '/earnings/overview',
+    toWhenBadged: '/earnings/payments',
     label: 'Earnings',
     icon: 'earnings',
     section: '/earnings',
@@ -119,7 +122,7 @@ function Shell() {
             return (
               <Link
                 key={item.to}
-                to={item.to}
+                to={count > 0 && item.toWhenBadged ? item.toWhenBadged : item.to}
                 className={active ? 'active' : undefined}
                 aria-current={active ? 'page' : undefined}
                 aria-label={count > 0 ? `${item.label}${badgeText}` : undefined}

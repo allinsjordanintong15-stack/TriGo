@@ -1,8 +1,10 @@
 import {
   collection,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
+  limit,
   orderBy,
   query,
   runTransaction,
@@ -216,4 +218,61 @@ export async function loadAllPayments(): Promise<PaymentRecord[]> {
       rejectionReason: String(data.rejectionReason ?? ''),
     };
   });
+}
+
+// ─── Payment history (Earnings → Payments to review) ────────────────────────
+
+export type ReviewedPayment = PaymentRecord & {
+  status: 'confirmed' | 'rejected';
+  reviewedBy: string;
+};
+
+export type PaymentHistoryPage = {
+  payments: ReviewedPayment[];
+  /** Confirmed and/or rejected payments in total (Firestore count, no documents read). */
+  total: number;
+  /** Email (or name) of each reviewer uid that still has a user profile. */
+  reviewers: Map<string, string>;
+};
+
+/**
+ * One page of reviewed payments, newest review first. Reads the first page × pageSize
+ * documents (no cursor kept, so a page from the URL works on its own) plus one count.
+ * Composite index commissionPayments (status ASC, reviewedAt DESC) in firestore.indexes.json.
+ */
+export async function loadPaymentHistory(
+  status: 'all' | 'confirmed' | 'rejected',
+  page: number,
+  pageSize: number,
+): Promise<PaymentHistoryPage> {
+  const statuses = status === 'all' ? ['confirmed', 'rejected'] : [status];
+  const filtered = query(collection(db, 'commissionPayments'), where('status', 'in', statuses));
+  const [snapshot, countSnap] = await Promise.all([
+    getDocs(query(filtered, orderBy('reviewedAt', 'desc'), limit(page * pageSize))),
+    getCountFromServer(filtered),
+  ]);
+  const payments: ReviewedPayment[] = snapshot.docs.slice((page - 1) * pageSize).map((d) => {
+    const data = d.data();
+    return {
+      paymentId: d.id,
+      driverId: String(data.driverId ?? ''),
+      amountCentavos: typeof data.amountCentavos === 'number' ? data.amountCentavos : 0,
+      reference: String(data.reference ?? ''),
+      status: data.status === 'rejected' ? 'rejected' : 'confirmed',
+      submittedAt: (data.submittedAt as Timestamp | undefined)?.toDate?.() ?? null,
+      reviewedAt: (data.reviewedAt as Timestamp | undefined)?.toDate?.() ?? null,
+      rejectionReason: String(data.rejectionReason ?? ''),
+      reviewedBy: String(data.reviewedBy ?? ''),
+    };
+  });
+  // Admin accounts may have no users/{uid} profile; those show as "an admin".
+  const reviewerIds = [...new Set(payments.map((p) => p.reviewedBy).filter(Boolean))];
+  const profiles = await Promise.all(reviewerIds.map((uid) => getDoc(doc(db, 'users', uid)).catch(() => null)));
+  const reviewers = new Map<string, string>();
+  reviewerIds.forEach((uid, i) => {
+    const data = profiles[i]?.data();
+    const label = typeof data?.email === 'string' && data.email ? data.email : typeof data?.fullName === 'string' ? data.fullName : '';
+    if (label) reviewers.set(uid, label);
+  });
+  return { payments, total: countSnap.data().count, reviewers };
 }

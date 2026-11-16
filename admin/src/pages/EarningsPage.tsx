@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { doc, getDoc } from 'firebase/firestore';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { EmptyState } from '../components/EmptyState';
-import { LoadingBlock } from '../components/LoadingBlock';
-import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
+import { PageTabs, type PageTab } from '../components/PageTabs';
 import {
   CASH_OUT_METHOD_LABELS,
   CASH_OUT_METHODS,
@@ -21,39 +20,41 @@ import {
   type CashOutInput,
   type CashOutMethod,
 } from '../earnings/cashOuts';
-import {
-  COMMISSION_STATUS_BADGE_CLASS,
-  COMMISSION_STATUS_LABELS,
-  commissionStatus,
-  formatPeriodEndDay,
-  STATUS_ORDER,
-  type CommissionStatus,
-} from '../earnings/commissionStatus';
+import { COMMISSION_STATUS_LABELS, formatPeriodEndDay } from '../earnings/commissionStatus';
 import { loadDriverBalances, loadEarningsTotals, type DriverBalance, type EarningsTotals } from '../earnings/earnings';
+import { BalancesTab, balanceRows, CashOutsTab, OverviewTab, PaymentsTab } from '../earnings/EarningsTabs';
+import {
+  balanceParams,
+  EARNINGS_TABS,
+  earningsTab,
+  HISTORY_PAGE_SIZE,
+  historyParams,
+  readBalanceFilters,
+  readHistoryFilter,
+  readPageParam,
+  type BalanceFilters,
+  type EarningsTab,
+  type HistoryChip,
+} from '../earnings/earningsView';
 import {
   confirmPayment,
   loadAllPayments,
+  loadPaymentHistory,
   loadPendingPayments,
   MAX_REJECTION_REASON_LENGTH,
   PaymentConflictError,
   rejectPayment,
+  type PaymentHistoryPage,
   type PendingPayment,
 } from '../earnings/payments';
+import { db } from '../firebase/config';
 import { useAdminCounts } from '../lib/adminCounts';
 import { downloadCsv } from '../lib/csv';
 import { toDateInputValue } from '../lib/dateRange';
-import { formatCentavos, formatDateTime, formatIsoDay, plural } from '../lib/format';
+import { formatCentavos, formatIsoDay } from '../lib/format';
+import { listLoadErrorMessage } from '../lib/loadError';
 
 type Review = { kind: 'confirm' | 'reject'; payment: PendingPayment };
-
-type BalanceFilter = 'all' | 'owing' | 'behind' | 'overdue' | 'suspended';
-
-const BALANCE_FILTERS: BalanceFilter[] = ['all', 'owing', 'behind', 'overdue', 'suspended'];
-
-/** ?balances=behind etc. (Dashboard links); anything else shows all drivers. */
-function parseBalanceFilter(value: string | null): BalanceFilter {
-  return BALANCE_FILTERS.find((filter) => filter === value) ?? 'all';
-}
 
 type CashOutForm = { method: CashOutMethod; amount: string; reference: string; cashedOutOn: string; note: string };
 
@@ -80,15 +81,45 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
   rejected: 'Rejected',
 };
 
+const TABS: PageTab[] = EARNINGS_TABS.map(({ tab, label }) =>
+  tab === 'payments'
+    ? { to: `/earnings/${tab}`, label, badge: { count: 'pendingPayments', noun: ['pending payment', 'pending payments'] } }
+    : { to: `/earnings/${tab}`, label },
+);
+
+/**
+ * /earnings: older links (Dashboard bookmarks) used one long page with #pending-payments,
+ * #balances and ?balances=…; they land on the matching tab.
+ */
+export function EarningsIndexRedirect() {
+  const { hash, search } = useLocation();
+  const balances = new URLSearchParams(search).get('balances');
+  if (hash === '#pending-payments') return <Navigate to="/earnings/payments" replace />;
+  if (hash === '#balances' || balances) {
+    const status = balances === 'behind' || balances === 'overdue' || balances === 'suspended' ? `?status=${balances}` : '';
+    return <Navigate to={`/earnings/balances${status}`} replace />;
+  }
+  return <Navigate to="/earnings/overview" replace />;
+}
+
+/** /earnings/:tab — Overview · Payments to review · Driver balances · Cash-outs. */
 export function EarningsPage() {
+  const tab = earningsTab(useParams().tab);
+  if (!tab) return <Navigate to="/earnings/overview" replace />;
+  return <Earnings tab={tab} />;
+}
+
+function Earnings({ tab }: { tab: EarningsTab }) {
   const { admin } = useAuth();
   const { refreshCounts } = useAdminCounts();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [totals, setTotals] = useState<EarningsTotals | null>(null);
   const [balances, setBalances] = useState<DriverBalance[] | null>(null);
   const [payments, setPayments] = useState<PendingPayment[] | null>(null);
+  const [cashOuts, setCashOuts] = useState<CashOut[] | null>(null);
+  /** Email (or name) of each admin who recorded a cash-out, when they have a profile. */
+  const [recorders, setRecorders] = useState<Map<string, string>>(new Map());
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [searchParams] = useSearchParams();
-  const [filter, setFilter] = useState<BalanceFilter>(() => parseBalanceFilter(searchParams.get('balances')));
   // Statuses depend on the time; fixed per load so the table does not change while read.
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [review, setReview] = useState<Review | null>(null);
@@ -97,12 +128,14 @@ export function EarningsPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [cashOuts, setCashOuts] = useState<CashOut[] | null>(null);
+  const [cashOutStep, setCashOutStep] = useState<'form' | 'confirm' | null>(null);
   const [cashOutForm, setCashOutForm] = useState<CashOutForm>(emptyCashOutForm);
   const [cashOutTouched, setCashOutTouched] = useState(false);
   const [pendingCashOut, setPendingCashOut] = useState<CashOutInput | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [history, setHistory] = useState<PaymentHistoryPage | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -118,8 +151,17 @@ export function EarningsPage() {
       setPayments(nextPayments);
       setCashOuts(nextCashOuts);
       setLoadedAt(Date.now());
-    } catch {
-      setLoadError('Could not load earnings. Check your connection and reload the page.');
+      // Admin accounts may have no users/{uid} profile; those show as "an admin".
+      const uids = [...new Set(nextCashOuts.map((c) => c.createdBy).filter(Boolean))];
+      const profiles = await Promise.all(uids.map((uid) => getDoc(doc(db, 'users', uid)).catch(() => null)));
+      const labels = new Map<string, string>();
+      uids.forEach((uid, i) => {
+        const email = profiles[i]?.data()?.email;
+        if (typeof email === 'string' && email) labels.set(uid, email);
+      });
+      setRecorders(labels);
+    } catch (error) {
+      setLoadError(listLoadErrorMessage(error, 'Could not load earnings. Check your connection and try again.'));
     }
   }, []);
 
@@ -127,14 +169,27 @@ export function EarningsPage() {
     void reload();
   }, [reload]);
 
-  // Dashboard links scroll to their section once it has loaded: #pending-payments, or
-  // #balances (with ?balances=behind etc. setting the filter).
-  const { hash } = useLocation();
+  // Payment history: one page of reviewed payments, only on its tab.
+  const historyFilter = readHistoryFilter(searchParams);
+  const historyKey = `${historyFilter.status}:${historyFilter.page}`;
+  const [historyReload, setHistoryReload] = useState(0);
   useEffect(() => {
-    const target =
-      hash === '#balances' && balances ? 'balances' : hash === '#pending-payments' && payments ? 'pending-payments' : null;
-    if (target) document.getElementById(target)?.scrollIntoView({ block: 'start' });
-  }, [balances, payments, hash]);
+    if (tab !== 'payments') return;
+    let cancelled = false;
+    const [status, page] = historyKey.split(':');
+    setHistory(null);
+    setHistoryError(null);
+    loadPaymentHistory(status as HistoryChip, Number(page), HISTORY_PAGE_SIZE)
+      .then((result) => !cancelled && setHistory(result))
+      .catch(
+        (error: unknown) =>
+          !cancelled &&
+          setHistoryError(listLoadErrorMessage(error, 'Could not load the payment history. Check your connection and try again.')),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, historyKey, historyReload]);
 
   function open(kind: Review['kind'], payment: PendingPayment) {
     setReview({ kind, payment });
@@ -175,6 +230,7 @@ export function EarningsPage() {
       setReview(null);
       setSaving(false);
       refreshCounts();
+      setHistoryReload((n) => n + 1);
       await reload();
     } catch (error) {
       const denied = (error as { code?: string }).code === 'permission-denied';
@@ -209,10 +265,15 @@ export function EarningsPage() {
     setCashOutForm((current) => ({ ...current, [field]: value }));
   }
 
-  function handleCashOutSubmit(event: FormEvent) {
-    event.preventDefault();
-    setCashOutTouched(true);
+  function openCashOut() {
     setMessage(null);
+    setSaveError(null);
+    setCashOutStep('form');
+  }
+
+  /** Step 1 → 2: the same checks as before, then a summary to confirm. */
+  function reviewCashOut() {
+    setCashOutTouched(true);
     if (Object.keys(cashOutErrors).length > 0 || cashOutAmount === null) return;
     setSaveError(null);
     setPendingCashOut({
@@ -222,6 +283,7 @@ export function EarningsPage() {
       cashedOutOn: cashOutForm.cashedOutOn,
       note: cashOutForm.note.trim(),
     });
+    setCashOutStep('confirm');
   }
 
   async function handleRecordCashOut() {
@@ -234,6 +296,7 @@ export function EarningsPage() {
         `Recorded a ${CASH_OUT_METHOD_LABELS[pendingCashOut.method]} cash-out of ${formatCentavos(pendingCashOut.amountCentavos)}. Available is now ${formatCentavos(availableAfter)}.`,
       );
       setPendingCashOut(null);
+      setCashOutStep(null);
       setCashOutForm(emptyCashOutForm());
       setCashOutTouched(false);
       setSaving(false);
@@ -251,31 +314,8 @@ export function EarningsPage() {
     }
   }
 
-  const balanceRows = useMemo(
-    () =>
-      (balances ?? [])
-        .map((row) => ({ ...row, summary: row.account ? commissionStatus(row.account, loadedAt) : null }))
-        .sort(
-          (a, b) =>
-            (a.summary ? STATUS_ORDER[a.summary.status] : -1) - (b.summary ? STATUS_ORDER[b.summary.status] : -1) ||
-            (b.summary?.balanceCentavos ?? 0) - (a.summary?.balanceCentavos ?? 0) ||
-            a.driverName.localeCompare(b.driverName),
-        ),
-    [balances, loadedAt],
-  );
-
-  const statusCounts = useMemo(() => {
-    const result: Record<CommissionStatus, number> = { paid_up: 0, due: 0, overdue: 0, suspended: 0 };
-    for (const row of balanceRows) if (row.summary) result[row.summary.status] += 1;
-    return result;
-  }, [balanceRows]);
-
-  const shownRows = balanceRows.filter(({ summary }) => {
-    if (filter === 'all' || !summary) return true;
-    if (filter === 'owing') return summary.status !== 'paid_up';
-    if (filter === 'behind') return summary.status === 'overdue' || summary.status === 'suspended';
-    return summary.status === filter;
-  });
+  const rows = useMemo(() => (balances ? balanceRows(balances, loadedAt) : null), [balances, loadedAt]);
+  const overdueCount = rows ? rows.filter((row) => row.summary?.status === 'overdue').length : null;
 
   const stamp = toDateInputValue(new Date());
   const nameOf = (driverId: string) => balances?.find((row) => row.driverId === driverId)?.driverName ?? '';
@@ -283,7 +323,7 @@ export function EarningsPage() {
   function exportBalances() {
     downloadCsv(`trigo-driver-balances-${stamp}.csv`, [
       ['Driver ID', 'Driver', 'Status', 'Balance (PHP)', 'Overdue (PHP)', 'Due by end of', 'Grace ends', 'Paid (PHP)', 'Recorded (PHP)'],
-      ...balanceRows.map(({ driverId, driverName, account, summary }) =>
+      ...(rows ?? []).map(({ driverId, driverName, account, summary }) =>
         summary && account
           ? [
               driverId,
@@ -347,13 +387,24 @@ export function EarningsPage() {
       ? payment.accruedCentavos - payment.paidCentavos
       : null;
 
+  const balanceFilters = readBalanceFilters(searchParams);
+  const page = readPageParam(searchParams);
+
   return (
     <div className="stack">
+      <PageTabs label="Earnings" tabs={TABS} />
       <PageHeader
         title="Earnings"
         subtitle="Commission from completed trips. Confirm driver GCash payments and record cash-outs."
         actions={
-          <button type="button" className="btn-outline" onClick={() => void reload()}>
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => {
+              void reload();
+              setHistoryReload((n) => n + 1);
+            }}
+          >
             Refresh
           </button>
         }
@@ -363,183 +414,86 @@ export function EarningsPage() {
           {message}
         </div>
       )}
-      {loadError && (
-        <div className="alert-error" role="alert">
-          {loadError}
-        </div>
-      )}
 
-      {totals && (
-        <div className="stat-grid">
-          <Stat
-            label="Earned"
-            value={formatCentavos(totals.earnedCentavos)}
-            hint={`Commission on ${plural(totals.commissions, 'completed trip')}`}
+      {tab === 'overview' &&
+        (loadError ? (
+          <div className="list-error" role="alert">
+            <p>{loadError}</p>
+            <button type="button" className="btn-outline" onClick={() => void reload()}>
+              Retry
+            </button>
+          </div>
+        ) : (
+          <OverviewTab
+            totals={totals}
+            pendingCount={payments?.length ?? null}
+            overdueCount={overdueCount}
+            onRecordCashOut={openCashOut}
           />
-          <Stat label="Collected" value={formatCentavos(totals.collectedCentavos)} hint="Confirmed driver payments" />
-          <Stat label="Outstanding" value={formatCentavos(totals.outstandingCentavos)} hint="Earned − collected" />
-          <Stat label="Cashed out" value={formatCentavos(totals.cashedOutCentavos)} hint="Recorded cash-outs" />
-          <Stat label="Available" value={formatCentavos(totals.availableCentavos)} hint="Collected − cashed out" />
-        </div>
+        ))}
+
+      {tab === 'payments' && (
+        <PaymentsTab
+          payments={payments}
+          loadError={loadError}
+          onRetry={() => void reload()}
+          onReview={open}
+          history={history}
+          historyError={historyError}
+          historyFilter={historyFilter}
+          onHistoryFilter={(status, nextPage) => setSearchParams(historyParams(status, nextPage))}
+          onRetryHistory={() => setHistoryReload((n) => n + 1)}
+          driverName={nameOf}
+          onExport={() => void exportPayments()}
+          exporting={exporting}
+          exportError={exportError}
+        />
       )}
 
-      <div className="card" id="pending-payments">
-        <div className="card-header">
-          <h3>Pending commission payments</h3>
-          <button type="button" className="btn-outline" onClick={() => void exportPayments()} disabled={exporting}>
-            {exporting ? 'Exporting…' : 'Export all payments (CSV)'}
-          </button>
-        </div>
-        {exportError && (
-          <div className="alert-error" role="alert">
-            {exportError}
-          </div>
-        )}
-        <p className="muted">Check each reference in TriGo&apos;s GCash before confirming.</p>
+      {tab === 'balances' && (
+        <BalancesTab
+          rows={rows}
+          loadError={loadError}
+          onRetry={() => void reload()}
+          loadedAt={loadedAt}
+          filters={balanceFilters}
+          page={page}
+          onChange={(next: BalanceFilters, nextPage: number, replace = false) =>
+            setSearchParams(balanceParams(next, nextPage), { replace })
+          }
+          onExport={exportBalances}
+        />
+      )}
 
-        {loadError ? null : !payments ? (
-          <LoadingBlock label="Loading payments…" />
-        ) : payments.length === 0 ? (
-          <EmptyState>No payments are waiting for review.</EmptyState>
-        ) : (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Submitted</th>
-                  <th scope="col">Driver</th>
-                  <th scope="col" className="num">Amount</th>
-                  <th scope="col">GCash reference</th>
-                  <th scope="col" className="num">Driver balance</th>
-                  <th scope="col">
-                    <span className="visually-hidden">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.map((payment) => (
-                  <tr key={payment.paymentId}>
-                    <td>{formatDateTime(payment.submittedAt)}</td>
-                    <td>
-                      <Link className="btn-link" to={`/drivers/all/${payment.driverId}`}>
-                        {payment.driverName || '(no name)'}
-                      </Link>
-                    </td>
-                    <td className="num cell-strong">{formatCentavos(payment.amountCentavos)}</td>
-                    <td className="mono">{payment.reference}</td>
-                    <td className="num">{formatCentavos(balance(payment))}</td>
-                    <td className="cell-action">
-                      <button type="button" className="btn-primary" onClick={() => open('confirm', payment)}>
-                        Confirm…
-                      </button>{' '}
-                      <button type="button" className="btn-outline" onClick={() => open('reject', payment)}>
-                        Reject…
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {tab === 'cash-outs' && (
+        <CashOutsTab
+          cashOuts={cashOuts}
+          totals={totals}
+          loadError={loadError}
+          onRetry={() => void reload()}
+          page={page}
+          onPage={(nextPage) => setSearchParams(nextPage > 1 ? { page: String(nextPage) } : {})}
+          onRecord={openCashOut}
+          onExport={exportCashOuts}
+          recorderName={(uid) => recorders.get(uid) ?? 'an admin'}
+        />
+      )}
 
-      <div className="card" id="balances">
-        <div className="card-header">
-          <h3>Driver balances</h3>
-          <label className="field filter-field" htmlFor="balance-filter">
-            <span>Show</span>
-            <select id="balance-filter" value={filter} onChange={(e) => setFilter(e.target.value as BalanceFilter)}>
-              <option value="all">All drivers ({balanceRows.length})</option>
-              <option value="owing">Owing ({balanceRows.length - statusCounts.paid_up})</option>
-              <option value="behind">Overdue or suspended ({statusCounts.overdue + statusCounts.suspended})</option>
-              <option value="overdue">Overdue ({statusCounts.overdue})</option>
-              <option value="suspended">Suspended ({statusCounts.suspended})</option>
-            </select>
-          </label>
-          <button type="button" className="btn-outline" onClick={exportBalances} disabled={!balances}>
-            Export balances (CSV)
-          </button>
-        </div>
-        <p className="muted small">Due and grace dates end at midnight, Manila time.</p>
-        {loadError ? null : !balances ? (
-          <LoadingBlock label="Loading balances…" />
-        ) : shownRows.length === 0 ? (
-          <EmptyState>{balanceRows.length === 0 ? 'No commission recorded yet.' : 'No drivers match.'}</EmptyState>
-        ) : (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Driver</th>
-                  <th scope="col">Status</th>
-                  <th scope="col" className="num">Balance</th>
-                  <th scope="col" className="num">Overdue</th>
-                  <th scope="col">Due by end of</th>
-                  <th scope="col">Grace ends</th>
-                  <th scope="col" className="num">Paid / recorded</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shownRows.map(({ driverId, driverName, account, summary }) => (
-                  <tr key={driverId}>
-                    <td>
-                      <Link className="btn-link" to={`/drivers/all/${driverId}`}>
-                        {driverName || '(no name)'}
-                      </Link>
-                    </td>
-                    {summary && account ? (
-                      <>
-                        <td>
-                          <span className={`status-badge ${COMMISSION_STATUS_BADGE_CLASS[summary.status]}`}>
-                            {COMMISSION_STATUS_LABELS[summary.status]}
-                          </span>
-                        </td>
-                        <td className="num cell-strong">{formatCentavos(summary.balanceCentavos)}</td>
-                        <td className="num">{summary.overdueCentavos > 0 ? formatCentavos(summary.overdueCentavos) : '—'}</td>
-                        <td>{formatPeriodEndDay(summary.dueAtMillis)}</td>
-                        <td>{formatPeriodEndDay(summary.graceEndsAtMillis)}</td>
-                        <td className="num muted small">
-                          {formatCentavos(account.paidCentavos)} / {formatCentavos(account.accruedCentavos)}
-                        </td>
-                      </>
-                    ) : (
-                      <td colSpan={6} className="muted">
-                        This account could not be read. Reload the page or update the website.
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h3>Cash-outs</h3>
-          <button type="button" className="btn-outline" onClick={exportCashOuts} disabled={!cashOuts}>
-            Export cash-outs (CSV)
-          </button>
-        </div>
-        <Notice>
-          Cash-outs are recorded only. Transfer the money in GCash, Maya or your bank. Records can&apos;t be edited.
-        </Notice>
-
-        <form onSubmit={handleCashOutSubmit} noValidate>
-          <p className="muted small">
-            Available to cash out: <strong>{totals ? formatCentavos(available) : '—'}</strong> (collected − cashed
-            out).
-          </p>
-          <div className="fare-grid">
+      {cashOutStep === 'form' && (
+        <ConfirmDialog
+          title="Record a cash-out"
+          confirmLabel="Review…"
+          onConfirm={reviewCashOut}
+          onCancel={() => setCashOutStep(null)}
+        >
+          <p className="small muted">Record only after the money has been moved. Records can&apos;t be edited.</p>
+          <div className="cash-out-form">
             <label className="field" htmlFor="cash-out-method">
               <span>Method</span>
               <select
                 id="cash-out-method"
                 value={cashOutForm.method}
                 onChange={(e) => setCashOutField('method', e.target.value as CashOutMethod)}
-                disabled={saving}
               >
                 {CASH_OUT_METHODS.map((method) => (
                   <option key={method} value={method}>
@@ -547,7 +501,6 @@ export function EarningsPage() {
                   </option>
                 ))}
               </select>
-              <span className="hint" />
             </label>
             <label className="field" htmlFor="cash-out-amount">
               <span>Amount (₱)</span>
@@ -557,7 +510,6 @@ export function EarningsPage() {
                 value={cashOutForm.amount}
                 onChange={(e) => setCashOutField('amount', e.target.value)}
                 aria-invalid={cashOutTouched && cashOutErrors.amount ? true : undefined}
-                disabled={saving}
               />
               <span className="hint">
                 {cashOutTouched && cashOutErrors.amount ? (
@@ -574,7 +526,6 @@ export function EarningsPage() {
                 value={cashOutForm.reference}
                 onChange={(e) => setCashOutField('reference', e.target.value)}
                 aria-invalid={cashOutTouched && cashOutErrors.reference ? true : undefined}
-                disabled={saving}
               />
               <span className="hint">
                 {cashOutTouched && cashOutErrors.reference ? (
@@ -593,7 +544,6 @@ export function EarningsPage() {
                 value={cashOutForm.cashedOutOn}
                 onChange={(e) => setCashOutField('cashedOutOn', e.target.value)}
                 aria-invalid={cashOutTouched && cashOutErrors.cashedOutOn ? true : undefined}
-                disabled={saving}
               />
               <span className="hint">
                 {cashOutTouched && cashOutErrors.cashedOutOn && (
@@ -610,7 +560,6 @@ export function EarningsPage() {
               value={cashOutForm.note}
               onChange={(e) => setCashOutField('note', e.target.value)}
               aria-invalid={cashOutTouched && cashOutErrors.note ? true : undefined}
-              disabled={saving}
             />
             <span className="hint">
               {cashOutTouched && cashOutErrors.note ? (
@@ -620,54 +569,16 @@ export function EarningsPage() {
               )}
             </span>
           </label>
-          <div className="form-actions">
-            <button type="submit" className="btn-primary" disabled={saving || !totals || available <= 0}>
-              Record cash-out…
-            </button>
-          </div>
-        </form>
+        </ConfirmDialog>
+      )}
 
-        {loadError ? null : !cashOuts ? (
-          <LoadingBlock label="Loading cash-outs…" />
-        ) : cashOuts.length === 0 ? (
-          <EmptyState>No cash-outs recorded yet.</EmptyState>
-        ) : (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Date moved</th>
-                  <th scope="col">Method</th>
-                  <th scope="col" className="num">Amount</th>
-                  <th scope="col">Reference</th>
-                  <th scope="col">Note</th>
-                  <th scope="col">Recorded</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cashOuts.map((cashOut) => (
-                  <tr key={cashOut.cashOutId}>
-                    <td>{formatIsoDay(cashOut.cashedOutOn)}</td>
-                    <td>{cashOut.method ? CASH_OUT_METHOD_LABELS[cashOut.method] : '—'}</td>
-                    <td className="num cell-strong">{formatCentavos(cashOut.amountCentavos)}</td>
-                    <td className="mono">{cashOut.reference}</td>
-                    <td className="small">{cashOut.note || '—'}</td>
-                    <td className="muted small">{formatDateTime(cashOut.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {pendingCashOut && (
+      {cashOutStep === 'confirm' && pendingCashOut && (
         <ConfirmDialog
           title={`Record a ${CASH_OUT_METHOD_LABELS[pendingCashOut.method]} cash-out of ${formatCentavos(pendingCashOut.amountCentavos)}?`}
           confirmLabel="Record cash-out"
           busy={saving}
           onConfirm={() => void handleRecordCashOut()}
-          onCancel={() => setPendingCashOut(null)}
+          onCancel={() => setCashOutStep('form')}
         >
           <p>
             Record only after the transfer is done in {CASH_OUT_METHOD_LABELS[pendingCashOut.method]}. This can&apos;t
@@ -708,6 +619,7 @@ export function EarningsPage() {
               )}
             </tbody>
           </table>
+          <p className="small muted">Cancel goes back to the form.</p>
           {saveError && (
             <div className="alert-error" role="alert">
               {saveError}
@@ -815,16 +727,6 @@ export function EarningsPage() {
           )}
         </ConfirmDialog>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <div className="card stat-card">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-      <div className="muted small">{hint}</div>
     </div>
   );
 }
