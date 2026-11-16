@@ -1,7 +1,7 @@
 // The in-app inbox ("Messages from TriGo"): one list of items of different kinds, newest
-// first. Today only warnings (warnings/{id}); announcements (Task B2) become another kind
-// in InboxItem with its own `xToInboxItem` and are merged with `buildInbox`, so the screen
-// and the unread count need no rework. Alias-free on purpose, so plain Node tests load it.
+// first: warnings (warnings/{id}) and messages from TriGo (adminMessages/{id}: suspension and
+// verification notices today; announcements later). Each kind has its own `xToInboxItem` and
+// is merged with `buildInbox`, so the screen and the unread count need no rework. Alias-free on purpose, so plain Node tests load it.
 
 export type InboxWarningRole = 'driver' | 'passenger';
 
@@ -35,8 +35,59 @@ export interface WarningInboxItem extends InboxItemBase {
   warning: InboxWarning;
 }
 
-/** Add announcement items here (Task B2). */
-export type InboxItem = WarningInboxItem;
+/**
+ * adminMessages/{id} kinds the app knows. Any other value (a kind added later) is kept as
+ * 'other' and shown with its own title and body.
+ */
+export type InboxMessageKind = 'suspended' | 'suspension_lifted' | 'revoked' | 'restored' | 'other';
+
+export const INBOX_MESSAGE_KINDS: readonly InboxMessageKind[] = [
+  'suspended',
+  'suspension_lifted',
+  'revoked',
+  'restored',
+];
+
+/** The fields of adminMessages/{id} the app reads (src/services/adminMessageService.ts). */
+export interface InboxMessage {
+  messageId: string;
+  userId: string;
+  kind: InboxMessageKind;
+  title: string;
+  /** Empty when cleared (account deletion). */
+  body: string;
+  /** The admin's reason; empty when cleared. */
+  reason: string;
+  /** Suspensions: when it ends; null = until lifted (and for other kinds). */
+  until: Date | null;
+  createdAt: Date | null;
+  readAt: Date | null;
+}
+
+export interface MessageInboxItem extends InboxItemBase {
+  kind: 'message';
+  message: InboxMessage;
+}
+
+export type InboxItem = WarningInboxItem | MessageInboxItem;
+
+export const MESSAGE_FALLBACK_TITLE = 'Message from TriGo';
+
+export function readMessageKind(value: unknown): InboxMessageKind {
+  return INBOX_MESSAGE_KINDS.includes(value as InboxMessageKind) ? (value as InboxMessageKind) : 'other';
+}
+
+export function messageToInboxItem(message: InboxMessage): MessageInboxItem {
+  return {
+    kind: 'message',
+    key: `message:${message.messageId}`,
+    createdAt: message.createdAt,
+    unread: message.readAt === null,
+    title: message.title.trim() || MESSAGE_FALLBACK_TITLE,
+    preview: previewText(message.body) || previewText(message.reason) || 'Open to read this message.',
+    message,
+  };
+}
 
 export const WARNING_TITLE = 'Warning from TriGo';
 const PREVIEW_MAX_LENGTH = 120;
@@ -78,8 +129,14 @@ function newestFirst(a: InboxItem, b: InboxItem): number {
 }
 
 /** All visible items of every kind, newest first. */
-export function buildInbox(warnings: readonly InboxWarning[]): InboxItem[] {
-  return warnings.filter(isVisibleWarning).map(warningToInboxItem).sort(newestFirst);
+export function buildInbox(
+  warnings: readonly InboxWarning[],
+  messages: readonly InboxMessage[] = [],
+): InboxItem[] {
+  return [
+    ...warnings.filter(isVisibleWarning).map(warningToInboxItem),
+    ...messages.map(messageToInboxItem),
+  ].sort(newestFirst);
 }
 
 export function unreadCount(items: readonly InboxItem[]): number {
@@ -92,8 +149,13 @@ export function badgeLabel(count: number): string | null {
   return count > 9 ? '9+' : String(count);
 }
 
-/** The newest unread warning, for the driver Home banner; null when there is none. */
+/** The newest unread warning; null when there is none. */
 export function newestUnreadWarning(items: readonly InboxItem[]): InboxWarning | null {
-  const item = items.find((i) => i.kind === 'warning' && i.unread);
+  const item = items.find((i): i is WarningInboxItem => i.kind === 'warning' && i.unread);
   return item ? item.warning : null;
+}
+
+/** The newest unread item of any kind, for the driver Home banner; null when there is none. */
+export function newestUnreadItem(items: readonly InboxItem[]): InboxItem | null {
+  return items.find((i) => i.unread) ?? null;
 }

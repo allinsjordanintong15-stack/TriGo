@@ -1,4 +1,5 @@
 import type { BoundaryBarangayId } from '@/constants/barangays';
+import type { AdminSuspension } from '@/utils/adminSuspension';
 
 export type UserRole = 'passenger' | 'driver' | 'admin';
 
@@ -236,6 +237,11 @@ export interface DriverRecord {
    */
   acceptedCount: number | null;
   acceptedDay: number | null;
+  /**
+   * The latest admin suspension (src/utils/adminSuspension.ts); null when never suspended.
+   * Check isSuspensionActive: it may have ended or been lifted.
+   */
+  adminSuspension: AdminSuspension | null;
 }
 
 export interface Booking {

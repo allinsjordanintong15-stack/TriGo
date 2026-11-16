@@ -9,9 +9,10 @@ import {
   shouldOpenNextPeriod,
   writeCommission,
 } from '@/services/commissionService';
-import { docToDriverRecord } from '@/services/driverService';
+import { docToDriverRecord, isAdminSuspendedNow } from '@/services/driverService';
 import { isDriverAtDailyLimit, readDailyLimit, withMidnightRetry } from '@/services/quotaService';
 import { Booking, BookingStatus, PaymentMethod, VehicleType } from '@/types';
+import { ADMIN_SUSPENDED_MESSAGE } from '@/utils/adminSuspension';
 import { canDriverCancelBooking, getDisplayFare } from '@/utils/booking';
 import { isBookingExpired } from '@/utils/bookingExpiry';
 import { DAILY_LIMIT_REACHED_MESSAGE, fieldsAfterAccept, isAtDailyLimit } from '@/utils/dailyQuota';
@@ -136,6 +137,9 @@ export async function acceptBooking(bookingId: string, driverId: string): Promis
   try {
     if (await isCommissionSuspended(driverId)) {
       throw new DriverBookingServiceError(COMMISSION_SUSPENDED_MESSAGE);
+    }
+    if (await isAdminSuspendedNow(driverId)) {
+      throw new DriverBookingServiceError(ADMIN_SUSPENDED_MESSAGE);
     }
 
     // Daily quota: the day is the server's Manila day; retried once near midnight.

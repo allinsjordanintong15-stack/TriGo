@@ -4,8 +4,10 @@ import {
   CommissionServiceError,
   isCommissionSuspended,
 } from '@/services/commissionService';
+import { isAdminSuspendedNow } from '@/services/driverService';
 import { isDriverAtDailyLimit } from '@/services/quotaService';
 import { DriverRecord, FareAgreement } from '@/types';
+import { ADMIN_SUSPENDED_MESSAGE } from '@/utils/adminSuspension';
 import { DAILY_LIMIT_REACHED_MESSAGE } from '@/utils/dailyQuota';
 import { doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
@@ -61,6 +63,9 @@ export async function createProposal(input: FareProposalInput): Promise<FareAgre
   try {
     if (await isCommissionSuspended(input.driverId)) {
       throw new FareAgreementServiceError(COMMISSION_SUSPENDED_MESSAGE);
+    }
+    if (await isAdminSuspendedNow(input.driverId)) {
+      throw new FareAgreementServiceError(ADMIN_SUSPENDED_MESSAGE);
     }
     if (await isDriverAtDailyLimit(input.driverId)) {
       throw new FareAgreementServiceError(DAILY_LIMIT_REACHED_MESSAGE);

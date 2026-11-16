@@ -8,8 +8,8 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  Timestamp,
   where,
-  type Timestamp,
 } from 'firebase/firestore';
 
 import { readBooking, type AdminBooking } from '../bookings/bookings';
@@ -17,6 +17,15 @@ import { countComplaintsAgainst } from '../complaints/complaints';
 import type { AccountTimes } from '../earnings/commissionStatus';
 import { readAccount } from '../earnings/earnings';
 import { db } from '../firebase/config';
+import { formatDateTime } from '../lib/format';
+import {
+  liftSuspensionUpdate,
+  newAdminMessageDoc,
+  suspensionEndMillis,
+  suspensionUpdate,
+  validateActionReason,
+  type SuspensionDuration,
+} from './driverActionPlan';
 import {
   normalizeVehicleDetails,
   normalizeVehiclePlate,
@@ -27,6 +36,7 @@ import {
   type VehicleDetails,
 } from './driverRecords';
 import { readRatingSummary, type DriverRatingSummary } from './driverRatings';
+import { isAdminSuspended } from './driverTable';
 
 // Drivers page: every drivers/{uid} record with contact details from users/{uid}, a
 // driver's trip history, revoke/restore of verification, and vehicle corrections.
@@ -157,8 +167,10 @@ export async function loadDriverDetail(uid: string): Promise<DriverDetail | null
 export class VerificationConflictError extends Error {}
 
 /**
- * Revokes verification and takes the driver offline in one write. The transaction re-reads
- * the record so a driver another admin already revoked is not revoked twice.
+ * Revokes verification and takes the driver offline in one write, with a message to the
+ * driver (adminMessages, same commit). The transaction re-reads the record so a driver
+ * another admin already revoked is not revoked twice. The reason is stored on the record
+ * (verificationNote, for admins) and in the message the driver reads.
  */
 export async function revokeDriver(uid: string, adminUid: string, reason: string): Promise<void> {
   const driverRef = doc(db, 'drivers', uid);
@@ -168,20 +180,28 @@ export async function revokeDriver(uid: string, adminUid: string, reason: string
     if (snap.data().isVerified !== true) {
       throw new VerificationConflictError('This driver is already not verified. Reload the page to see the latest.');
     }
+    const now = serverTimestamp();
     // Exact field set allowed by firestore.rules (drivers, admin update).
     transaction.update(driverRef, {
       isVerified: false,
       isOnline: false,
       isAvailable: false,
       verificationNote: reason.trim(),
-      verificationUpdatedAt: serverTimestamp(),
+      verificationUpdatedAt: now,
       verificationUpdatedBy: adminUid,
     });
+    transaction.set(
+      newMessageRef(),
+      newAdminMessageDoc({ userId: uid, kind: 'revoked', reason, until: null, untilLabel: null }, adminUid, now),
+    );
   });
 }
 
-/** Restores verification; the driver stays offline until they go online in the app. */
-export async function restoreDriver(uid: string, adminUid: string): Promise<void> {
+/**
+ * Restores verification, with a message to the driver (same commit); the driver stays
+ * offline until they go online in the app.
+ */
+export async function restoreDriver(uid: string, adminUid: string, reason: string): Promise<void> {
   const driverRef = doc(db, 'drivers', uid);
   await runTransaction(db, async (transaction) => {
     const snap = await transaction.get(driverRef);
@@ -189,14 +209,75 @@ export async function restoreDriver(uid: string, adminUid: string): Promise<void
     if (snap.data().isVerified === true) {
       throw new VerificationConflictError('This driver is already verified. Reload the page to see the latest.');
     }
+    const now = serverTimestamp();
     transaction.update(driverRef, {
       isVerified: true,
       isOnline: false,
       isAvailable: false,
       verificationNote: null,
-      verificationUpdatedAt: serverTimestamp(),
+      verificationUpdatedAt: now,
       verificationUpdatedBy: adminUid,
     });
+    transaction.set(
+      newMessageRef(),
+      newAdminMessageDoc({ userId: uid, kind: 'restored', reason, until: null, untilLabel: null }, adminUid, now),
+    );
+  });
+}
+
+export class SuspensionConflictError extends Error {}
+
+function newMessageRef() {
+  return doc(collection(db, 'adminMessages'));
+}
+
+/**
+ * Suspends the driver (replacing any earlier suspension) and messages them, in one commit.
+ * They can stay online and finish a current trip; the rules refuse new accepts and
+ * out-of-area proposals until it ends or is lifted.
+ */
+export async function suspendDriver(
+  uid: string,
+  adminUid: string,
+  reason: string,
+  duration: SuspensionDuration,
+): Promise<void> {
+  const error = validateActionReason(reason);
+  if (error) throw new SuspensionConflictError(error);
+  const endMillis = suspensionEndMillis(duration, Date.now());
+  const until = endMillis === null ? null : Timestamp.fromMillis(endMillis);
+  const untilLabel = endMillis === null ? null : formatDateTime(new Date(endMillis));
+  const driverRef = doc(db, 'drivers', uid);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(driverRef);
+    if (!snap.exists()) throw new SuspensionConflictError('This driver record no longer exists.');
+    const now = serverTimestamp();
+    // Exact field set allowed by firestore.rules (drivers, admin suspend).
+    transaction.update(driverRef, suspensionUpdate(reason, until, adminUid, now));
+    transaction.set(
+      newMessageRef(),
+      newAdminMessageDoc({ userId: uid, kind: 'suspended', reason, until, untilLabel }, adminUid, now),
+    );
+  });
+}
+
+/** Lifts the current suspension early and messages the driver, in one commit. */
+export async function liftDriverSuspension(uid: string, adminUid: string, reason: string): Promise<void> {
+  const error = validateActionReason(reason);
+  if (error) throw new SuspensionConflictError(error);
+  const driverRef = doc(db, 'drivers', uid);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(driverRef);
+    if (!snap.exists()) throw new SuspensionConflictError('This driver record no longer exists.');
+    if (!isAdminSuspended(readDriver(uid, snap.data()), Date.now())) {
+      throw new SuspensionConflictError('This driver is no longer suspended. Reload the page to see the latest.');
+    }
+    const now = serverTimestamp();
+    transaction.update(driverRef, liftSuspensionUpdate(adminUid, now));
+    transaction.set(
+      newMessageRef(),
+      newAdminMessageDoc({ userId: uid, kind: 'suspension_lifted', reason, until: null, untilLabel: null }, adminUid, now),
+    );
   });
 }
 

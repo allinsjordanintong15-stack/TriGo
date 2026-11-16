@@ -20,9 +20,28 @@ interface InboxScreenProps {
   onBack?: () => void;
 }
 
-/** Opens an item's own screen; each kind has its route under /inbox (B2: announcements). */
+/** Opens an item's own screen; each kind has its route under /inbox. */
 export function openInboxItem(item: InboxItem) {
-  router.push({ pathname: '/inbox/warning/[warningId]', params: { warningId: item.warning.warningId } });
+  if (item.kind === 'warning') {
+    router.push({ pathname: '/inbox/warning/[warningId]', params: { warningId: item.warning.warningId } });
+  } else {
+    router.push({ pathname: '/inbox/message/[messageId]', params: { messageId: item.message.messageId } });
+  }
+}
+
+/** Icon per item: warnings and suspensions get the alert, other messages the mail icon. */
+export function inboxItemIcon(item: InboxItem): keyof typeof Ionicons.glyphMap {
+  if (item.kind === 'warning') return 'alert-circle-outline';
+  switch (item.message.kind) {
+    case 'suspended':
+    case 'revoked':
+      return 'ban-outline';
+    case 'suspension_lifted':
+    case 'restored':
+      return 'checkmark-circle-outline';
+    default:
+      return 'mail-outline';
+  }
 }
 
 /**
@@ -78,7 +97,7 @@ function InboxRow({ item }: { item: InboxItem }) {
     >
       <View style={[styles.icon, item.unread ? styles.iconUnread : null]}>
         <Ionicons
-          name="alert-circle-outline"
+          name={inboxItemIcon(item)}
           size={22}
           color={item.unread ? colors.white : colors.primary}
         />

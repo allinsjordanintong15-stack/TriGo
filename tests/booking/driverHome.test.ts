@@ -100,4 +100,14 @@ describe('getAcceptRestriction', () => {
     assert.match(both.message, /limit of 20/);
     assert.ok(getAcceptRestriction('suspended', null));
   });
+
+  it('explains an admin suspension: stay online, finish the trip', () => {
+    const restriction = getAcceptRestriction('paid_up', quotaStatus(2, 20), true);
+    assert.ok(restriction);
+    assert.match(restriction.title, /stay online/);
+    assert.match(restriction.message, /TriGo suspended your account/);
+    assert.match(restriction.message, /finish your current trip/);
+    assert.doesNotMatch(restriction.message, /grace period/);
+    assert.equal(getAcceptRestriction('paid_up', quotaStatus(2, 20), false), null);
+  });
 });

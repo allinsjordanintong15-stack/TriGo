@@ -7,6 +7,8 @@ import { PageHeader } from '../components/PageHeader';
 import { Pagination } from '../components/Pagination';
 import { PhoneNumber } from '../components/PhoneNumber';
 import { CopyButton } from '../components/TechnicalDetails';
+import { DriverActionDialog, type DriverAction } from '../drivers/DriverActionDialog';
+import { DriverActionsMenu } from '../drivers/DriverActionsMenu';
 import { averageRating } from '../drivers/driverRatings';
 import { matchesDriverSearch, verificationStatus } from '../drivers/driverRecords';
 import {
@@ -33,7 +35,7 @@ import {
 } from '../drivers/driverTable';
 import { loadDriverRowExtras, loadDrivers, type DriverListEntry, type DriverRowExtras } from '../drivers/drivers';
 import { COMMISSION_STATUS_LABELS, commissionStatus, type CommissionStatus } from '../earnings/commissionStatus';
-import { formatCentavos, formatCount, formatDate, plural } from '../lib/format';
+import { formatCentavos, formatCount, formatDate, formatDateTime, plural } from '../lib/format';
 import { listLoadErrorMessage } from '../lib/loadError';
 
 const ACCOUNT_BADGE_CLASS: Record<AccountStanding, string> = {
@@ -49,6 +51,7 @@ type RowExtras = DriverRowExtras & { failed?: boolean };
 
 type Row = DriverListEntry & {
   standing: AccountStanding;
+  suspended: boolean;
   /** null when the commission account exists but can't be read. */
   commission: { status: CommissionStatus; balanceCentavos: number } | null;
 };
@@ -62,7 +65,7 @@ function toRow(entry: DriverListEntry, nowMillis: number): Row {
       : account === undefined
         ? { status: 'paid_up' as const, balanceCentavos: 0 }
         : commissionStatus(account, nowMillis);
-  return { ...entry, standing: accountStanding(driver.isVerified, suspended), commission };
+  return { ...entry, standing: accountStanding(driver.isVerified, suspended), suspended, commission };
 }
 
 function matchesFilters(row: Row, filters: DriverTableFilters): boolean {
@@ -76,7 +79,10 @@ function matchesFilters(row: Row, filters: DriverTableFilters): boolean {
 /** /drivers/all: every approved driver, filtered and paged in the browser. */
 export function DriversPage() {
   const location = useLocation();
-  const flash = (location.state as { message?: string } | null)?.message ?? null;
+  const routeFlash = (location.state as { message?: string } | null)?.message ?? null;
+  const [actionFlash, setActionFlash] = useState<string | null>(null);
+  const flash = actionFlash ?? routeFlash;
+  const [pendingAction, setPendingAction] = useState<{ row: Row; action: DriverAction } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => readDriverFilters(searchParams), [searchParams]);
   const requestedPage = readDriverPage(searchParams);
@@ -268,7 +274,17 @@ export function DriversPage() {
                       </td>
                     </tr>
                   ) : (
-                    slice.items.map((row) => <DriverRow key={row.driver.uid} row={row} extras={extras.get(row.driver.uid)} />)
+                    slice.items.map((row) => (
+                      <DriverRow
+                        key={row.driver.uid}
+                        row={row}
+                        extras={extras.get(row.driver.uid)}
+                        onAction={(action) => {
+                          setActionFlash(null);
+                          setPendingAction({ row, action });
+                        }}
+                      />
+                    ))
                   )}
                 </tbody>
               </table>
@@ -289,6 +305,20 @@ export function DriversPage() {
           </>
         )}
       </div>
+
+      {pendingAction && (
+        <DriverActionDialog
+          driver={pendingAction.row.driver}
+          action={pendingAction.action}
+          onClose={() => setPendingAction(null)}
+          onDone={(message) => {
+            setPendingAction(null);
+            setActionFlash(message);
+            // A warning changes nothing in the table; everything else does.
+            if (pendingAction.action !== 'warning') void reload();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -339,7 +369,15 @@ function SkeletonRows() {
   );
 }
 
-function DriverRow({ row, extras }: { row: Row; extras: RowExtras | undefined }) {
+function DriverRow({
+  row,
+  extras,
+  onAction,
+}: {
+  row: Row;
+  extras: RowExtras | undefined;
+  onAction: (action: DriverAction) => void;
+}) {
   const { driver, contact, standing, commission } = row;
   const name = driver.fullName || '(no name)';
   const detailPath = `/drivers/all/${encodeURIComponent(driver.uid)}`;
@@ -381,7 +419,16 @@ function DriverRow({ row, extras }: { row: Row; extras: RowExtras | undefined })
         )}
       </td>
       <td>
-        <span className={`status-badge ${ACCOUNT_BADGE_CLASS[standing]}`}>{standingLabel}</span>
+        <span
+          className={`status-badge ${ACCOUNT_BADGE_CLASS[standing]}`}
+          title={
+            standing === 'suspended'
+              ? `Suspended ${driver.suspendedUntil ? `until ${formatDateTime(driver.suspendedUntil)}` : 'until lifted'}`
+              : undefined
+          }
+        >
+          {standingLabel}
+        </span>
         <div className="duty-dot-line small">
           <span className={`duty-dot duty-dot-${dot}`} aria-hidden="true" />
           {DUTY_DOT_LABELS[dot]}
@@ -428,9 +475,13 @@ function DriverRow({ row, extras }: { row: Row; extras: RowExtras | undefined })
         )}
       </td>
       <td className="cell-action">
-        <Link className="btn-link" to={detailPath} aria-label={`View ${name}`}>
-          View
-        </Link>
+        <DriverActionsMenu
+          name={name}
+          detailPath={detailPath}
+          isVerified={driver.isVerified}
+          suspended={row.suspended}
+          onAction={onAction}
+        />
       </td>
     </tr>
   );

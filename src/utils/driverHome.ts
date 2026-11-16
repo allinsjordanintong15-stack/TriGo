@@ -37,12 +37,17 @@ export interface AcceptRestriction {
 export function getAcceptRestriction(
   commission: CommissionStatus | null,
   quota: QuotaStatus | null,
+  /** TriGo suspended the account (src/utils/adminSuspension.ts isSuspensionActive). */
+  adminSuspended = false,
 ): AcceptRestriction | null {
   const suspended = commission === 'suspended';
   const atLimit = quota?.reached === true;
-  if (!suspended && !atLimit) return null;
+  if (!suspended && !atLimit && !adminSuspended) return null;
 
   const reasons: string[] = [];
+  if (adminSuspended) {
+    reasons.push('TriGo suspended your account (see the notice below).');
+  }
   if (suspended) {
     reasons.push(
       'Your commission is overdue and the grace period has ended. Pay on the Earnings tab; you can accept again once TriGo confirms your payment.',

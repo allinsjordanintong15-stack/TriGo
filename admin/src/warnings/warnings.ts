@@ -6,6 +6,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   where,
   type DocumentData,
   type Timestamp,
@@ -100,6 +101,22 @@ export async function warnFromComplaint(
     }
     transaction.set(ref, newWarningDoc(input, adminUid, serverTimestamp()));
   });
+}
+
+/**
+ * A warning not tied to a complaint (Drivers → All drivers "Send warning"): complaintId and
+ * bookingId null, a new random ID. It reaches the user's inbox like any warning.
+ */
+export async function sendWarning(
+  input: { userId: string; role: WarningRole; reason: string },
+  adminUid: string,
+): Promise<void> {
+  const error = validateWarningReason(input.reason);
+  if (error) throw new WarningConflictError(error);
+  await setDoc(
+    doc(collection(db, 'warnings')),
+    newWarningDoc({ ...input, complaintId: null, bookingId: null }, adminUid, serverTimestamp()),
+  );
 }
 
 /** Withdraws an active warning (the only change admins may make). */

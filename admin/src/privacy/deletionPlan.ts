@@ -5,8 +5,9 @@
 // One commit anonymizes the account (firestore.rules, Users / Contacts / Drivers / Driver
 // applications / Account deletion requests): users/{uid} blanked, contacts/{uid} deleted,
 // drivers/{uid} and driverApplications/{uid} blanked when they exist, and the pending
-// request completed. The user's warnings keep their record with the reason cleared
-// (clearedReasonUpdate in admin/src/warnings/warningPlan.ts, same commit). Bookings hold
+// request completed. The user's warnings and messages from TriGo keep their record with the
+// reason (and message body) cleared (clearedReasonUpdate in admin/src/warnings/warningPlan.ts,
+// clearedAdminMessageUpdate in admin/src/drivers/driverActionPlan.ts, same commit). Bookings hold
 // only IDs, so they stay as they are. The sign-in account
 // is deleted by hand in the Firebase Console afterwards (no Cloud Functions).
 
@@ -29,8 +30,8 @@ export function anonymizedUserUpdate(now: unknown) {
 }
 
 /**
- * drivers/{uid}: name, plate and vehicle details removed; unverified, offline, unavailable,
- * without a position, for good. Type, rating and quota count stay.
+ * drivers/{uid}: name, plate, vehicle details and admin reasons removed; unverified, offline,
+ * unavailable, without a position, for good. Type, rating, quota count and suspension dates stay.
  */
 export function anonymizedDriverUpdate(now: unknown, adminUid: string) {
   return {
@@ -44,6 +45,8 @@ export function anonymizedDriverUpdate(now: unknown, adminUid: string) {
     isAvailable: false,
     currentLocation: null,
     verificationNote: null,
+    // The admin's suspension reason goes too; the suspension dates stay.
+    suspensionReason: null,
     verificationUpdatedAt: now,
     verificationUpdatedBy: adminUid,
     anonymizedAt: now,

@@ -94,6 +94,12 @@ things stand.
   Messages from TriGo opens the same inbox as passengers. (Built 2026-11-15, not deployed.)
 - **Suspension:** a suspended driver cannot accept standard bookings or out-of-area
   requests. They can still finish current trips, log in and pay.
+- **Admin suspension and messages from TriGo:** while an admin suspension is active, Home
+  shows a red banner ("Suspended until <date>" or "until TriGo lifts it", with the reason)
+  and the duty switch notice says the driver can stay online and finish a trip but cannot
+  accept new requests. Suspensions, lifts, revokes and restores arrive as messages in
+  Messages from TriGo (unread ones count on the badge and the Home banner). (Built
+  2026-11-16, not deployed.)
 - **Daily acceptance quota:** each driver may accept at most the admin's daily limit of
   passengers per day (resets at 12:00 AM Manila time; default 20).
   - Home always shows "Accepted today: X of N".
@@ -123,6 +129,12 @@ things stand.
 - **Driver verification:** review applications, then approve or reject them with remarks.
 - **Driver accounts:** revoke or restore verification. Revoking needs a reason. The vehicle
   can be edited.
+- **All drivers table:** 10 per page with search and Status / Vehicle / Account / Commission
+  filters kept in the URL; photo, vehicle, contact, status, commission, rating and complaint
+  columns; a "⋯" menu per driver (View profile, Send warning, Suspend / Lift suspension,
+  Revoke / Restore verification), each with a reason the driver reads and a message to the
+  driver. The driver page shows the current suspension and the history. (Built 2026-11-16,
+  not deployed.)
 - **Quota** (Drivers group): the daily acceptance limit (1–100, default 20 until saved),
   edited with an old → new confirmation and shown live; a live table of verified drivers'
   accepted count today against the limit, fewest slots left first, linking to each
@@ -316,4 +328,4 @@ things stand.
   would need a registered business and Blaze.
 - **TODO: Update privacy notice (warnings + announcements) after Task B2, single version
   bump and re-consent, before defense.** The current notice (1.0) does not mention
-  `warnings/{id}` or the in-app inbox.
+  `warnings/{id}`, `adminMessages/{id}`, the driver suspension fields or the in-app inbox.

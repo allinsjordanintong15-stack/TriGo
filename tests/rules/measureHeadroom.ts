@@ -10,7 +10,9 @@
 // TRIGO_HEADROOM=privacy: consent, re-consent, deletion request, anonymization and the driver
 // application submit/resubmit only;
 // TRIGO_HEADROOM=complaint: complaint create by a passenger and by a driver only;
-// TRIGO_HEADROOM=warning: warning create, acknowledge, withdraw and reason clear only.)
+// TRIGO_HEADROOM=warning: warning create, acknowledge, withdraw and reason clear only;
+// TRIGO_HEADROOM=suspension: admin suspend / lift, admin message create / mark read, and T1
+// accept and propose for a driver whose admin suspension has expired.)
 // Method: a test-only copy of firestore.rules (never written to disk) adds `&& pad()` to the
 // one rule each commit is sure to pass through, where pad() is N trivially true terms. A
 // binary search finds the largest N at which the valid commit still succeeds. The same
@@ -127,6 +129,10 @@ type Target =
   | 'warning acknowledge'
   | 'warning withdraw'
   | 'warning reason clear'
+  | 'admin suspend'
+  | 'admin lift'
+  | 'admin message create'
+  | 'admin message read'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -269,6 +275,23 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'warning reason clear': [
     '          && isAnonymizedInThisCommit(userPath(resource.data.userId));',
     '          && isAnonymizedInThisCommit(userPath(resource.data.userId))\n          && pad();',
+  ],
+  // Admin suspension (drivers) and admin messages: after the last term the valid write needs.
+  'admin suspend': [
+    '        && request.resource.data.suspendedBy == request.auth.uid\n',
+    '        && request.resource.data.suspendedBy == request.auth.uid\n        && pad()\n',
+  ],
+  'admin lift': [
+    '        && request.resource.data.suspensionLiftedBy == request.auth.uid;',
+    '        && request.resource.data.suspensionLiftedBy == request.auth.uid\n        && pad();',
+  ],
+  'admin message create': [
+    '          && data.readAt == null;',
+    '          && data.readAt == null\n          && pad();',
+  ],
+  'admin message read': [
+    "          && onlyChanged(['readAt'])\n",
+    "          && onlyChanged(['readAt'])\n          && pad()\n",
   ],
   'reference free': [
     '      allow delete: if isAdmin()\n        && get(paymentPath(resource.data.paymentId))',
@@ -535,6 +558,109 @@ function newWork(
     },
   };
 }
+
+// Admin suspension (adminSuspension.test.ts): the costliest record that still passes
+// isAdminSuspended() is one whose suspension ended (suspendedUntil passed), so every term of
+// the check is evaluated; with an account inside grace as above.
+function expiredSuspension(): DocumentData {
+  return {
+    suspendedAt: Timestamp.fromMillis(Date.now() - 2 * DAY_MS),
+    suspendedUntil: Timestamp.fromMillis(Date.now() - DAY_MS),
+    suspensionReason: 'Late pickups.',
+    suspendedBy: ADMIN,
+    suspensionLiftedAt: null,
+    suspensionLiftedBy: null,
+  };
+}
+
+function expiredSuspensionWork(label: string, target: 'T1 accept' | 'propose', driverId = DRIVER): Scenario {
+  return {
+    label,
+    targets: [target, 'driver record'],
+    run: async () => {
+      await seed({
+        [`drivers/${driverId}`]: { ...availableDriverRecord(), ...expiredSuspension() },
+        [`bookings/${BOOKING}`]: openBooking(),
+        [`outOfAreaRequests/${OPEN_REQUEST}`]: openRequest(),
+        [`commissionAccounts/${driverId}`]: accountDoc(inGrace, driverId),
+      });
+      if (target === 'T1 accept') await commitAccept(db(driverId), driverId);
+      else await commitPropose(db(driverId), driverId);
+    },
+  };
+}
+
+const adminSuspend: Scenario = {
+  label: 'admin suspension: suspend for 3 days, replacing a lifted one (admin)',
+  targets: ['admin suspend'],
+  run: async () => {
+    await seed({
+      [`drivers/${DRIVER}`]: {
+        ...availableDriverRecord(),
+        ...expiredSuspension(),
+        suspensionLiftedAt: Timestamp.now(),
+        suspensionLiftedBy: ADMIN,
+      },
+    });
+    await updateDoc(doc(db(ADMIN, { admin: true }), 'drivers', DRIVER), {
+      suspendedAt: serverTimestamp(),
+      suspendedUntil: Timestamp.fromMillis(Date.now() + 3 * DAY_MS),
+      suspensionReason: 'Repeated late pickups.',
+      suspendedBy: ADMIN,
+      suspensionLiftedAt: null,
+      suspensionLiftedBy: null,
+    });
+  },
+};
+
+const adminLift: Scenario = {
+  label: 'admin suspension: lift (admin)',
+  targets: ['admin lift'],
+  run: async () => {
+    await seed({
+      [`drivers/${DRIVER}`]: { ...availableDriverRecord(), ...expiredSuspension(), suspendedUntil: null },
+    });
+    await updateDoc(doc(db(ADMIN, { admin: true }), 'drivers', DRIVER), {
+      suspensionLiftedAt: serverTimestamp(),
+      suspensionLiftedBy: ADMIN,
+    });
+  },
+};
+
+function suspendedMessage(): DocumentData {
+  return {
+    userId: DRIVER,
+    kind: 'suspended',
+    title: 'Your account is suspended',
+    body: 'TriGo suspended your driver account until Nov 20, 2026, 3:05 PM.',
+    reason: 'Repeated late pickups.',
+    until: Timestamp.fromMillis(Date.now() + 3 * DAY_MS),
+    createdBy: ADMIN,
+    createdAt: Timestamp.now(),
+    readAt: null,
+  };
+}
+
+const adminMessageCreate: Scenario = {
+  label: 'admin suspension: message create (admin)',
+  targets: ['admin message create'],
+  run: async () => {
+    await seed({});
+    await setDoc(doc(db(ADMIN, { admin: true }), 'adminMessages', 'message1'), {
+      ...suspendedMessage(),
+      createdAt: serverTimestamp(),
+    });
+  },
+};
+
+const adminMessageRead: Scenario = {
+  label: 'admin suspension: message mark read (user)',
+  targets: ['admin message read'],
+  run: async () => {
+    await seed({ 'adminMessages/message1': suspendedMessage() });
+    await updateDoc(doc(db(DRIVER), 'adminMessages', 'message1'), { readAt: serverTimestamp() });
+  },
+};
 
 // Daily quota (driverQuota.test.ts): a saved limit (so dailyLimit() reads the document) and
 // a count from today (so today's count is the stored one), with an account inside grace.
@@ -1186,6 +1312,18 @@ const SCENARIOS: Scenario[] = [
   newWork('propose: account inside grace', 'propose', true),
   newWork('propose: account inside grace, approved-applicant driver', 'propose', true, APPLICANT_DRIVER),
   claim,
+  expiredSuspensionWork('T1 accept: expired admin suspension, account inside grace', 'T1 accept'),
+  expiredSuspensionWork(
+    'T1 accept: expired admin suspension, account inside grace, approved-applicant driver',
+    'T1 accept',
+    APPLICANT_DRIVER,
+  ),
+  expiredSuspensionWork('propose: expired admin suspension, account inside grace', 'propose'),
+  expiredSuspensionWork(
+    'propose: expired admin suspension, account inside grace, approved-applicant driver',
+    'propose',
+    APPLICANT_DRIVER,
+  ),
   quotaWork('T1 accept: quota saved, count today, account inside grace', 'T1 accept'),
   quotaWork(
     'T1 accept: quota saved, count today, account inside grace, approved-applicant driver',
@@ -1237,6 +1375,10 @@ const SCENARIOS: Scenario[] = [
   warningAcknowledge,
   warningWithdraw,
   warningReasonClear,
+  adminSuspend,
+  adminLift,
+  adminMessageCreate,
+  adminMessageRead,
 ];
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
@@ -1253,6 +1395,8 @@ const ONLY_COMPLAINT = process.env.TRIGO_HEADROOM === 'complaint';
 const COMPLAINT_LABELS = /^complaint/;
 const ONLY_WARNING = process.env.TRIGO_HEADROOM === 'warning';
 const WARNING_LABELS = /^warning/;
+const ONLY_SUSPENSION = process.env.TRIGO_HEADROOM === 'suspension';
+const SUSPENSION_LABELS = /^(admin suspension|T1 accept: expired admin|propose: expired admin)/;
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -1307,7 +1451,8 @@ try {
       (!ONLY_BOOKING || BOOKING_LABELS.test(s.label)) &&
       (!ONLY_PRIVACY || PRIVACY_LABELS.test(s.label)) &&
       (!ONLY_COMPLAINT || COMPLAINT_LABELS.test(s.label)) &&
-      (!ONLY_WARNING || WARNING_LABELS.test(s.label)),
+      (!ONLY_WARNING || WARNING_LABELS.test(s.label)) &&
+      (!ONLY_SUSPENSION || SUSPENSION_LABELS.test(s.label)),
   );
   for (const scenario of selected) {
     console.log(scenario.label);

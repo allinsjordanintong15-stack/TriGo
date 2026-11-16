@@ -4,8 +4,8 @@ import { matchesMobile } from '../passengers/search';
 
 // drivers/{uid} as the admin Drivers page sees it. The driver writes their duty status and
 // trip links from the app; admins write only isVerified, isOnline/isAvailable (forced off
-// when revoking), the verification* audit fields, and the vehicle (type, plate, brand, model,
-// color) while the driver has no trip or request (firestore.rules). Kept free of Firebase runtime imports.
+// when revoking), the verification* audit fields, the suspension fields, and the vehicle
+// (type, plate, brand, model, color) while the driver has no trip or request (firestore.rules). Kept free of Firebase runtime imports.
 
 export const MAX_VERIFICATION_NOTE_LENGTH = 500;
 
@@ -125,11 +125,14 @@ export type AdminDriver = {
   verificationUpdatedAt: Date | null;
   verificationUpdatedBy: string | null;
   /**
-   * Admin suspension (Part B of the Drivers table task; no record has it yet). suspendedAt set
-   * = suspended; suspendedUntil null = until lifted. See driverTable.ts isAdminSuspended.
+   * The latest admin suspension (driverActionPlan.ts); all null when never suspended.
+   * suspendedUntil null = until lifted. Active: see driverTable.ts isAdminSuspended.
    */
   suspendedAt: Date | null;
   suspendedUntil: Date | null;
+  suspensionReason: string | null;
+  suspendedBy: string | null;
+  suspensionLiftedAt: Date | null;
 };
 
 /** From users/{uid}; the driver record has no contact details. */
@@ -155,6 +158,9 @@ export function readDriver(uid: string, data: DocumentData): AdminDriver {
     verificationUpdatedBy: typeof data.verificationUpdatedBy === 'string' ? data.verificationUpdatedBy : null,
     suspendedAt: (data.suspendedAt as Timestamp | undefined)?.toDate?.() ?? null,
     suspendedUntil: (data.suspendedUntil as Timestamp | undefined)?.toDate?.() ?? null,
+    suspensionReason: typeof data.suspensionReason === 'string' ? data.suspensionReason : null,
+    suspendedBy: typeof data.suspendedBy === 'string' ? data.suspendedBy : null,
+    suspensionLiftedAt: (data.suspensionLiftedAt as Timestamp | undefined)?.toDate?.() ?? null,
   };
 }
 

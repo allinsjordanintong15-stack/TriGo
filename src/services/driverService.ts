@@ -3,6 +3,7 @@ import { COLLECTIONS, firestore } from '@/firebase';
 import { docToOutOfAreaRequest } from '@/services/bookingService';
 import { calibrateServerClock, serverNow } from '@/services/quotaService';
 import { Booking, DriverRecord, OutOfAreaRequest, VehicleType } from '@/types';
+import { AdminSuspension, isSuspensionActive } from '@/utils/adminSuspension';
 import { canRefundSlot, fieldsAfterRefund, manilaDay } from '@/utils/dailyQuota';
 import { calculateDistanceKmFromCoords } from '@/utils/distance';
 import {
@@ -61,7 +62,34 @@ export function docToDriverRecord(driverId: string, data: DocumentData): DriverR
     currentRequestId: typeof data.currentRequestId === 'string' ? data.currentRequestId : null,
     acceptedCount: readWholeNumber(data.acceptedCount),
     acceptedDay: readWholeNumber(data.acceptedDay),
+    adminSuspension: readAdminSuspension(data),
   };
+}
+
+function toDate(value: unknown): Date | null {
+  return value instanceof Timestamp ? value.toDate() : null;
+}
+
+/** drivers/{uid} suspension fields; null when the driver was never suspended. */
+export function readAdminSuspension(data: DocumentData): AdminSuspension | null {
+  const suspendedAt = toDate(data.suspendedAt);
+  if (!suspendedAt) return null;
+  return {
+    suspendedAt,
+    suspendedUntil: toDate(data.suspendedUntil),
+    reason: typeof data.suspensionReason === 'string' ? data.suspensionReason : '',
+    liftedAt: toDate(data.suspensionLiftedAt),
+  };
+}
+
+/**
+ * Whether TriGo has suspended this driver right now (estimated server clock; the rules
+ * decide with server time). Used to explain a refused accept or proposal before trying.
+ */
+export async function isAdminSuspendedNow(driverId: string): Promise<boolean> {
+  const snapshot = await getDoc(doc(firestore, COLLECTIONS.drivers, driverId));
+  const data = snapshot.data();
+  return data ? isSuspensionActive(readAdminSuspension(data), serverNow()) : false;
 }
 
 /**

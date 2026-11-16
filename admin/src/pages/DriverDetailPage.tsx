@@ -17,12 +17,14 @@ import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
 import { TechnicalDetails } from '../components/TechnicalDetails';
 import { VehicleDetailsFields } from '../components/VehicleDetailsFields';
+import { loadAdminMessagesFor, type AdminMessage } from '../drivers/adminMessages';
+import { DriverActionDialog, type DriverAction } from '../drivers/DriverActionDialog';
+import { ADMIN_MESSAGE_KIND_LABELS } from '../drivers/driverActionPlan';
 import {
   DRIVER_VEHICLE_TYPES,
   DUTY_LABELS,
   dutyStatus,
   hasVehicleDetailErrors,
-  MAX_VERIFICATION_NOTE_LENGTH,
   normalizeVehicleDetails,
   normalizeVehiclePlate,
   validateVehicleDetails,
@@ -35,19 +37,15 @@ import {
 } from '../drivers/driverRecords';
 import {
   loadDriverDetail,
-  restoreDriver,
-  revokeDriver,
   TRIP_HISTORY_LIMIT,
   updateDriverVehicle,
   VehicleConflictError,
-  VerificationConflictError,
   type DriverDetail,
 } from '../drivers/drivers';
+import { isAdminSuspended } from '../drivers/driverTable';
 import { formatDriverRatingWithCount } from '../drivers/driverRatings';
-import { formatDateTime, formatPeso } from '../lib/format';
+import { formatDate, formatDateTime, formatPeso } from '../lib/format';
 import { WarningsCard } from '../warnings/WarningsCard';
-
-type Action = 'revoke' | 'restore' | 'vehicle';
 
 const DETAIL_LABELS: Record<keyof VehicleDetails, string> = {
   vehicleBrand: 'Brand',
@@ -60,9 +58,10 @@ export function DriverDetailPage() {
   const { admin } = useAuth();
   const [detail, setDetail] = useState<DriverDetail | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
-  const [reasonTouched, setReasonTouched] = useState(false);
-  const [action, setAction] = useState<Action | null>(null);
+  const [confirmVehicle, setConfirmVehicle] = useState(false);
+  const [driverAction, setDriverAction] = useState<DriverAction | null>(null);
+  // Suspension and verification history (adminMessages); null while loading, 'error' on failure.
+  const [history, setHistory] = useState<AdminMessage[] | 'error' | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -83,6 +82,12 @@ export function DriverDetailPage() {
       setDetail(await loadDriverDetail(uid));
     } catch {
       setLoadError('Could not load this driver. Check your connection and reload the page.');
+    }
+    try {
+      setHistory(await loadAdminMessagesFor(uid));
+    } catch (error) {
+      console.error('Driver message history failed to load:', error);
+      setHistory('error');
     }
   }, [uid]);
 
@@ -131,12 +136,7 @@ export function DriverDetailPage() {
   const cancelled = trips.filter((trip) => trip.status === 'cancelled').length;
   const fares = Math.round(completed.reduce((total, trip) => total + (trip.finalFare ?? 0), 0) * 100) / 100;
 
-  const reasonTrimmed = reason.trim();
-  const reasonError = !reasonTrimmed
-    ? 'A reason is required. Other admins see it on this page.'
-    : reasonTrimmed.length > MAX_VERIFICATION_NOTE_LENGTH
-      ? `At most ${MAX_VERIFICATION_NOTE_LENGTH} characters.`
-      : null;
+  const suspended = isAdminSuspended(driver, Date.now());
 
   const plateError = validateVehiclePlate(vehiclePlate);
   const newPlate = normalizeVehiclePlate(vehiclePlate);
@@ -168,30 +168,20 @@ export function DriverDetailPage() {
   }
 
   async function handleConfirm() {
-    if (!detail || !action || !admin) return;
+    if (!detail || !admin) return;
     setSaving(true);
     setSaveError(null);
     try {
-      if (action === 'revoke') {
-        await revokeDriver(detail.driver.uid, admin.uid, reason);
-        setMessage(`${detail.driver.fullName}'s verification was revoked. They are offline and cannot accept bookings.`);
-        setReason('');
-        setReasonTouched(false);
-      } else if (action === 'restore') {
-        await restoreDriver(detail.driver.uid, admin.uid);
-        setMessage(`${detail.driver.fullName}'s verification was restored. They can go online in the app.`);
-      } else {
-        await updateDriverVehicle(detail.driver.uid, { vehicleType, vehiclePlate, ...vehicleDetails });
-        setMessage(`${detail.driver.fullName}'s vehicle details were updated.`);
-        setEditingVehicle(false);
-      }
-      setAction(null);
+      await updateDriverVehicle(detail.driver.uid, { vehicleType, vehiclePlate, ...vehicleDetails });
+      setMessage(`${detail.driver.fullName}'s vehicle details were updated.`);
+      setEditingVehicle(false);
+      setConfirmVehicle(false);
       setSaving(false);
       await reload();
     } catch (error) {
       const denied = (error as { code?: string }).code === 'permission-denied';
       setSaveError(
-        error instanceof VerificationConflictError || error instanceof VehicleConflictError
+        error instanceof VehicleConflictError
           ? error.message
           : denied
             ? 'The change was refused. Reload the page and try again.'
@@ -199,6 +189,11 @@ export function DriverDetailPage() {
       );
       setSaving(false);
     }
+  }
+
+  function openAction(next: DriverAction) {
+    setMessage(null);
+    setDriverAction(next);
   }
 
   // An admin without a user profile has no email to show: say "another admin", not their ID.
@@ -217,7 +212,7 @@ export function DriverDetailPage() {
 
       <PageHeader
         title={driver.fullName || '(no name)'}
-        subtitle="Driver. Their contact details, vehicle, warnings and trips. Revoke or restore their verification here."
+        subtitle="Driver. Their contact details, standing, vehicle, warnings and trips. Warn, suspend, revoke or restore them here."
         actions={
           <span className={`status-badge ${VERIFICATION_BADGE_CLASS[verification]}`}>{VERIFICATION_LABELS[verification]}</span>
         }
@@ -259,11 +254,33 @@ export function DriverDetailPage() {
 
       <WarningsCard uid={driver.uid} role="driver" />
 
-      <section className="card review-panel" aria-labelledby="verification-heading">
-        <h3 id="verification-heading">Verification</h3>
+      <section className="card review-panel" aria-labelledby="standing-heading">
+        <h3 id="standing-heading">Account standing</h3>
+        <dl className="detail-grid">
+          <div className="detail-item">
+            <dt>Verification</dt>
+            <dd>
+              <span className={`status-badge ${VERIFICATION_BADGE_CLASS[verification]}`}>
+                {VERIFICATION_LABELS[verification]}
+              </span>
+            </dd>
+          </div>
+          <div className="detail-item">
+            <dt>Suspension</dt>
+            <dd>
+              {suspended ? (
+                <span className="status-badge status-pending">
+                  Suspended {driver.suspendedUntil ? `until ${formatDateTime(driver.suspendedUntil)}` : 'until lifted'}
+                </span>
+              ) : (
+                'Not suspended'
+              )}
+            </dd>
+          </div>
+        </dl>
         {driver.verificationUpdatedAt && (
           <p className="muted small">
-            Last {driver.isVerified ? 'restored' : 'revoked'} {formatDateTime(driver.verificationUpdatedAt)}
+            Verification last {driver.isVerified ? 'restored' : 'revoked'} {formatDateTime(driver.verificationUpdatedAt)}
             {changedBy ? ` by ${changedBy}` : ''}.
           </p>
         )}
@@ -273,71 +290,69 @@ export function DriverDetailPage() {
             <p>{driver.verificationNote}</p>
           </div>
         )}
-
-        {driver.isVerified ? (
-          <>
-            <p className="muted small">Revoking takes the driver offline until you restore them. They can still sign in.</p>
-            {duty === 'on_trip' && <Notice>This driver is on a trip. They can still finish it after you revoke.</Notice>}
-            {duty === 'holding_request' && (
-              <Notice>This driver holds an out-of-area request. If you revoke, the passenger is sent back to searching.</Notice>
-            )}
-            <label className="field" htmlFor="revoke-reason">
-              <span>Reason (required)</span>
-              <textarea
-                id="revoke-reason"
-                rows={3}
-                value={reason}
-                onChange={(e) => {
-                  setReason(e.target.value);
-                  setReasonTouched(true);
-                }}
-                aria-invalid={reasonTouched && reasonError ? true : undefined}
-                disabled={saving}
-              />
-              <span className="hint">
-                {reasonTouched && reasonError ? (
-                  <span className="field-error">{reasonError}</span>
-                ) : (
-                  `${reasonTrimmed.length}/${MAX_VERIFICATION_NOTE_LENGTH}`
-                )}
-              </span>
-            </label>
-            <button
-              type="button"
-              className="btn-danger"
-              onClick={() => {
-                setReasonTouched(true);
-                if (reasonError) return;
-                setSaveError(null);
-                setMessage(null);
-                setAction('revoke');
-              }}
-              disabled={saving}
-            >
+        {suspended && driver.suspensionReason && (
+          <div className="remarks-box">
+            <div className="remarks-label">
+              Reason for the suspension{driver.suspendedAt ? ` (${formatDateTime(driver.suspendedAt)})` : ''}
+            </div>
+            <p>{driver.suspensionReason}</p>
+          </div>
+        )}
+        <p className="muted small">
+          A suspended driver can stay online and finish a current trip but cannot accept new requests. Revoking takes
+          them offline until you restore them. Every action sends the driver a message in the app.
+        </p>
+        <div className="button-row">
+          <button type="button" className="btn-outline" onClick={() => openAction('warning')}>
+            Send warning…
+          </button>
+          {suspended ? (
+            <button type="button" className="btn-outline" onClick={() => openAction('lift')}>
+              Lift suspension…
+            </button>
+          ) : (
+            driver.isVerified && (
+              <button type="button" className="btn-danger" onClick={() => openAction('suspend')}>
+                Suspend…
+              </button>
+            )
+          )}
+          {driver.isVerified ? (
+            <button type="button" className="btn-danger" onClick={() => openAction('revoke')}>
               Revoke verification…
             </button>
-          </>
-        ) : (
-          <>
-            <p className="muted small">
-              {verification === 'revoked'
-                ? 'Restoring lets the driver go online and accept bookings again.'
-                : 'This driver record was never verified. Verifying lets the driver go online and accept bookings.'}{' '}
-              They stay offline until they go online in the app.
-            </p>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => {
-                setSaveError(null);
-                setMessage(null);
-                setAction('restore');
-              }}
-              disabled={saving}
-            >
+          ) : (
+            <button type="button" className="btn-primary" onClick={() => openAction('restore')}>
               {verification === 'revoked' ? 'Restore verification…' : 'Verify driver…'}
             </button>
-          </>
+          )}
+        </div>
+
+        <h4 className="history-heading">History</h4>
+        {history === null ? (
+          <LoadingBlock label="Loading history…" lines={2} />
+        ) : history === 'error' ? (
+          <p className="muted small">Could not load the history. Reload the page to try again.</p>
+        ) : history.length === 0 ? (
+          <p className="muted small">No suspensions or verification changes sent to this driver yet.</p>
+        ) : (
+          <ul className="history-list">
+            {history.map((item) => (
+              <li key={item.messageId} className="history-item">
+                <div className="history-line">
+                  <span className="cell-strong">
+                    {item.kind ? ADMIN_MESSAGE_KIND_LABELS[item.kind] : item.title || 'Message'}
+                  </span>
+                  {item.kind === 'suspended' && (
+                    <span className="muted small">{item.until ? `until ${formatDate(item.until)}` : 'until lifted'}</span>
+                  )}
+                  <span className="muted small">{formatDateTime(item.createdAt)}</span>
+                  <span className="muted small">{item.readAt ? 'Read by the driver' : 'Not read yet'}</span>
+                </div>
+                {item.reason ? <p className="history-reason">{item.reason}</p> : <p className="muted small">Reason removed.</p>}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
@@ -432,7 +447,7 @@ export function DriverDetailPage() {
                   if (plateError || hasVehicleDetailErrors(detailErrors)) return;
                   setSaveError(null);
                   setMessage(null);
-                  setAction('vehicle');
+                  setConfirmVehicle(true);
                 }}
                 disabled={saving || (!typeChanged && !plateChanged && !detailsChanged)}
               >
@@ -527,65 +542,26 @@ export function DriverDetailPage() {
         )}
       </div>
 
-      {action === 'revoke' && (
-        <ConfirmDialog
-          title={`Revoke ${driver.fullName}'s verification?`}
-          confirmLabel="Revoke verification"
-          danger
-          busy={saving}
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setAction(null)}
-        >
-          <table className="change-table">
-            <tbody>
-              <tr className="changed">
-                <td>Verification</td>
-                <td>Verified → Revoked</td>
-              </tr>
-              <tr className={driver.isOnline || driver.isAvailable ? 'changed' : undefined}>
-                <td>Duty</td>
-                <td>{driver.isOnline ? `${driver.isAvailable ? 'Available' : 'Online'} → Offline` : 'Offline'}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p>Reason (shown to admins):</p>
-          <blockquote className="remarks-quote">{reasonTrimmed}</blockquote>
-          {duty === 'on_trip' && <p className="small">They can still finish their current trip.</p>}
-          {saveError && (
-            <div className="alert-error" role="alert">
-              {saveError}
-            </div>
-          )}
-        </ConfirmDialog>
+      {driverAction && (
+        <DriverActionDialog
+          driver={driver}
+          action={driverAction}
+          onClose={() => setDriverAction(null)}
+          onDone={(done) => {
+            setDriverAction(null);
+            setMessage(done);
+            void reload();
+          }}
+        />
       )}
 
-      {action === 'restore' && (
-        <ConfirmDialog
-          title={`${verification === 'revoked' ? 'Restore' : 'Verify'} ${driver.fullName}?`}
-          confirmLabel={verification === 'revoked' ? 'Restore verification' : 'Verify driver'}
-          busy={saving}
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setAction(null)}
-        >
-          <p>
-            Verification: {VERIFICATION_LABELS[verification]} → Verified. The driver can go online and accept bookings
-            again{driver.verificationNote ? '; the revoke reason is cleared' : ''}.
-          </p>
-          {saveError && (
-            <div className="alert-error" role="alert">
-              {saveError}
-            </div>
-          )}
-        </ConfirmDialog>
-      )}
-
-      {action === 'vehicle' && (
+      {confirmVehicle && (
         <ConfirmDialog
           title={`Update ${driver.fullName}'s vehicle?`}
           confirmLabel="Save vehicle details"
           busy={saving}
           onConfirm={() => void handleConfirm()}
-          onCancel={() => setAction(null)}
+          onCancel={() => setConfirmVehicle(false)}
         >
           <table className="change-table">
             <tbody>

@@ -991,6 +991,46 @@ describe('privacy: recording the sign-in account deletion', () => {
 // ─── The admin website's own payloads (admin/src/privacy/deletionPlan.ts) ──
 
 describe('privacy: admin website payloads', () => {
+  const suspension = {
+    suspendedAt: Timestamp.fromMillis(Date.now() - 60 * 60 * 1000),
+    suspendedUntil: null,
+    suspensionReason: 'Repeated late pickups.',
+    suspendedBy: ADMIN,
+    suspensionLiftedAt: null,
+    suspensionLiftedBy: null,
+  };
+
+  it('anonymizes a suspended driver, removing the suspension reason', async () => {
+    await seed({
+      [`deletionRequests/${DRIVER}`]: pendingRequest(DRIVER),
+      [`drivers/${DRIVER}`]: driverRecord(suspension),
+    });
+    const now = serverTimestamp();
+    await assertSucceeds(
+      anonymize(DRIVER, {
+        user: anonymizedUserUpdate(now),
+        driver: anonymizedDriverUpdate(now, ADMIN),
+        request: completedRequestUpdate(now, ADMIN),
+      }),
+    );
+  });
+
+  it('denies keeping the suspension reason of a suspended driver', async () => {
+    await seed({
+      [`deletionRequests/${DRIVER}`]: pendingRequest(DRIVER),
+      [`drivers/${DRIVER}`]: driverRecord(suspension),
+    });
+    const now = serverTimestamp();
+    const { suspensionReason: _removed, ...keepsReason } = anonymizedDriverUpdate(now, ADMIN);
+    await assertFails(
+      anonymize(DRIVER, {
+        user: anonymizedUserUpdate(now),
+        driver: keepsReason,
+        request: completedRequestUpdate(now, ADMIN),
+      }),
+    );
+  });
+
   it('anonymizes a driver with application and completes the request (deletionRequests.ts anonymizeAndComplete)', async () => {
     await seed({
       [`deletionRequests/${DRIVER}`]: pendingRequest(DRIVER),

@@ -100,14 +100,18 @@ export function hasActiveFilters(filters: DriverTableFilters): boolean {
 }
 
 /**
- * An admin suspension on drivers/{uid}: suspendedAt set, suspendedUntil a time or null
- * ("until lifted"). It stops counting at suspendedUntil (no write needed). Records without
- * these fields are not suspended. (Admin suspension is Part B; until it exists no driver has them.)
+ * The latest admin suspension on drivers/{uid} (driverActionPlan.ts). Active while suspendedAt
+ * is set, it was not lifted, and suspendedUntil is null (until lifted) or still ahead; it
+ * stops by itself at suspendedUntil (no write). Same test as firestore.rules isAdminSuspended.
  */
-export type AdminSuspension = { suspendedAt: Date | null; suspendedUntil: Date | null };
+export type AdminSuspension = {
+  suspendedAt: Date | null;
+  suspendedUntil: Date | null;
+  suspensionLiftedAt: Date | null;
+};
 
 export function isAdminSuspended(suspension: AdminSuspension | null, nowMillis: number): boolean {
-  if (!suspension?.suspendedAt) return false;
+  if (!suspension?.suspendedAt || suspension.suspensionLiftedAt) return false;
   return suspension.suspendedUntil === null || nowMillis < suspension.suspendedUntil.getTime();
 }
 

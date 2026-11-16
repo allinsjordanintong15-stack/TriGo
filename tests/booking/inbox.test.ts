@@ -8,10 +8,14 @@ import { describe, it } from 'node:test';
 import {
   badgeLabel,
   buildInbox,
+  MESSAGE_FALLBACK_TITLE,
+  newestUnreadItem,
   newestUnreadWarning,
   previewText,
+  readMessageKind,
   unreadCount,
   WARNING_TITLE,
+  type InboxMessage,
   type InboxWarning,
 } from '../../src/utils/inbox.ts';
 
@@ -116,5 +120,44 @@ describe('previewText', () => {
     const long = previewText('x'.repeat(200));
     assert.equal(long.length, 120);
     assert.ok(long.endsWith('…'));
+  });
+});
+
+describe('messages from TriGo (adminMessages)', () => {
+  function message(id: string, overrides: Partial<InboxMessage> = {}): InboxMessage {
+    return {
+      messageId: id,
+      userId: 'user1',
+      kind: 'suspended',
+      title: 'Your account is suspended',
+      body: 'TriGo suspended your driver account until Nov 20.',
+      reason: 'Repeated late pickups.',
+      until: new Date(2026, 10, 20),
+      createdAt: new Date(2026, 10, 15),
+      readAt: null,
+      ...overrides,
+    };
+  }
+
+  it('merges messages with warnings, newest first, and counts unread ones', () => {
+    const items = buildInbox(
+      [warning('w', { createdAt: new Date(2026, 10, 10) })],
+      [message('m', { createdAt: new Date(2026, 10, 15) }), message('read', { readAt: new Date(), createdAt: new Date(2026, 10, 1) })],
+    );
+    assert.deepEqual(
+      items.map((i) => i.key),
+      ['message:m', 'warning:w', 'message:read'],
+    );
+    assert.equal(unreadCount(items), 2);
+    assert.equal(newestUnreadItem(items)?.key, 'message:m');
+    assert.equal(newestUnreadWarning(items)?.warningId, 'w');
+  });
+
+  it('handles unknown kinds and cleared text safely', () => {
+    assert.equal(readMessageKind('announcement'), 'other');
+    assert.equal(readMessageKind('revoked'), 'revoked');
+    const [item] = buildInbox([], [message('x', { kind: 'other', title: '', body: '', reason: '' })]);
+    assert.equal(item.title, MESSAGE_FALLBACK_TITLE);
+    assert.equal(item.preview, 'Open to read this message.');
   });
 });

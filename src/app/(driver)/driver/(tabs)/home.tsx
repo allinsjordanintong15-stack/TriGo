@@ -1,6 +1,7 @@
 import { RouteTimeline } from '@/components/booking/RouteTimeline';
 import { ActiveTripBanner } from '@/components/driver/ActiveTripBanner';
 import { CommissionBanner } from '@/components/driver/CommissionBanner';
+import { SuspensionBanner } from '@/components/driver/SuspensionBanner';
 import { CommissionChip } from '@/components/driver/CommissionChip';
 import { DriverStatusCard } from '@/components/driver/DriverStatusCard';
 import { DutyToggle } from '@/components/driver/DutyToggle';
@@ -42,6 +43,7 @@ import {
   openAppSettings,
 } from '@/services/locationService';
 import { commissionStatus } from '@/utils/commission';
+import { isSuspensionActive } from '@/utils/adminSuspension';
 import { getAcceptRestriction } from '@/utils/driverHome';
 import { formatRequestCount, viewRequestsLabel, waitingPassengersText } from '@/utils/openRequests';
 import { formatPhilippinePeso } from '@/utils/fare';
@@ -298,9 +300,12 @@ export default function DriverHomeScreen() {
     !commission.loading && !commission.error && commission.account
       ? commissionStatus(commission.account, clock).status
       : null;
-  // Verified drivers who may stay online but cannot accept (suspension, daily limit).
+  // TriGo's own suspension (admin website); ends by itself at suspendedUntil (checked each minute).
+  const adminSuspension = driverRecord?.adminSuspension ?? null;
+  const adminSuspended = status === 'verified' && isSuspensionActive(adminSuspension, clock);
+  // Verified drivers who may stay online but cannot accept (suspensions, daily limit).
   const acceptRestriction =
-    status === 'verified' ? getAcceptRestriction(commissionState, dailyQuota) : null;
+    status === 'verified' ? getAcceptRestriction(commissionState, dailyQuota, adminSuspended) : null;
   const vehicleDescription = driverRecord ? formatVehicleDescription(driverRecord) : null;
 
   const dutyCaption =
@@ -527,6 +532,8 @@ export default function DriverHomeScreen() {
 
         {/* Directly under the duty section, so an active trip is never pushed down. */}
         {statusCard}
+
+        {adminSuspended && adminSuspension ? <SuspensionBanner suspension={adminSuspension} /> : null}
 
         <WarningBanner />
 

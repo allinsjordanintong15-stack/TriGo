@@ -26,4 +26,5 @@ export const COLLECTIONS = {
   quotaSettings: 'quotaSettings',
   deletionRequests: 'deletionRequests',
   warnings: 'warnings',
+  adminMessages: 'adminMessages',
 } as const;

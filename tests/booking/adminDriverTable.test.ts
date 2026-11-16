@@ -57,14 +57,19 @@ describe('URL filters', () => {
 describe('admin suspension and account standing', () => {
   const now = Date.UTC(2026, 10, 16);
   it('is not suspended without suspendedAt', () => {
-    assert.equal(isAdminSuspended({ suspendedAt: null, suspendedUntil: null }, now), false);
+    assert.equal(isAdminSuspended({ suspendedAt: null, suspendedUntil: null, suspensionLiftedAt: null }, now), false);
     assert.equal(isAdminSuspended(null, now), false);
   });
   it('is suspended until lifted, or until suspendedUntil', () => {
     const at = new Date(now - 1000);
-    assert.equal(isAdminSuspended({ suspendedAt: at, suspendedUntil: null }, now), true);
-    assert.equal(isAdminSuspended({ suspendedAt: at, suspendedUntil: new Date(now + 1) }, now), true);
-    assert.equal(isAdminSuspended({ suspendedAt: at, suspendedUntil: new Date(now) }, now), false);
+    const lifted = null;
+    assert.equal(isAdminSuspended({ suspendedAt: at, suspendedUntil: null, suspensionLiftedAt: lifted }, now), true);
+    assert.equal(isAdminSuspended({ suspendedAt: at, suspendedUntil: new Date(now + 1), suspensionLiftedAt: lifted }, now), true);
+    assert.equal(isAdminSuspended({ suspendedAt: at, suspendedUntil: new Date(now), suspensionLiftedAt: lifted }, now), false);
+  });
+  it('is not suspended once lifted', () => {
+    const at = new Date(now - 1000);
+    assert.equal(isAdminSuspended({ suspendedAt: at, suspendedUntil: null, suspensionLiftedAt: new Date(now - 10) }, now), false);
   });
   it('puts revoked before suspended', () => {
     assert.equal(accountStanding(false, true), 'revoked');

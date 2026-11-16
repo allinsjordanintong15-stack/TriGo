@@ -12,6 +12,8 @@ import {
   type Timestamp,
 } from 'firebase/firestore';
 
+import { adminMessageIdsWithText } from '../drivers/adminMessages';
+import { clearedAdminMessageUpdate } from '../drivers/driverActionPlan';
 import { readAccount } from '../earnings/earnings';
 import { db } from '../firebase/config';
 import { clearedReasonUpdate } from '../warnings/warningPlan';
@@ -161,6 +163,8 @@ export async function anonymizeAndComplete(uid: string, adminUid: string): Promi
   // Warnings stay on record without their reason. Admins only create or withdraw warnings,
   // so the list read here cannot gain a reason before the commit.
   const warningIds = await warningIdsWithReason(uid);
+  // Messages from TriGo (suspension, verification) likewise keep their record without text.
+  const messageIds = await adminMessageIdsWithText(uid);
   const requestRef = doc(db, 'deletionRequests', uid);
   const userRef = doc(db, 'users', uid);
   const driverRef = doc(db, 'drivers', uid);
@@ -200,6 +204,9 @@ export async function anonymizeAndComplete(uid: string, adminUid: string): Promi
     }
     for (const warningId of warningIds) {
       transaction.update(doc(db, 'warnings', warningId), clearedReasonUpdate(now));
+    }
+    for (const messageId of messageIds) {
+      transaction.update(doc(db, 'adminMessages', messageId), clearedAdminMessageUpdate(now));
     }
     transaction.update(requestRef, completedRequestUpdate(now, adminUid));
   });
