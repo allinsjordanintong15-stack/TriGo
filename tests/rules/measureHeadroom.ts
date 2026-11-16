@@ -125,6 +125,7 @@ type Target =
   | 'anonymize: application'
   | 'anonymize: request complete'
   | 'complaint create'
+  | 'complaint review'
   | 'warning create'
   | 'warning acknowledge'
   | 'warning withdraw'
@@ -259,6 +260,11 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'complaint create': [
     "          && data.category in ['driver_behavior', 'passenger_behavior',",
     "          && pad()\n          && data.category in ['driver_behavior', 'passenger_behavior',",
+  ],
+  // Complaint review (admin): after the notes check every valid review passes.
+  'complaint review': [
+    '          && data.adminNotes.size() <= 1000\n',
+    '          && data.adminNotes.size() <= 1000\n          && pad()\n',
   ],
   // Warnings: right after the first term of each branch the valid write passes through.
   'warning create': [
@@ -1076,6 +1082,104 @@ function complaintCreate(role: 'passenger' | 'driver'): Scenario {
   };
 }
 
+function openComplaint(): DocumentData {
+  return {
+    bookingId: BOOKING,
+    reporterId: PASSENGER,
+    reporterRole: 'passenger',
+    reportedUserId: DRIVER,
+    category: 'other',
+    message: 'Something went wrong on this trip.',
+    status: 'in_review',
+    adminNotes: '',
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  };
+}
+
+const COMPLAINT_ID = `${BOOKING}_${PASSENGER}`;
+
+function complaintResolveFields(outcome: string): DocumentData {
+  return {
+    status: 'resolved',
+    outcome,
+    adminNotes: 'Reviewed — no violation found.',
+    resolvedAt: serverTimestamp(),
+    resolvedBy: ADMIN,
+    updatedAt: serverTimestamp(),
+    updatedBy: ADMIN,
+  };
+}
+
+function seedComplaint() {
+  return seed({
+    [`bookings/${BOOKING}`]: { passengerId: PASSENGER, driverId: DRIVER, status: 'completed' },
+    [`drivers/${DRIVER}`]: { ...availableDriverRecord(), isOnline: false, isAvailable: false },
+    [`complaints/${COMPLAINT_ID}`]: openComplaint(),
+  });
+}
+
+/** Resolve with "No action" (complaints.ts resolveComplaint). */
+const complaintReviewResolve: Scenario = {
+  label: 'complaint review: resolve, no action (admin)',
+  targets: ['complaint review'],
+  run: async () => {
+    await seedComplaint();
+    await updateDoc(doc(db(ADMIN, { admin: true }), 'complaints', COMPLAINT_ID), complaintResolveFields('no_action'));
+  },
+};
+
+/** Resolve + the complaint's warning in one commit. */
+const complaintResolveWarned: Scenario = {
+  label: 'complaint review: resolve + warning in one commit (admin)',
+  targets: ['complaint review', 'warning create'],
+  run: async () => {
+    await seedComplaint();
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.set(doc(firestore, 'warnings', COMPLAINT_ID), {
+      userId: DRIVER,
+      role: 'driver',
+      complaintId: COMPLAINT_ID,
+      bookingId: BOOKING,
+      reason: 'Please be on time.',
+      adminId: ADMIN,
+      createdAt: serverTimestamp(),
+      status: 'active',
+      acknowledgedAt: null,
+    });
+    batch.update(doc(firestore, 'complaints', COMPLAINT_ID), complaintResolveFields('warned'));
+    await batch.commit();
+  },
+};
+
+/** Resolve + driver suspension + its message in one commit. */
+const complaintResolveSuspended: Scenario = {
+  label: 'complaint review: resolve + driver suspension in one commit (admin)',
+  targets: ['complaint review', 'admin suspend', 'admin message create'],
+  run: async () => {
+    await seedComplaint();
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    const until = Timestamp.fromMillis(Date.now() + 3 * DAY_MS);
+    batch.update(doc(firestore, 'drivers', DRIVER), {
+      suspendedAt: serverTimestamp(),
+      suspendedUntil: until,
+      suspensionReason: 'Repeated late pickups.',
+      suspendedBy: ADMIN,
+      suspensionLiftedAt: null,
+      suspensionLiftedBy: null,
+    });
+    batch.set(doc(firestore, 'adminMessages', 'message1'), {
+      ...suspendedMessage(),
+      until,
+      createdAt: serverTimestamp(),
+    });
+    batch.update(doc(firestore, 'complaints', COMPLAINT_ID), complaintResolveFields('suspended'));
+    await batch.commit();
+  },
+};
+
 // The heaviest deletion: a driver with an approved application and a pending request.
 const privacyAnonymizeDriver: Scenario = {
   label: 'privacy: anonymize a driver account (users + contact + driver + application + request)',
@@ -1410,6 +1514,9 @@ const SCENARIOS: Scenario[] = [
   privacyAnonymizeDriver,
   complaintCreate('passenger'),
   complaintCreate('driver'),
+  complaintReviewResolve,
+  complaintResolveWarned,
+  complaintResolveSuspended,
   warningCreate,
   warningAcknowledge,
   warningWithdraw,

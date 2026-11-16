@@ -9,13 +9,30 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  Timestamp,
   where,
   type DocumentData,
-  type Timestamp,
 } from 'firebase/firestore';
 
 import { readBooking, type AdminBooking } from '../bookings/bookings';
+import {
+  newAdminMessageDoc,
+  suspensionEndMillis,
+  suspensionUpdate,
+  type SuspensionDuration,
+} from '../drivers/driverActionPlan';
 import { db } from '../firebase/config';
+import { formatDateTime } from '../lib/format';
+import { newWarningDoc, validateWarningReason } from '../warnings/warningPlan';
+import {
+  readOutcome,
+  reopenedComplaintUpdate,
+  resolvedComplaintUpdate,
+  suspendBlockReason,
+  validateResolveNote,
+  warnBlockReason,
+  type ComplaintOutcome,
+} from './complaintResolve';
 import { reportedRoleFor, reportedUserOf } from './reportedParty';
 
 // complaints/{bookingId}_{reporterUid}: "Report a problem" from the mobile app, by the
@@ -88,6 +105,10 @@ export type AdminComplaint = {
   createdAt: Date | null;
   updatedAt: Date | null;
   updatedBy: string | null;
+  /** Set when resolved with the one-step resolve (from 2026-11-16); null otherwise. */
+  outcome: ComplaintOutcome | null;
+  resolvedAt: Date | null;
+  resolvedBy: string | null;
 };
 
 function toDate(value: unknown): Date | null {
@@ -120,6 +141,9 @@ export function readComplaint(complaintId: string, data: DocumentData): AdminCom
     createdAt: toDate(data.createdAt),
     updatedAt: toDate(data.updatedAt),
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
+    outcome: readOutcome(data.outcome),
+    resolvedAt: toDate(data.resolvedAt),
+    resolvedBy: typeof data.resolvedBy === 'string' ? data.resolvedBy : null,
   };
 }
 
@@ -285,12 +309,119 @@ export async function reviewComplaint(
     if (current.status !== expected.status || current.adminNotes !== expected.adminNotes) {
       throw new ComplaintConflictError('Another admin changed this complaint. Reload the page to see the latest.');
     }
-    // Exact field set allowed by firestore.rules (complaints, admin review).
-    transaction.update(complaintRef, {
-      status: next.status,
-      adminNotes: next.adminNotes,
-      updatedAt: serverTimestamp(),
-      updatedBy: adminUid,
-    });
+    if (next.status === 'resolved' && current.status !== 'resolved') {
+      // Resolving needs an outcome (resolveComplaint); only notes can change once resolved.
+      throw new ComplaintConflictError('Choose how this complaint was resolved.');
+    }
+    // Exact field set allowed by firestore.rules (complaints, admin review). Leaving
+    // Resolved (reopening) clears the outcome.
+    transaction.update(
+      complaintRef,
+      next.status === 'resolved'
+        ? { status: next.status, adminNotes: next.adminNotes, updatedAt: serverTimestamp(), updatedBy: adminUid }
+        : current.status === 'resolved' || current.outcome !== null
+          ? reopenedComplaintUpdate(next.adminNotes, adminUid, serverTimestamp())
+          : { status: next.status, adminNotes: next.adminNotes, updatedAt: serverTimestamp(), updatedBy: adminUid },
+    );
   });
+}
+
+export type ResolveChoice =
+  | { outcome: 'no_action' }
+  | { outcome: 'warned'; reason: string }
+  | { outcome: 'suspended'; reason: string; duration: SuspensionDuration };
+
+/**
+ * Resolves the complaint in ONE transaction: status Resolved with the outcome, note,
+ * resolvedAt/resolvedBy, and, when chosen, the warning (warnings/{complaintId}) or the
+ * reported driver's suspension with its message (adminMessages). firestore.rules checks
+ * that the outcome matches what is written in the same commit.
+ */
+export async function resolveComplaint(
+  complaintId: string,
+  adminUid: string,
+  expectedStatus: ComplaintStatus,
+  note: string,
+  choice: ResolveChoice,
+): Promise<void> {
+  const noteError = validateResolveNote(note);
+  if (noteError) throw new ComplaintConflictError(noteError);
+  if (choice.outcome !== 'no_action') {
+    const reasonError = validateWarningReason(choice.reason);
+    if (reasonError) throw new ComplaintConflictError(reasonError);
+  }
+  const complaintRef = doc(db, 'complaints', complaintId);
+  const warningRef = doc(db, 'warnings', complaintId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(complaintRef);
+    if (!snap.exists()) throw new ComplaintConflictError('This complaint no longer exists.');
+    const complaint = readComplaint(snap.id, snap.data());
+    if (complaint.status !== expectedStatus || complaint.status === 'resolved') {
+      throw new ComplaintConflictError('Another admin changed this complaint. Reload it to see the latest.');
+    }
+    const reportedUid = typeof complaint.reportedUserId === 'string' ? complaint.reportedUserId : null;
+    const reportedRole = reportedRoleFor(complaint.reporterRole);
+    const now = serverTimestamp();
+
+    if (choice.outcome === 'warned') {
+      const warningSnap = await transaction.get(warningRef);
+      const blocked = warnBlockReason({
+        reportedUserId: complaint.reportedUserId,
+        reporterRole: complaint.reporterRole,
+        warningExists: warningSnap.exists(),
+      });
+      if (blocked || !reportedUid || !reportedRole) throw new ComplaintConflictError(blocked ?? 'This complaint cannot lead to a warning.');
+      transaction.set(
+        warningRef,
+        newWarningDoc(
+          { userId: reportedUid, role: reportedRole, complaintId, bookingId: complaint.bookingId, reason: choice.reason },
+          adminUid,
+          now,
+        ),
+      );
+    }
+
+    if (choice.outcome === 'suspended') {
+      const blocked = suspendBlockReason({
+        reportedUserId: complaint.reportedUserId,
+        reporterRole: complaint.reporterRole,
+        warningExists: false,
+      });
+      if (blocked || !reportedUid) throw new ComplaintConflictError(blocked ?? 'This driver cannot be suspended here.');
+      const driverRef = doc(db, 'drivers', reportedUid);
+      const driverSnap = await transaction.get(driverRef);
+      if (!driverSnap.exists()) throw new ComplaintConflictError('This driver record no longer exists.');
+      const endMillis = suspensionEndMillis(choice.duration, Date.now());
+      const until = endMillis === null ? null : Timestamp.fromMillis(endMillis);
+      const untilLabel = endMillis === null ? null : formatDateTime(new Date(endMillis));
+      // Same writes as the Drivers page's Suspend (drivers.ts suspendDriver).
+      transaction.update(driverRef, suspensionUpdate(choice.reason, until, adminUid, now));
+      transaction.set(
+        doc(collection(db, 'adminMessages')),
+        newAdminMessageDoc({ userId: reportedUid, kind: 'suspended', reason: choice.reason, until, untilLabel }, adminUid, now),
+      );
+    }
+
+    transaction.update(complaintRef, resolvedComplaintUpdate(choice.outcome, note, adminUid, now));
+  });
+}
+
+/** Who an older complaint is about, worked out from its booking; null = the trip had no driver. */
+export type ReportedFallback = { uid: string; name: string } | null;
+
+/**
+ * For complaints filed before 2026-11-10 (no reportedUserId): the other side of each one's
+ * booking. Call it for the rows on screen only: one booking read and one name read each.
+ */
+export async function loadReportedFallback(complaints: AdminComplaint[]): Promise<Map<string, ReportedFallback>> {
+  const older = complaints.filter((c) => c.reportedUserId === undefined && c.bookingId);
+  const bookings = await Promise.all(
+    older.map((c) => getDoc(doc(db, 'bookings', c.bookingId)).catch(() => null)),
+  );
+  const uids = older.map((c, i) => {
+    const data = bookings[i]?.data();
+    return reportedUserOf(c, data ? { passengerId: data.passengerId ?? null, driverId: data.driverId ?? null } : null);
+  });
+  const names = await loadNames([...new Set(uids.filter((uid): uid is string => Boolean(uid)))]);
+  return new Map(older.map((c, i) => [c.complaintId, uids[i] ? { uid: uids[i] as string, name: names.get(uids[i] as string) ?? '' } : null]));
 }

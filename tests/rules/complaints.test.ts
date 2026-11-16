@@ -37,6 +37,8 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 
+import { resolvedComplaintUpdate } from '../../admin/src/complaints/complaintResolve.ts';
+
 const PROJECT_ID = 'demo-trigo-rules';
 
 // Denied reads and writes are expected; keep the SDK's PERMISSION_DENIED warnings quiet.
@@ -364,10 +366,26 @@ describe('complaints: admin review', () => {
 
   it('lets an admin set the status and notes', async () => {
     await assertSucceeds(updateDoc(doc(adminDb(), complaintPath(BOOKING, PASSENGER)), review()));
+    // Resolving records an outcome (complaintResolve.test.ts covers every outcome).
     await assertSucceeds(
+      updateDoc(
+        doc(adminDb(), complaintPath(BOOKING, PASSENGER)),
+        resolvedComplaintUpdate('no_action', '', ADMIN, serverTimestamp()),
+      ),
+    );
+    // Leaving Resolved clears the outcome.
+    await assertSucceeds(
+      updateDoc(
+        doc(adminDb(), complaintPath(BOOKING, PASSENGER)),
+        review({ status: 'open', outcome: null, resolvedAt: null, resolvedBy: null }),
+      ),
+    );
+  });
+
+  it('denies resolving without an outcome', async () => {
+    await assertFails(
       updateDoc(doc(adminDb(), complaintPath(BOOKING, PASSENGER)), review({ status: 'resolved', adminNotes: '' })),
     );
-    await assertSucceeds(updateDoc(doc(adminDb(), complaintPath(BOOKING, PASSENGER)), review({ status: 'open' })));
   });
 
   it('allows notes of exactly 1000 characters', async () => {

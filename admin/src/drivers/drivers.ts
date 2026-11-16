@@ -302,3 +302,11 @@ export async function updateDriverVehicle(
     });
   });
 }
+
+/** Whether TriGo has suspended this driver right now, and until when (null = until lifted); null if no record. */
+export async function loadDriverSuspension(uid: string): Promise<{ suspended: boolean; until: Date | null } | null> {
+  const snap = await getDoc(doc(db, 'drivers', uid));
+  if (!snap.exists()) return null;
+  const driver = readDriver(uid, snap.data());
+  return { suspended: isAdminSuspended(driver, Date.now()), until: driver.suspendedUntil };
+}

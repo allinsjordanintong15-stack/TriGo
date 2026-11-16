@@ -2243,7 +2243,8 @@ service cloud.firestore {
     // driver when a passenger reports, the passenger when a driver reports), or null when the
     // booking has no driver (a passenger reporting a request nobody accepted); never the
     // reporter. Complaints from before 2026-11-10 have no reportedUserId. Admins later set
-    // status (open / in_review / resolved), adminNotes and updatedBy. The reporter can read
+    // status (open / in_review / resolved), adminNotes and updatedBy, and on resolving an
+    // outcome (no_action / warned / suspended) with resolvedAt and resolvedBy. The reporter can read
     // their own report (the ID ends in their uid, so a missing report can be checked too);
     // only admins list. Nobody deletes.
     // Independent of the booking and out-of-area rules (it only reads bookings/{id}).
@@ -2365,12 +2366,51 @@ service cloud.firestore {
       function isValidComplaintReview() {
         let data = request.resource.data;
         return isAdmin()
-          && onlyChanged(['status', 'adminNotes', 'updatedAt', 'updatedBy'])
+          && onlyChanged(['status', 'adminNotes', 'updatedAt', 'updatedBy', 'outcome', 'resolvedAt', 'resolvedBy'])
           && data.status in ['open', 'in_review', 'resolved']
           && data.adminNotes is string
           && data.adminNotes.size() <= 1000
           && data.updatedAt == request.time
-          && data.updatedBy == request.auth.uid;
+          && data.updatedBy == request.auth.uid
+          && isValidOutcome(data);
+      }
+
+      // Resolving records an outcome and who resolved it, now: 'no_action'; 'warned' (this
+      // complaint's warning, warnings/{complaintId}, exists after the commit); or 'suspended'
+      // (the reported driver's admin suspension is set in this same commit; only for a
+      // complaint by a passenger that stores reportedUserId). Saving a note on an already
+      // resolved complaint (also one from before outcomes existed) leaves these untouched.
+      // Any other status has no outcome, so reopening clears it.
+      function isValidOutcome(data) {
+        return data.status == 'resolved'
+          ? (
+            (
+              resource.data.status == 'resolved'
+              && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['outcome', 'resolvedAt', 'resolvedBy'])
+            )
+            || (
+              data.resolvedAt == request.time
+              && data.resolvedBy == request.auth.uid
+              && (
+                data.outcome == 'no_action'
+                || (
+                  data.outcome == 'warned'
+                  && existsAfter(/databases/$(database)/documents/warnings/$(complaintId))
+                )
+                || (
+                  data.outcome == 'suspended'
+                  && resource.data.reporterRole == 'passenger'
+                  && resource.data.get('reportedUserId', null) is string
+                  && getAfter(driverPath(resource.data.reportedUserId)).data.get('suspendedAt', null) == request.time
+                )
+              )
+            )
+          )
+          : (
+            data.get('outcome', null) == null
+            && data.get('resolvedAt', null) == null
+            && data.get('resolvedBy', null) == null
+          );
       }
 
       allow get: if isAdmin()
