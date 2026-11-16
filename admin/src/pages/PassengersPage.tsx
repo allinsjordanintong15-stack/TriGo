@@ -35,7 +35,7 @@ export function PassengersPage() {
     <div className="stack">
       <PageHeader
         title="Passengers"
-        subtitle="Passenger accounts and booking history."
+        subtitle="Everyone who rides with TriGo. Open a passenger to see their bookings, complaints and warnings."
         actions={
           <button type="button" className="btn-outline" onClick={() => void reload()}>
             Refresh

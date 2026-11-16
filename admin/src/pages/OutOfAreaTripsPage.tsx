@@ -194,9 +194,6 @@ export function OutOfAreaTripsPage() {
                         <tr key={request.requestId}>
                           <td>
                             <div>{formatDateTime(request.createdAt)}</div>
-                            <div className="muted small mono" title="Request ID">
-                              {request.requestId}
-                            </div>
                           </td>
                           <td>
                             {request.passengerId ? (

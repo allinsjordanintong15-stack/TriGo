@@ -9,6 +9,7 @@ import {
 } from '../bookings/bookings';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
+import { TechnicalDetails } from '../components/TechnicalDetails';
 import { formatDateTime, formatPeso } from '../lib/format';
 import { loadOutOfAreaTripDetail, type OutOfAreaTripDetail } from '../outOfArea/outOfAreaRequests';
 import { buildTimeline, DISPLAY_STATUS_LABELS, displayStatus } from '../outOfArea/requests';
@@ -63,7 +64,7 @@ export function OutOfAreaTripDetailPage() {
     return (
       <div className="stack">
         {backLink}
-        <PageHeader title="Request not found" subtitle="There is no out-of-area request with this ID." />
+        <PageHeader title="Request not found" subtitle="This out-of-area request doesn't exist, or the link is incomplete." />
       </div>
     );
   }
@@ -77,8 +78,8 @@ export function OutOfAreaTripDetailPage() {
       {backLink}
 
       <PageHeader
-        title="Out-of-area request"
-        subtitle={<span className="mono small">{request.requestId}</span>}
+        title={`Out-of-area trip for ${detail.passengerName || 'a passenger without a name'}`}
+        subtitle="A trip starting or ending outside Trinidad. See who asked, which driver took it, and what happened, in order."
         actions={
           <button type="button" className="btn-outline" onClick={() => void reload()}>
             Refresh
@@ -148,7 +149,6 @@ export function OutOfAreaTripDetailPage() {
         {booking ? (
           <>
             <dl className="detail-grid">
-              <Detail label="Booking ID" value={booking.bookingId} mono />
               <Detail label="Status" value={booking.status ? BOOKING_STATUS_LABELS[booking.status] : 'Unknown'} />
               <Detail label="Fare" value={formatPeso(displayFare(booking))} />
               <Detail label="Payment" value={booking.paymentMethod ? PAYMENT_METHOD_LABELS[booking.paymentMethod] : ''} />
@@ -183,6 +183,15 @@ export function OutOfAreaTripDetailPage() {
         )}
         <p className="muted small">Only recorded times are shown.</p>
       </div>
+
+      <TechnicalDetails
+        rows={[
+          ['Request ID', request.requestId],
+          ['Booking ID', booking?.bookingId ?? ''],
+          ['Passenger user ID', request.passengerId ?? ''],
+          ['Driver user ID', detail.driverId ?? ''],
+        ]}
+      />
     </div>
   );
 }

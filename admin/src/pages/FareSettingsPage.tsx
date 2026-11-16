@@ -153,7 +153,10 @@ export function FareSettingsPage() {
 
   return (
     <div className="stack page-narrow">
-      <PageHeader title="Fare settings" subtitle="Per-km fare per vehicle type. Out-of-area trips use the same rates." />
+      <PageHeader
+        title="Fare settings"
+        subtitle="The price per kilometre for each vehicle type, used when no barangay tariff applies. Out-of-area trips use the same rates."
+      />
 
       <div className="card">
         <div className="formula">

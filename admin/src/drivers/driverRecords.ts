@@ -124,6 +124,12 @@ export type AdminDriver = {
   verificationNote: string | null;
   verificationUpdatedAt: Date | null;
   verificationUpdatedBy: string | null;
+  /**
+   * Admin suspension (Part B of the Drivers table task; no record has it yet). suspendedAt set
+   * = suspended; suspendedUntil null = until lifted. See driverTable.ts isAdminSuspended.
+   */
+  suspendedAt: Date | null;
+  suspendedUntil: Date | null;
 };
 
 /** From users/{uid}; the driver record has no contact details. */
@@ -147,6 +153,8 @@ export function readDriver(uid: string, data: DocumentData): AdminDriver {
     verificationNote: typeof data.verificationNote === 'string' ? data.verificationNote : null,
     verificationUpdatedAt: (data.verificationUpdatedAt as Timestamp | undefined)?.toDate?.() ?? null,
     verificationUpdatedBy: typeof data.verificationUpdatedBy === 'string' ? data.verificationUpdatedBy : null,
+    suspendedAt: (data.suspendedAt as Timestamp | undefined)?.toDate?.() ?? null,
+    suspendedUntil: (data.suspendedUntil as Timestamp | undefined)?.toDate?.() ?? null,
   };
 }
 

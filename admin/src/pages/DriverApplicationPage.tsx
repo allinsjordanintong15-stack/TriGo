@@ -106,7 +106,7 @@ export function DriverApplicationPage() {
     return (
       <div className="stack page-narrow">
         {backLink}
-        <PageHeader title="Application not found" subtitle="There is no driver application for this account." />
+        <PageHeader title="Application not found" subtitle="This account has no driver application, or the link is incomplete." />
       </div>
     );
   }
@@ -160,7 +160,7 @@ export function DriverApplicationPage() {
 
       <PageHeader
         title={application.fullName || '(no name)'}
-        subtitle="Driver application"
+        subtitle="Driver application. Check their details and documents, then approve them to start driving or reject with a reason they will read."
         actions={<span className={`status-badge status-${application.status}`}>{STATUS_LABELS[application.status]}</span>}
       />
 

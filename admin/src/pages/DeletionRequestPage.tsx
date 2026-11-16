@@ -133,7 +133,7 @@ export function DeletionRequestPage() {
       {backLink}
       <PageHeader
         title={name}
-        subtitle={`Deletion request · ${DELETION_STATUS_LABELS[request.status]}`}
+        subtitle={`Deletion request · ${DELETION_STATUS_LABELS[request.status]}. This person asked TriGo to delete their account. Check nothing is still open, then follow the three steps below.`}
       />
 
       {saveError && (
@@ -150,7 +150,6 @@ export function DeletionRequestPage() {
           <Detail label="Email" value={account?.email ?? ''} />
           <Detail label="Mobile number" value={account?.mobileNumber ?? ''} />
           <Detail label="Role" value={account?.role ? (ROLE_LABELS[account.role] ?? account.role) : ''} />
-          <Detail label="User ID" value={request.uid} mono />
         </dl>
         {request.status === 'declined' && (
           <p className="small">

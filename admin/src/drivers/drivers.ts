@@ -9,9 +9,13 @@ import {
   runTransaction,
   serverTimestamp,
   where,
+  type Timestamp,
 } from 'firebase/firestore';
 
 import { readBooking, type AdminBooking } from '../bookings/bookings';
+import { countComplaintsAgainst } from '../complaints/complaints';
+import type { AccountTimes } from '../earnings/commissionStatus';
+import { readAccount } from '../earnings/earnings';
 import { db } from '../firebase/config';
 import {
   normalizeVehicleDetails,
@@ -33,31 +37,70 @@ export const TRIP_HISTORY_LIMIT = 200;
 export type DriverListEntry = {
   driver: AdminDriver;
   contact: DriverContact | undefined;
-  /** driverRatings/{uid}; null when nobody has rated this driver yet. */
-  ratingSummary: DriverRatingSummary | null;
+  /** users/{uid}.profileImage (drivers/{uid}.profileImage is always null). */
+  profileImage: string | null;
+  /** users/{uid}.createdAt: when the account was registered. */
+  joinedAt: Date | null;
+  /** commissionAccounts/{uid}: undefined when there is none, null when it can't be read. */
+  account: AccountTimes | null | undefined;
 };
 
-async function loadContact(uid: string): Promise<DriverContact | undefined> {
+async function loadProfile(uid: string) {
   const data = (await getDoc(doc(db, 'users', uid))).data();
-  return data ? { email: data.email ?? '', mobileNumber: data.mobileNumber ?? '' } : undefined;
+  return {
+    contact: data ? { email: data.email ?? '', mobileNumber: data.mobileNumber ?? '' } : undefined,
+    profileImage: typeof data?.profileImage === 'string' && data.profileImage ? data.profileImage : null,
+    joinedAt: (data?.createdAt as Timestamp | undefined)?.toDate?.() ?? null,
+  };
 }
 
-/** All driver records, A–Z by name. Search is done in the browser (Firestore has no text search). */
+/**
+ * All driver records, A–Z by name, with their profile (search needs every email and mobile
+ * number: Firestore has no text search) and commission account (one query, for the
+ * Commission filter). Ratings and complaint counts are loaded per page (loadDriverRowExtras).
+ */
 export async function loadDrivers(): Promise<DriverListEntry[]> {
-  const [snapshot, ratingsSnapshot] = await Promise.all([
+  const [snapshot, accountsSnapshot] = await Promise.all([
     getDocs(collection(db, 'drivers')),
-    getDocs(collection(db, 'driverRatings')),
+    getDocs(collection(db, 'commissionAccounts')),
   ]);
-  const ratings = new Map(ratingsSnapshot.docs.map((d) => [d.id, readRatingSummary(d.data())]));
+  const accounts = new Map(accountsSnapshot.docs.map((d) => [d.id, readAccount(d.data())]));
   const drivers = snapshot.docs.map((d) => readDriver(d.id, d.data()));
-  const contacts = await Promise.all(drivers.map((driver) => loadContact(driver.uid)));
+  const profiles = await Promise.all(drivers.map((driver) => loadProfile(driver.uid)));
   return drivers
     .map((driver, index) => ({
       driver,
-      contact: contacts[index],
-      ratingSummary: ratings.get(driver.uid) ?? null,
+      ...profiles[index],
+      account: accounts.has(driver.uid) ? (accounts.get(driver.uid) ?? null) : undefined,
     }))
     .sort((a, b) => a.driver.fullName.localeCompare(b.driver.fullName));
+}
+
+export type DriverRowExtras = {
+  /** driverRatings/{uid}; null when nobody has rated this driver yet. */
+  ratingSummary: DriverRatingSummary | null;
+  /** Complaints from passengers naming this driver (reportedUserId); null when the count failed. */
+  complaintCount: number | null;
+};
+
+/**
+ * Rating and complaint count for the rows on screen only: one document read and one count
+ * query per driver. A failed count shows as unknown instead of failing the whole page.
+ */
+export async function loadDriverRowExtras(uids: string[]): Promise<Map<string, DriverRowExtras>> {
+  const extras = await Promise.all(
+    uids.map(async (uid) => {
+      const [ratingSnap, complaintCount] = await Promise.all([
+        getDoc(doc(db, 'driverRatings', uid)),
+        countComplaintsAgainst(uid, 'driver').catch((error: unknown) => {
+          console.error('Complaint count failed:', error);
+          return null;
+        }),
+      ]);
+      return [uid, { ratingSummary: readRatingSummary(ratingSnap.data()), complaintCount }] as const;
+    }),
+  );
+  return new Map(extras);
 }
 
 export type DriverDetail = {

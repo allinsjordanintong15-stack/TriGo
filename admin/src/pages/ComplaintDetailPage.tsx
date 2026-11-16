@@ -4,14 +4,17 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { useAuth } from '../auth/AuthContext';
 import {
   BOOKING_TYPE_LABELS,
-  bookingStatusBadge,
   displayFare,
+  isBookingExpired,
   VEHICLE_TYPE_LABELS,
 } from '../bookings/bookings';
-import { ComplaintsAgainst } from '../complaints/ComplaintsAgainst';
+import { complaintStatusSentence, tripStatusText } from '../complaints/complaintText';
+import { PersonStanding } from '../complaints/PersonStanding';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
+import { TechnicalDetails } from '../components/TechnicalDetails';
+import { PhoneNumber } from '../components/PhoneNumber';
 import {
   COMPLAINT_CATEGORY_LABELS,
   COMPLAINT_STATUS_LABELS,
@@ -27,7 +30,7 @@ import {
   type ComplaintStatus,
 } from '../complaints/complaints';
 import { useAdminCounts } from '../lib/adminCounts';
-import { formatDateTime, formatPeso } from '../lib/format';
+import { formatDate, formatDateTime, formatPeso } from '../lib/format';
 import { ComplaintWarningPanel } from '../warnings/ComplaintWarningPanel';
 
 export function ComplaintDetailPage() {
@@ -105,16 +108,42 @@ export function ComplaintDetailPage() {
     return (
       <>
         {backLink}
-        <PageHeader title="Complaint not found" subtitle="There is no complaint with this ID." />
+        <PageHeader title="Complaint not found" subtitle="This complaint doesn't exist, or the link is incomplete." />
       </>
     );
   }
 
-  const { complaint, booking } = detail;
+  const { complaint, booking, reported } = detail;
   const notesTrimmed = notes.trim();
   const notesTooLong = notesTrimmed.length > MAX_ADMIN_NOTES_LENGTH;
   const statusChanged = status !== complaint.status;
   const notesChanged = notesTrimmed !== complaint.adminNotes;
+
+  const reporterName = detail.reporterName || 'Someone';
+  const reporterRole = complaint.reporterRole ? ROLE_LABELS[complaint.reporterRole] : null;
+  const reportedName = reported ? reported.name || 'someone without a name' : null;
+  // Complaints filed before 2026-11-10 don't store who was reported (the page works it out
+  // from the booking), so they aren't in the counts and can't lead to a warning.
+  const counted = typeof complaint.reportedUserId === 'string' && complaint.reportedUserId !== '';
+
+  const changedBy = !complaint.updatedBy
+    ? null
+    : complaint.updatedBy === admin?.uid
+      ? 'you'
+      : (detail.updatedByName ?? detail.updatedByEmail ?? 'another admin');
+  const statusSentence = complaintStatusSentence(
+    complaint.status,
+    complaint.updatedAt ? formatDate(complaint.updatedAt) : null,
+    changedBy,
+  );
+
+  const tripLink = booking
+    ? booking.bookingType === 'out_of_area'
+      ? `/trips/out-of-area/${encodeURIComponent(booking.bookingId)}`
+      : booking.passengerId
+        ? `/passengers/${encodeURIComponent(booking.passengerId)}#booking-${booking.bookingId}`
+        : null
+    : null;
 
   async function handleConfirm() {
     if (!admin) return;
@@ -150,8 +179,16 @@ export function ComplaintDetailPage() {
       {backLink}
 
       <PageHeader
-        title="Complaint"
-        subtitle={<span className="mono small">{complaint.complaintId}</span>}
+        title={
+          <>
+            {reporterName}
+            {reporterRole && <span className="role-label">{reporterRole}</span>}
+            {reportedName ? ' reported ' : ' reported a problem'}
+            {reportedName}
+            {reported && <span className="role-label">{ROLE_LABELS[reported.role]}</span>}
+          </>
+        }
+        subtitle="A problem reported from a trip in the app. Read what happened, then choose what to do below."
         actions={
           <button type="button" className="btn-outline" onClick={() => void reload()} disabled={saving}>
             Refresh
@@ -159,56 +196,34 @@ export function ComplaintDetailPage() {
         }
       />
 
-      <div className="card">
-        <p>
-          <span className={`booking-status complaint-status-${complaint.status}`}>
-            {COMPLAINT_STATUS_LABELS[complaint.status]}
-          </span>
-        </p>
-        <dl className="detail-grid">
-          <Detail label="Reported" value={formatDateTime(complaint.createdAt)} />
-          <Detail
-            label="Reported by"
-            value={`${detail.reporterName || '(no name)'} · ${complaint.reporterRole ? ROLE_LABELS[complaint.reporterRole] : 'Unknown role'}`}
-          />
-          <div className="detail-item">
-            <dt>About</dt>
-            <dd>
-              {detail.reported ? (
-                <>
-                  <Link
-                    className="btn-link"
-                    to={
-                      detail.reported.role === 'driver'
-                        ? `/drivers/all/${encodeURIComponent(detail.reported.uid)}`
-                        : `/passengers/${encodeURIComponent(detail.reported.uid)}`
-                    }
-                  >
-                    {detail.reported.name || '(no name)'}
-                  </Link>
-                  {` · ${ROLE_LABELS[detail.reported.role]}`}
-                </>
-              ) : (
-                <span className="muted">Nobody (no driver on this booking)</span>
-              )}
-            </dd>
-          </div>
-          {detail.reported && <ComplaintsAgainst uid={detail.reported.uid} as={detail.reported.role} />}
-          <Detail label="Category" value={complaint.category ? COMPLAINT_CATEGORY_LABELS[complaint.category] : ''} />
-        </dl>
-        <h3 className="complaint-message-title">Message</h3>
-        <blockquote className="remarks-quote complaint-message">{complaint.message || '—'}</blockquote>
+      <div className="card status-bar" role="status">
+        <span className={`booking-status complaint-status-${complaint.status}`}>
+          {COMPLAINT_STATUS_LABELS[complaint.status]}
+        </span>
+        <span>{statusSentence}</span>
       </div>
 
-      <div className="card">
-        <h3>Booking</h3>
+      <section className="card" aria-labelledby="complaint-what">
+        <h3 id="complaint-what">What happened</h3>
+        <dl className="detail-grid">
+          <Detail label="Category" value={complaint.category ? COMPLAINT_CATEGORY_LABELS[complaint.category] : ''} />
+          <Detail label="Reported on" value={formatDateTime(complaint.createdAt)} />
+        </dl>
+        <h4 className="complaint-message-title">In {reporterName}&apos;s words</h4>
+        <blockquote className="remarks-quote complaint-message">{complaint.message || '—'}</blockquote>
+      </section>
+
+      <section className="card" aria-labelledby="complaint-trip">
+        <h3 id="complaint-trip">The trip</h3>
         {booking ? (
           <>
             <dl className="detail-grid">
-              <Detail label="Booking ID" value={booking.bookingId} mono />
-              <Detail label="Status" value={bookingStatusBadge(booking).label} />
+              <Detail label="When" value={formatDateTime(booking.createdAt)} />
+              <Detail label="Route" value={`${booking.pickupAddress || '—'} → ${booking.destinationAddress || '—'}`} />
+              <Detail label="Fare" value={formatPeso(displayFare(booking))} />
+              <Detail label="What happened to the trip" value={tripStatusText(booking.status, isBookingExpired(booking))} />
               <Detail
-                label="Type"
+                label="Kind of trip"
                 value={[
                   booking.bookingType ? BOOKING_TYPE_LABELS[booking.bookingType] : null,
                   booking.vehicleType ? VEHICLE_TYPE_LABELS[booking.vehicleType] : null,
@@ -216,123 +231,161 @@ export function ComplaintDetailPage() {
                   .filter(Boolean)
                   .join(' · ')}
               />
-              <Detail label="Booked" value={formatDateTime(booking.createdAt)} />
-              <Detail label="Pickup" value={booking.pickupAddress} />
-              <Detail label="Destination" value={booking.destinationAddress} />
-              <Detail label="Fare" value={formatPeso(displayFare(booking))} />
-              <div className="detail-item">
-                <dt>Passenger</dt>
-                <dd>
-                  {booking.passengerId ? (
-                    <Link className="btn-link" to={`/passengers/${booking.passengerId}#booking-${booking.bookingId}`}>
-                      {detail.passengerName || '(no name)'}
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
-                </dd>
-              </div>
-              <div className="detail-item">
-                <dt>Driver</dt>
-                <dd>
-                  {booking.driverId ? (
-                    <Link className="btn-link" to={`/drivers/all/${booking.driverId}`}>
-                      {detail.driverName || '(no name)'}
-                    </Link>
-                  ) : (
-                    <span className="muted">No driver</span>
-                  )}
-                </dd>
-              </div>
+              <Detail
+                label="People"
+                value={`${detail.passengerName || 'Passenger without a name'} (passenger)${
+                  booking.driverId ? ` · ${detail.driverName || 'driver without a name'} (driver)` : ' · no driver'
+                }`}
+              />
             </dl>
-            {booking.bookingType === 'out_of_area' && (
+            {tripLink && (
               <p>
-                <Link className="btn-link" to={`/trips/out-of-area/${booking.bookingId}`}>
-                  View the out-of-area request
+                <Link className="btn-outline" to={tripLink}>
+                  View trip
                 </Link>
               </p>
             )}
           </>
         ) : (
-          <p className="muted">The booking {complaint.bookingId || ''} could not be found.</p>
+          <p className="muted">The trip for this complaint could not be found. It may have been removed.</p>
         )}
-      </div>
+      </section>
 
-      <section className="card review-panel" aria-labelledby="complaint-review-title">
-        <h3 id="complaint-review-title">Review</h3>
-        {complaint.updatedBy && (
-          <p className="muted small">
-            Last changed {formatDateTime(complaint.updatedAt)} by {detail.updatedByEmail ?? complaint.updatedBy}
-          </p>
-        )}
+      {reported && (
+        <section className="card" aria-labelledby="complaint-about">
+          <h3 id="complaint-about">About {reportedName}</h3>
+          <dl className="detail-grid">
+            <Detail label="Role on this trip" value={ROLE_LABELS[reported.role]} />
+            <div className="detail-item">
+              <dt>Phone</dt>
+              <dd>{detail.reportedPhone ? <PhoneNumber phone={detail.reportedPhone} /> : 'No phone number on file'}</dd>
+            </div>
+            <div className="detail-item detail-item-wide">
+              <dt>On record (as {reported.role})</dt>
+              <dd>
+                <PersonStanding uid={reported.uid} role={reported.role} counted={counted} />
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
+
+      <section className="card review-panel" aria-labelledby="complaint-actions">
+        <h3 id="complaint-actions">What you can do</h3>
         {message && (
           <div className="alert-success" role="status">
             {message}
           </div>
         )}
-        <label className="field filter-field" htmlFor="complaint-status">
-          <span>Status</span>
-          <select
-            id="complaint-status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as ComplaintStatus)}
-            disabled={saving}
-          >
-            {COMPLAINT_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {COMPLAINT_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field" htmlFor="complaint-notes">
-          <span>Admin notes (only admins see these)</span>
-          <textarea
-            id="complaint-notes"
-            rows={4}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            aria-invalid={notesTooLong ? true : undefined}
-            disabled={saving}
-          />
-          <span className="hint">
-            {notesTooLong ? (
-              <span className="field-error">At most {MAX_ADMIN_NOTES_LENGTH} characters.</span>
+
+        <ComplaintWarningPanel key={complaint.complaintId} complaint={complaint} reported={reported} />
+
+        {reported && (
+          <div className="action-item">
+            {reported.role === 'driver' ? (
+              <>
+                <h4>Revoke {reportedName}&apos;s verification</h4>
+                <p className="action-help">
+                  Stops them from taking trips until you restore it. You do this on their driver page, where you can also
+                  see their trips and warnings.
+                </p>
+                <p>
+                  <Link className="btn-outline" to={`/drivers/all/${encodeURIComponent(reported.uid)}`}>
+                    Open driver page
+                  </Link>
+                </p>
+              </>
             ) : (
-              `${notesTrimmed.length}/${MAX_ADMIN_NOTES_LENGTH}`
+              <>
+                <h4>View {reportedName}&apos;s account</h4>
+                <p className="action-help">Their bookings, complaints and warnings, all on one page.</p>
+                <p>
+                  <Link className="btn-outline" to={`/passengers/${encodeURIComponent(reported.uid)}`}>
+                    Open passenger page
+                  </Link>
+                </p>
+              </>
             )}
-          </span>
-        </label>
-        <div className="button-row">
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => {
-              setSaveError(null);
-              setMessage(null);
-              setConfirming(true);
-            }}
-            disabled={saving || notesTooLong || (!statusChanged && !notesChanged)}
-          >
-            Save…
-          </button>
-          {(statusChanged || notesChanged) && (
-            <button
-              type="button"
-              className="btn-outline"
-              onClick={() => {
-                setStatus(complaint.status);
-                setNotes(complaint.adminNotes);
-              }}
+          </div>
+        )}
+
+        <div className="action-item">
+          <h4>Mark resolved or update the status</h4>
+          <p className="action-help">
+            Choose a status and keep a private note. {reporterName} sees the status in the app, never your note.
+          </p>
+          <label className="field filter-field" htmlFor="complaint-status">
+            <span>Status</span>
+            <select
+              id="complaint-status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as ComplaintStatus)}
               disabled={saving}
             >
-              Discard changes
+              {COMPLAINT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {COMPLAINT_STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field" htmlFor="complaint-notes">
+            <span>Admin note (only admins see this)</span>
+            <textarea
+              id="complaint-notes"
+              rows={4}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              aria-invalid={notesTooLong ? true : undefined}
+              disabled={saving}
+            />
+            <span className="hint">
+              {notesTooLong ? (
+                <span className="field-error">At most {MAX_ADMIN_NOTES_LENGTH} characters.</span>
+              ) : (
+                `${notesTrimmed.length}/${MAX_ADMIN_NOTES_LENGTH}`
+              )}
+            </span>
+          </label>
+          <div className="button-row">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => {
+                setSaveError(null);
+                setMessage(null);
+                setConfirming(true);
+              }}
+              disabled={saving || notesTooLong || (!statusChanged && !notesChanged)}
+            >
+              Save…
             </button>
-          )}
+            {(statusChanged || notesChanged) && (
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => {
+                  setStatus(complaint.status);
+                  setNotes(complaint.adminNotes);
+                }}
+                disabled={saving}
+              >
+                Discard changes
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
-      <ComplaintWarningPanel key={complaint.complaintId} complaint={complaint} reported={detail.reported} />
+      <TechnicalDetails
+        rows={[
+          ['Complaint ID', complaint.complaintId],
+          ['Booking ID', complaint.bookingId],
+          ['Reporter user ID', complaint.reporterId],
+          ['Reported user ID', reported?.uid ?? ''],
+          ['Last changed by (admin user ID)', complaint.updatedBy ?? ''],
+        ]}
+      />
 
       {confirming && (
         <ConfirmDialog
@@ -353,17 +406,13 @@ export function ComplaintDetailPage() {
                 </td>
               </tr>
               <tr className={notesChanged ? 'changed' : 'unchanged'}>
-                <td>Admin notes</td>
+                <td>Admin note</td>
                 <td>{notesChanged ? (notesTrimmed ? 'Updated' : 'Cleared') : 'Unchanged'}</td>
               </tr>
             </tbody>
           </table>
           {notesChanged && notesTrimmed && <blockquote className="remarks-quote">{notesTrimmed}</blockquote>}
-          {statusChanged && (
-            <p className="small">
-              The reporter sees the status, not your notes.
-            </p>
-          )}
+          {statusChanged && <p className="small">The reporter sees the status, not your note.</p>}
           {saveError && (
             <div className="alert-error" role="alert">
               {saveError}
@@ -375,11 +424,11 @@ export function ComplaintDetailPage() {
   );
 }
 
-function Detail({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="detail-item">
       <dt>{label}</dt>
-      <dd className={mono ? 'mono' : undefined}>{value || '—'}</dd>
+      <dd>{value || '—'}</dd>
     </div>
   );
 }

@@ -122,7 +122,7 @@ export function DeletionRequestsPage() {
                       <td>
                         <div className="cell-strong">{account?.fullName || '(no profile)'}</div>
                         <div className="muted small">
-                          {account?.email || <span className="mono">{request.uid}</span>}
+                          {account?.email || (account?.anonymized ? 'Details removed' : 'No email on file')}
                         </div>
                       </td>
                       <td>{roleLabel(account?.role)}</td>

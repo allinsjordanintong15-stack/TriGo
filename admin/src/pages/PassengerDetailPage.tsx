@@ -12,6 +12,7 @@ import { BookingStatusBadge } from '../components/BookingStatusBadge';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
+import { TechnicalDetails } from '../components/TechnicalDetails';
 import { formatDate, formatDateTime, formatPeso } from '../lib/format';
 import { loadPassengerDetail, type PassengerDetail } from '../passengers/passengers';
 import { WarningsCard } from '../warnings/WarningsCard';
@@ -73,7 +74,7 @@ export function PassengerDetailPage() {
     return (
       <div className="stack">
         {backLink}
-        <PageHeader title="Passenger not found" subtitle="There is no user profile for this account." />
+        <PageHeader title="Passenger not found" subtitle="This account has no profile, or the link is incomplete." />
       </div>
     );
   }
@@ -90,7 +91,7 @@ export function PassengerDetailPage() {
 
       <PageHeader
         title={passenger.fullName || '(no name)'}
-        subtitle="Passenger"
+        subtitle="Passenger. Their contact details, warnings and every booking they made, newest first."
         actions={detail.role !== 'passenger' && <span className="tag">Role: {detail.role || 'unknown'}</span>}
       />
 
@@ -142,9 +143,6 @@ export function PassengerDetailPage() {
                   >
                     <td>
                       <div>{formatDateTime(booking.createdAt)}</div>
-                      <div className="muted small mono" title="Booking ID">
-                        {booking.bookingId}
-                      </div>
                     </td>
                     <td>
                       <div>{booking.bookingType ? BOOKING_TYPE_LABELS[booking.bookingType] : '—'}</div>
@@ -188,6 +186,8 @@ export function PassengerDetailPage() {
           </div>
         )}
       </div>
+
+      <TechnicalDetails rows={[['User ID', passenger.uid]]} />
     </div>
   );
 }

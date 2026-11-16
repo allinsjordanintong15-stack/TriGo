@@ -220,8 +220,12 @@ export type ComplaintDetail = {
   driverName: string;
   /** Who the complaint is about (stored, or from the booking for older complaints). */
   reported: { uid: string; role: ComplaintRole; name: string } | null;
+  /** The reported person's mobile number from their profile ('' when none). */
+  reportedPhone: string;
   /** Email of the admin who last changed it, when it is still a user profile. */
   updatedByEmail: string | null;
+  /** Name of the admin who last changed it, when their profile has one. */
+  updatedByName: string | null;
 };
 
 export async function loadComplaintDetail(complaintId: string): Promise<ComplaintDetail | null> {
@@ -245,6 +249,8 @@ export async function loadComplaintDetail(complaintId: string): Promise<Complain
   const userById = new Map(users);
   const name = (uid: string | null | undefined) => (uid ? (userById.get(uid)?.fullName ?? '') : '');
   const updatedByEmail = complaint.updatedBy ? userById.get(complaint.updatedBy)?.email : undefined;
+  const updatedByName = complaint.updatedBy ? userById.get(complaint.updatedBy)?.fullName : undefined;
+  const reportedPhone = reportedUid ? userById.get(reportedUid)?.mobileNumber : undefined;
 
   return {
     complaint,
@@ -253,7 +259,9 @@ export async function loadComplaintDetail(complaintId: string): Promise<Complain
     passengerName: name(booking?.passengerId),
     driverName: name(booking?.driverId),
     reported: reportedUid && reportedRole ? { uid: reportedUid, role: reportedRole, name: name(reportedUid) } : null,
+    reportedPhone: typeof reportedPhone === 'string' ? reportedPhone : '',
     updatedByEmail: typeof updatedByEmail === 'string' ? updatedByEmail : null,
+    updatedByName: typeof updatedByName === 'string' && updatedByName ? updatedByName : null,
   };
 }
 

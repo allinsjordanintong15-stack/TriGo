@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import type { AdminComplaint } from '../complaints/complaints';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { OLDER_COMPLAINT_WARN_NOTE } from '../complaints/complaintText';
 import { formatDateTime } from '../lib/format';
 import { validateWarningReason, WARNING_REASON_MAX_LENGTH, type WarningRole } from './warningPlan';
 import { loadComplaintWarning, WarningConflictError, warnFromComplaint, type AdminWarning } from './warnings';
@@ -81,8 +82,13 @@ export function ComplaintWarningPanel({ complaint, reported }: Props) {
   }
 
   return (
-    <section className="card review-panel" aria-labelledby="complaint-warning-title">
-      <h3 id="complaint-warning-title">Warning</h3>
+    <div className="action-item" aria-labelledby="complaint-warning-title">
+      <h4 id="complaint-warning-title">{warning ? 'Warning sent' : `Warn ${name}`}</h4>
+      <p className="action-help">
+        {warning
+          ? 'A complaint can lead to one warning. To take it back, withdraw it from their page.'
+          : `Sends ${name} a warning they read in the app. Warnings are counted; suspending an account is still your decision.`}
+      </p>
       {message && (
         <div className="alert-success" role="status">
           {message}
@@ -106,8 +112,7 @@ export function ComplaintWarningPanel({ complaint, reported }: Props) {
             )}
           </p>
           <p className="small">
-            {name} was warned on {formatDateTime(warning.createdAt)}. One warning per complaint; withdraw it from their
-            page.
+            {name} was warned on {formatDateTime(warning.createdAt)}.
           </p>
           {warning.reason ? (
             <blockquote className="remarks-quote">{warning.reason}</blockquote>
@@ -117,9 +122,7 @@ export function ComplaintWarningPanel({ complaint, reported }: Props) {
         </>
       ) : !canWarn ? (
         <p className="muted small">
-          {reported
-            ? 'This complaint is from before 10 Nov 2026 and does not record who was reported, so a warning cannot be tied to it.'
-            : 'Nobody to warn: this booking had no driver.'}
+          {reported ? OLDER_COMPLAINT_WARN_NOTE : 'There is nobody to warn: no driver had accepted this booking.'}
         </p>
       ) : (
         <>
@@ -142,7 +145,6 @@ export function ComplaintWarningPanel({ complaint, reported }: Props) {
               )}
             </span>
           </label>
-          <p className="muted small">Warnings are counted. Suspending an account is your decision; nothing happens automatically.</p>
           <div className="button-row">
             <button
               type="button"
@@ -183,6 +185,6 @@ export function ComplaintWarningPanel({ complaint, reported }: Props) {
           )}
         </ConfirmDialog>
       )}
-    </section>
+    </div>
   );
 }

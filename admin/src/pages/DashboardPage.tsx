@@ -116,7 +116,7 @@ export function DashboardPage() {
       <PageHeader
         // The display name when the admin account has one; never the email.
         title={`${greeting(now)}, ${admin?.displayName?.trim() || 'Admin'}`}
-        subtitle={DATE.format(now)}
+        subtitle={`${DATE.format(now)}. What needs your attention first, then how TriGo is doing today.`}
         actions={
           <button type="button" className="btn-outline" onClick={refresh}>
             Refresh

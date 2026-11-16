@@ -15,6 +15,7 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
+import { TechnicalDetails } from '../components/TechnicalDetails';
 import { VehicleDetailsFields } from '../components/VehicleDetailsFields';
 import {
   DRIVER_VEHICLE_TYPES,
@@ -118,7 +119,7 @@ export function DriverDetailPage() {
     return (
       <div className="stack">
         {backLink}
-        <PageHeader title="Driver not found" subtitle="There is no driver record for this account." />
+        <PageHeader title="Driver not found" subtitle="This account has no driver record, or the link is incomplete." />
       </div>
     );
   }
@@ -200,7 +201,9 @@ export function DriverDetailPage() {
     }
   }
 
-  const changedBy = detail.verificationUpdatedByEmail ?? driver.verificationUpdatedBy;
+  // An admin without a user profile has no email to show: say "another admin", not their ID.
+  const changedBy =
+    detail.verificationUpdatedByEmail ?? (driver.verificationUpdatedBy ? 'another admin' : null);
 
   return (
     <div className="stack">
@@ -214,7 +217,7 @@ export function DriverDetailPage() {
 
       <PageHeader
         title={driver.fullName || '(no name)'}
-        subtitle="Driver"
+        subtitle="Driver. Their contact details, vehicle, warnings and trips. Revoke or restore their verification here."
         actions={
           <span className={`status-badge ${VERIFICATION_BADGE_CLASS[verification]}`}>{VERIFICATION_LABELS[verification]}</span>
         }
@@ -477,9 +480,6 @@ export function DriverDetailPage() {
                   <tr key={trip.bookingId}>
                     <td>
                       <div>{formatDateTime(trip.createdAt)}</div>
-                      <div className="muted small mono" title="Booking ID">
-                        {trip.bookingId}
-                      </div>
                     </td>
                     <td>
                       <div>{trip.bookingType ? BOOKING_TYPE_LABELS[trip.bookingType] : '—'}</div>
@@ -619,6 +619,8 @@ export function DriverDetailPage() {
           )}
         </ConfirmDialog>
       )}
+
+      <TechnicalDetails rows={[['User ID', driver.uid]]} />
     </div>
   );
 }

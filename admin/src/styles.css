@@ -1345,19 +1345,287 @@ h3 {
 
 /* ─── Drivers ──────────────────────────────────────────────────────────── */
 
-.filter-row {
+.drivers-card {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  flex-direction: column;
   gap: var(--space-md);
 }
 
-.filter-row .field {
-  flex: 1 1 240px;
+/* One row of filters that wraps on small screens. */
+.drivers-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.drivers-filter-bar .field {
+  margin: 0;
+}
+
+.drivers-search {
+  flex: 2 1 240px;
+}
+
+.drivers-filter {
+  flex: 1 1 140px;
+}
+
+.drivers-result-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-md);
+  min-height: 20px;
+}
+
+/* A plain text link styled button ("Clear filters"). */
+.link-button {
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.drivers-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--color-error-background);
+  color: var(--color-error);
+}
+
+.drivers-error p {
+  margin: 0;
+}
+
+/* Scrolls sideways (and down, past ~10 rows) inside the card, so the header can stick. */
+.drivers-table-scroll {
+  max-height: 72vh;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 .drivers-table {
-  min-width: 720px;
+  min-width: 1080px;
+}
+
+.drivers-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-background);
+}
+
+.drivers-table td {
+  height: 64px;
+  vertical-align: middle;
+}
+
+.drivers-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.drivers-photo {
+  width: 40px;
+  padding-right: 0;
+}
+
+.drivers-name {
+  font-weight: 600;
+  color: var(--color-primary-dark);
+  text-decoration: none;
+}
+
+.drivers-name:hover {
+  text-decoration: underline;
+}
+
+.drivers-vehicle-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  white-space: nowrap;
+}
+
+.vehicle-type-tag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+}
+
+.drivers-email {
+  overflow-wrap: anywhere;
+}
+
+.duty-dot-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.duty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.duty-dot-online {
+  background: var(--color-primary);
+}
+
+.duty-dot-on_trip {
+  background: var(--color-accent);
+}
+
+.duty-dot-offline {
+  background: var(--color-text-muted);
+}
+
+/* Same tones as the driver app's commission chip (src/components/driver/CommissionChip.tsx). */
+.commission-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.commission-pill-paid_up {
+  background: var(--color-white);
+  border-color: var(--color-border);
+  color: var(--color-primary-dark);
+}
+
+.commission-pill-due {
+  background: var(--color-gold-light);
+  border-color: var(--color-accent);
+  color: var(--color-primary-dark);
+}
+
+.commission-pill-overdue,
+.commission-pill-suspended {
+  background: var(--color-error-background);
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.rating-star {
+  color: var(--color-accent);
+}
+
+.skeleton-inline {
+  display: inline-block;
+  width: 48px;
+  vertical-align: middle;
+}
+
+.drivers-skeleton-row:hover > * {
+  background: transparent !important;
+}
+
+.drivers-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+/* ─── Avatar ───────────────────────────────────────────────────────────── */
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  vertical-align: middle;
+}
+
+.avatar-initials {
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.avatar-skeleton {
+  width: 40px;
+  height: 40px;
+  background: var(--color-border);
+}
+
+/* ─── Pagination ───────────────────────────────────────────────────────── */
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.pagination-button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+  color: var(--color-primary-dark);
+  cursor: pointer;
+}
+
+.pagination-button:hover:not(:disabled) {
+  background: var(--color-primary-light);
+}
+
+.pagination-button[aria-current='page'] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-white);
+}
+
+.pagination-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.pagination-gap {
+  padding: 0 var(--space-xs);
+  color: var(--color-text-muted);
 }
 
 /* ─── Reports ──────────────────────────────────────────────────────────── */
@@ -2120,4 +2388,73 @@ button.btn-link:disabled {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
+}
+
+/* ─── Plain-language pages: role labels, status bar, actions, technical details ─── */
+
+/* "Passenger" / "Driver" after a name in a page title. */
+.role-label {
+  display: inline-block;
+  margin: 0 var(--space-sm) 0 var(--space-xs);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+  font-size: 13px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.detail-item-wide {
+  grid-column: 1 / -1;
+}
+
+.action-item + .action-item,
+.review-panel > .action-item:not(:first-of-type) {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-md);
+}
+
+.action-item h4 {
+  margin: 0 0 var(--space-xs);
+  color: var(--color-primary-dark);
+}
+
+.action-help {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.technical-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.technical-details summary:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.technical-details[open] summary {
+  margin-bottom: var(--space-sm);
+}
+
+.copy-button {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* A link that looks like an outline button (e.g. "View trip"). */
+a.btn-outline {
+  display: inline-block;
+  text-decoration: none;
 }
