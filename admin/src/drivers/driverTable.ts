@@ -1,73 +1,36 @@
-// The Drivers → All drivers table: filters kept in the URL, the account standing and duty
-// shown per row, and pagination. Free of imports (types only) so plain Node tests load it
-// (tests/booking/adminDriverTable.test.ts).
+// The Drivers → All drivers table: the verified drivers (active and suspended), searched by
+// name, filtered by vehicle, paged 10 / 20 / 50 at a time, all kept in the URL. Free of
+// imports so plain Node tests load it (tests/booking/adminDriverTable.test.ts).
 
-import type { CommissionStatus } from '../earnings/commissionStatus';
+export const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+export const DRIVERS_PAGE_SIZE: PageSize = 10;
 
-export const DRIVERS_PAGE_SIZE = 10;
-
-export type DutyFilter = 'all' | 'online' | 'available' | 'on_trip' | 'offline';
-export type VehicleFilter = 'all' | 'tricycle' | 'motorcycle';
-export type AccountFilter = 'active' | 'suspended' | 'revoked' | 'all';
-export type CommissionFilter = 'all' | CommissionStatus;
+export type VehicleFilter = 'all' | 'motorcycle' | 'tricycle';
 
 export type DriverTableFilters = {
+  /** Matched against the driver's name only. */
   search: string;
-  duty: DutyFilter;
   vehicle: VehicleFilter;
-  account: AccountFilter;
-  commission: CommissionFilter;
+  pageSize: PageSize;
 };
 
-export const DEFAULT_DRIVER_FILTERS: DriverTableFilters = {
-  search: '',
-  duty: 'all',
-  vehicle: 'all',
-  account: 'active',
-  commission: 'all',
-};
-
-export const DUTY_FILTER_OPTIONS: { value: DutyFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'online', label: 'Online' },
-  { value: 'available', label: 'Available' },
-  { value: 'on_trip', label: 'On a trip' },
-  { value: 'offline', label: 'Offline' },
-];
+export const DEFAULT_DRIVER_FILTERS: DriverTableFilters = { search: '', vehicle: 'all', pageSize: DRIVERS_PAGE_SIZE };
 
 export const VEHICLE_FILTER_OPTIONS: { value: VehicleFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'tricycle', label: 'Tricycle' },
+  { value: 'all', label: 'All vehicles' },
   { value: 'motorcycle', label: 'Motorcycle' },
+  { value: 'tricycle', label: 'Tricycle' },
 ];
 
-export const ACCOUNT_FILTER_OPTIONS: { value: AccountFilter; label: string }[] = [
-  { value: 'active', label: 'Active' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'revoked', label: 'Revoked' },
-  { value: 'all', label: 'All' },
-];
-
-export const COMMISSION_FILTER_OPTIONS: { value: CommissionFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'paid_up', label: 'Paid up' },
-  { value: 'due', label: 'Due' },
-  { value: 'overdue', label: 'Overdue' },
-  { value: 'suspended', label: 'Suspended for non-payment' },
-];
-
-function pick<T extends string>(value: string | null, options: { value: T }[], fallback: T): T {
-  return options.find((option) => option.value === value)?.value ?? fallback;
-}
-
-/** Filters from the URL (?q=&status=&vehicle=&account=&commission=); unknown values fall back to the defaults. */
+/** Filters from the URL (?q=&vehicle=&rows=); unknown values fall back to the defaults. */
 export function readDriverFilters(params: URLSearchParams): DriverTableFilters {
+  const vehicle = params.get('vehicle');
+  const rows = Number(params.get('rows'));
   return {
     search: params.get('q') ?? '',
-    duty: pick(params.get('status'), DUTY_FILTER_OPTIONS, DEFAULT_DRIVER_FILTERS.duty),
-    vehicle: pick(params.get('vehicle'), VEHICLE_FILTER_OPTIONS, DEFAULT_DRIVER_FILTERS.vehicle),
-    account: pick(params.get('account'), ACCOUNT_FILTER_OPTIONS, DEFAULT_DRIVER_FILTERS.account),
-    commission: pick(params.get('commission'), COMMISSION_FILTER_OPTIONS, DEFAULT_DRIVER_FILTERS.commission),
+    vehicle: VEHICLE_FILTER_OPTIONS.find((o) => o.value === vehicle)?.value ?? DEFAULT_DRIVER_FILTERS.vehicle,
+    pageSize: PAGE_SIZE_OPTIONS.find((size) => size === rows) ?? DEFAULT_DRIVER_FILTERS.pageSize,
   };
 }
 
@@ -81,22 +44,25 @@ export function readDriverPage(params: URLSearchParams): number {
 export function driverTableParams(filters: DriverTableFilters, page: number): Record<string, string> {
   const params: Record<string, string> = {};
   if (filters.search) params.q = filters.search;
-  if (filters.duty !== DEFAULT_DRIVER_FILTERS.duty) params.status = filters.duty;
   if (filters.vehicle !== DEFAULT_DRIVER_FILTERS.vehicle) params.vehicle = filters.vehicle;
-  if (filters.account !== DEFAULT_DRIVER_FILTERS.account) params.account = filters.account;
-  if (filters.commission !== DEFAULT_DRIVER_FILTERS.commission) params.commission = filters.commission;
+  if (filters.pageSize !== DEFAULT_DRIVER_FILTERS.pageSize) params.rows = String(filters.pageSize);
   if (page > 1) params.page = String(page);
   return params;
 }
 
+/** Search or vehicle narrow the list (rows per page does not). */
 export function hasActiveFilters(filters: DriverTableFilters): boolean {
-  return (
-    filters.search.trim() !== '' ||
-    filters.duty !== DEFAULT_DRIVER_FILTERS.duty ||
-    filters.vehicle !== DEFAULT_DRIVER_FILTERS.vehicle ||
-    filters.account !== DEFAULT_DRIVER_FILTERS.account ||
-    filters.commission !== DEFAULT_DRIVER_FILTERS.commission
-  );
+  return filters.search.trim() !== '' || filters.vehicle !== DEFAULT_DRIVER_FILTERS.vehicle;
+}
+
+/** Case-insensitive; every word typed must appear in the name ("cruz bel" finds "Bella Cruz"). */
+export function matchesDriverName(fullName: string, search: string): boolean {
+  const name = fullName.toLowerCase();
+  return search
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => name.includes(word));
 }
 
 /**
@@ -115,49 +81,20 @@ export function isAdminSuspended(suspension: AdminSuspension | null, nowMillis: 
   return suspension.suspendedUntil === null || nowMillis < suspension.suspendedUntil.getTime();
 }
 
-/** Revoked (or never verified) comes first: a revoked driver cannot work at all. */
-export type AccountStanding = 'active' | 'suspended' | 'revoked';
-
-export const ACCOUNT_STANDING_LABELS: Record<AccountStanding, string> = {
-  active: 'Active',
-  suspended: 'Suspended',
-  revoked: 'Revoked',
-};
-
-export function accountStanding(isVerified: boolean, suspended: boolean): AccountStanding {
-  if (!isVerified) return 'revoked';
-  return suspended ? 'suspended' : 'active';
+/**
+ * Star display for an average (0–5): whole stars, a half star from .25 up to .75, rounded
+ * to the nearest half otherwise. E.g. 4.5 → 4 full + half; 4.8 → 5 full.
+ */
+export function ratingStars(average: number): { full: number; half: boolean; empty: number } {
+  const halves = Math.round(Math.min(5, Math.max(0, average)) * 2);
+  const full = Math.floor(halves / 2);
+  const half = halves % 2 === 1;
+  return { full, half, empty: 5 - full - (half ? 1 : 0) };
 }
 
-/** The dot under the account pill. "Online" covers available and busy-but-online drivers. */
-export type DutyDot = 'on_trip' | 'online' | 'offline';
-
-export const DUTY_DOT_LABELS: Record<DutyDot, string> = { on_trip: 'On a trip', online: 'Online', offline: 'Offline' };
-
-export type DutyFields = {
-  isOnline: boolean;
-  isAvailable: boolean;
-  currentBookingId: string | null;
-};
-
-export function dutyDot(driver: DutyFields): DutyDot {
-  if (driver.currentBookingId) return 'on_trip';
-  return driver.isOnline ? 'online' : 'offline';
-}
-
-export function matchesDutyFilter(driver: DutyFields, filter: DutyFilter): boolean {
-  switch (filter) {
-    case 'all':
-      return true;
-    case 'online':
-      return driver.isOnline;
-    case 'available':
-      return driver.isOnline && driver.isAvailable && !driver.currentBookingId;
-    case 'on_trip':
-      return driver.currentBookingId !== null;
-    case 'offline':
-      return !driver.isOnline;
-  }
+/** "★★★★½"-style text for screen readers and titles: "4.5 out of 5". */
+export function ratingLabel(average: number, count: number): string {
+  return `${average.toFixed(1)} out of 5 from ${count} rating${count === 1 ? '' : 's'}`;
 }
 
 /** Up to two initials ("Carlo Dela Cruz" → "CC"); "?" when there is no name. */
@@ -185,7 +122,7 @@ export type PageSlice<T> = {
   total: number;
 };
 
-export function pageSlice<T>(all: T[], requestedPage: number, pageSize = DRIVERS_PAGE_SIZE): PageSlice<T> {
+export function pageSlice<T>(all: T[], requestedPage: number, pageSize: number = DRIVERS_PAGE_SIZE): PageSlice<T> {
   const total = all.length;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const page = Math.min(Math.max(1, Math.floor(requestedPage)), pageCount);

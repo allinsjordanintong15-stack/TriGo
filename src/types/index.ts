@@ -218,7 +218,9 @@ export interface DriverRecord {
   /**
    * An admin revoked verification on the Admin Website (not verified, and the admin-set
    * verificationUpdatedAt exists). False for a record that was never verified. The admin's
-   * reason (verificationNote) is private and never read by the app.
+   * note (verificationNote) is never read by the app: a driver sees a revoke reason only in
+   * the adminMessages 'revoked' message, which exists only for revokes made since 2026-11-16,
+   * so older revoke reasons stay admin-only.
    */
   isRevoked: boolean;
   isAvailable: boolean;

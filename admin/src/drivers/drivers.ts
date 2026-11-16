@@ -13,7 +13,6 @@ import {
 } from 'firebase/firestore';
 
 import { readBooking, type AdminBooking } from '../bookings/bookings';
-import { countComplaintsAgainst } from '../complaints/complaints';
 import type { AccountTimes } from '../earnings/commissionStatus';
 import { readAccount } from '../earnings/earnings';
 import { db } from '../firebase/config';
@@ -65,9 +64,8 @@ async function loadProfile(uid: string) {
 }
 
 /**
- * All driver records, A–Z by name, with their profile (search needs every email and mobile
- * number: Firestore has no text search) and commission account (one query, for the
- * Commission filter). Ratings and complaint counts are loaded per page (loadDriverRowExtras).
+ * All driver records, A–Z by name, with their profile (photo, email and mobile number) and
+ * commission account (one query). Ratings are loaded per page (loadDriverRowExtras).
  */
 export async function loadDrivers(): Promise<DriverListEntry[]> {
   const [snapshot, accountsSnapshot] = await Promise.all([
@@ -89,25 +87,14 @@ export async function loadDrivers(): Promise<DriverListEntry[]> {
 export type DriverRowExtras = {
   /** driverRatings/{uid}; null when nobody has rated this driver yet. */
   ratingSummary: DriverRatingSummary | null;
-  /** Complaints from passengers naming this driver (reportedUserId); null when the count failed. */
-  complaintCount: number | null;
 };
 
-/**
- * Rating and complaint count for the rows on screen only: one document read and one count
- * query per driver. A failed count shows as unknown instead of failing the whole page.
- */
+/** Ratings for the rows on screen only: one document read per driver. */
 export async function loadDriverRowExtras(uids: string[]): Promise<Map<string, DriverRowExtras>> {
   const extras = await Promise.all(
     uids.map(async (uid) => {
-      const [ratingSnap, complaintCount] = await Promise.all([
-        getDoc(doc(db, 'driverRatings', uid)),
-        countComplaintsAgainst(uid, 'driver').catch((error: unknown) => {
-          console.error('Complaint count failed:', error);
-          return null;
-        }),
-      ]);
-      return [uid, { ratingSummary: readRatingSummary(ratingSnap.data()), complaintCount }] as const;
+      const ratingSnap = await getDoc(doc(db, 'driverRatings', uid));
+      return [uid, { ratingSummary: readRatingSummary(ratingSnap.data()) }] as const;
     }),
   );
   return new Map(extras);

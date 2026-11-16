@@ -1,22 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import type { DriverAction } from './DriverActionDialog';
 
 /**
- * The "⋯" button of a driver row: View profile, Send warning, Suspend or Lift suspension,
- * Revoke or Restore verification. Closes on Escape, on a click outside, or after a choice.
+ * The "⋯" button of a driver row: Send warning, and Suspend or Lift suspension. (Revoke and
+ * restore are on the driver's profile page.) Closes on Escape, a click outside, scrolling, or
+ * after a choice.
  */
 export function DriverActionsMenu({
   name,
-  detailPath,
-  isVerified,
   suspended,
   onAction,
 }: {
   name: string;
-  detailPath: string;
-  isVerified: boolean;
   suspended: boolean;
   onAction: (action: DriverAction) => void;
 }) {
@@ -78,9 +74,6 @@ export function DriverActionsMenu({
       </button>
       {position && (
         <div className="row-menu-list" role="menu" style={{ top: position.top, right: position.right }}>
-          <Link role="menuitem" className="row-menu-item" to={detailPath}>
-            View profile
-          </Link>
           <button type="button" role="menuitem" className="row-menu-item" onClick={() => choose('warning')}>
             Send warning
           </button>
@@ -89,19 +82,8 @@ export function DriverActionsMenu({
               Lift suspension
             </button>
           ) : (
-            isVerified && (
-              <button type="button" role="menuitem" className="row-menu-item danger" onClick={() => choose('suspend')}>
-                Suspend
-              </button>
-            )
-          )}
-          {isVerified ? (
-            <button type="button" role="menuitem" className="row-menu-item danger" onClick={() => choose('revoke')}>
-              Revoke verification
-            </button>
-          ) : (
-            <button type="button" role="menuitem" className="row-menu-item" onClick={() => choose('restore')}>
-              Restore verification
+            <button type="button" role="menuitem" className="row-menu-item danger" onClick={() => choose('suspend')}>
+              Suspend
             </button>
           )}
         </div>

@@ -133,6 +133,7 @@ type Target =
   | 'admin lift'
   | 'admin message create'
   | 'admin message read'
+  | 'admin message text clear'
   | 'calibration';
 
 const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
@@ -288,6 +289,10 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'admin message create': [
     '          && data.readAt == null;',
     '          && data.readAt == null\n          && pad();',
+  ],
+  'admin message text clear': [
+    '          && data.reasonClearedAt == request.time;',
+    '          && data.reasonClearedAt == request.time\n          && pad();',
   ],
   'admin message read': [
     "          && onlyChanged(['readAt'])\n",
@@ -1264,6 +1269,40 @@ const warningReasonClear: Scenario = {
   },
 };
 
+const adminMessageTextClear: Scenario = {
+  label: 'admin suspension: message text clear (in the anonymizing commit)',
+  targets: ['admin message text clear'],
+  run: async () => {
+    await seed({
+      [`users/${DRIVER}`]: {
+        uid: DRIVER,
+        role: 'driver',
+        email: `${DRIVER}@example.com`,
+        fullName: 'Pedro Reyes',
+        mobileNumber: '+639171234567',
+        profileImage: null,
+      },
+      'adminMessages/message1': suspendedMessage(),
+    });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'users', DRIVER), {
+      fullName: 'Deleted user',
+      email: '',
+      mobileNumber: '',
+      profileImage: null,
+      anonymizedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(firestore, 'adminMessages', 'message1'), {
+      reason: '',
+      body: '',
+      reasonClearedAt: serverTimestamp(),
+    });
+    await batch.commit();
+  },
+};
+
 const SCENARIOS: Scenario[] = [
   completion('completion: no commission settings', () => tripDocs({ settings: null }), () => appWrites({ settings: null })),
   completion('completion: standard, first trip (account create)', () => tripDocs(), () => appWrites()),
@@ -1379,6 +1418,7 @@ const SCENARIOS: Scenario[] = [
   adminLift,
   adminMessageCreate,
   adminMessageRead,
+  adminMessageTextClear,
 ];
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).

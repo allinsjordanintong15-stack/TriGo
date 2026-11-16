@@ -1351,35 +1351,55 @@ h3 {
   gap: var(--space-md);
 }
 
-/* One row of filters that wraps on small screens. */
-.drivers-filter-bar {
+/* Search, rows per page and vehicle on one row; wraps only on narrow screens. */
+.drivers-toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--space-sm) var(--space-md);
 }
 
-.drivers-filter-bar .field {
-  margin: 0;
-}
-
 .drivers-search {
-  flex: 2 1 240px;
+  flex: 1 1 260px;
+  max-width: 420px;
 }
 
-.drivers-filter {
-  flex: 1 1 140px;
+.drivers-search input,
+.drivers-select select {
+  font: inherit;
+  font-size: 15px;
+  color: var(--color-text);
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
 }
 
-.drivers-result-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-md);
-  min-height: 20px;
+.drivers-search input {
+  width: 100%;
 }
 
-/* A plain text link styled button ("Clear filters"). */
+.drivers-search input:focus,
+.drivers-select select:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.drivers-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.drivers-count {
+  margin-left: auto;
+}
+
+/* A plain text link styled button ("Clear search"). */
 .link-button {
   font: inherit;
   font-weight: 600;
@@ -1411,37 +1431,109 @@ h3 {
   margin: 0;
 }
 
-/* Scrolls sideways (and down, past ~10 rows) inside the card, so the header can stick. */
+/* Fits the card at 1366px; below ~900px it scrolls inside the card (the page never does).
+   max-height lets the header stick while scrolling long pages of 20 or 50 rows. */
 .drivers-table-scroll {
+  position: relative;
+  width: 100%;
   max-height: 72vh;
   overflow: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
+  background: var(--color-white);
 }
 
 .drivers-table {
-  min-width: 1080px;
+  width: 100%;
+  min-width: 860px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.drivers-table .small {
+  font-size: 12.5px;
+}
+
+.drivers-table .col-driver { width: 19%; }
+.drivers-table .col-vehicle { width: 19%; }
+.drivers-table .col-contact { width: 17%; }
+.drivers-table .col-status { width: 8%; }
+.drivers-table .col-commission { width: 18%; }
+.drivers-table .col-rating { width: 14%; }
+.drivers-table .col-actions { width: 52px; }
+
+.drivers-table th,
+.drivers-table td {
+  padding: 6px 12px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid #eef0ec;
+  overflow: hidden;
 }
 
 .drivers-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
+  height: 40px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
   background: var(--color-background);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .drivers-table td {
-  height: 64px;
-  vertical-align: middle;
+  height: 60px;
+  line-height: 1.35;
 }
 
 .drivers-table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.drivers-photo {
-  width: 40px;
-  padding-right: 0;
+.drivers-table tbody tr:not(.drivers-empty-row):not(.drivers-skeleton-row):hover > td {
+  background: #f4f8f5;
+}
+
+.drivers-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-left: 6px;
+}
+
+.drivers-table .cell-actions {
+  padding: 6px 8px 6px 0;
+  text-align: right;
+  overflow: visible;
+}
+
+.driver-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Lets a flex child shrink so its text can truncate. */
+.cell-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.truncate {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .drivers-name {
@@ -1454,87 +1546,152 @@ h3 {
   text-decoration: underline;
 }
 
-.drivers-vehicle-line {
+.suspended-tag {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--color-error-background);
+  color: var(--color-error);
+  cursor: help;
+}
+
+.contact-line {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  white-space: nowrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 
-.vehicle-type-tag {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 1px 8px;
-  border-radius: 999px;
+.copy-icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.copy-icon-button:hover {
+  color: var(--color-primary);
   background: var(--color-primary-light);
-  color: var(--color-primary-dark);
 }
 
-.drivers-email {
-  overflow-wrap: anywhere;
+.copy-icon-button.copied {
+  color: var(--color-primary);
 }
 
-.duty-dot-line {
-  display: flex;
+.copy-icon-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.online-status {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: var(--space-xs);
-  color: var(--color-text-secondary);
+  font-size: 14px;
   white-space: nowrap;
 }
 
-.duty-dot {
+.online-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex: none;
 }
 
-.duty-dot-online {
+.online-status.is-online {
+  color: var(--color-primary);
+}
+
+.online-status.is-online .online-dot {
   background: var(--color-primary);
 }
 
-.duty-dot-on_trip {
-  background: var(--color-accent);
+.online-status.is-offline {
+  color: var(--color-error);
 }
 
-.duty-dot-offline {
-  background: var(--color-text-muted);
+.online-status.is-offline .online-dot {
+  background: var(--color-error);
+}
+
+.commission-amount {
+  font-weight: 600;
+  color: var(--color-text);
 }
 
 /* Same tones as the driver app's commission chip (src/components/driver/CommissionChip.tsx). */
-.commission-pill {
+.commission-label {
   display: inline-block;
-  padding: 2px 10px;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 1px 5px;
   border: 1px solid;
-  border-radius: 999px;
-  font-size: 13px;
+  border-radius: 4px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.commission-pill-paid_up {
+.commission-label-paid_up {
   background: var(--color-white);
   border-color: var(--color-border);
   color: var(--color-primary-dark);
 }
 
-.commission-pill-due {
+.commission-label-due {
   background: var(--color-gold-light);
   border-color: var(--color-accent);
   color: var(--color-primary-dark);
 }
 
-.commission-pill-overdue,
-.commission-pill-suspended {
+.commission-label-overdue,
+.commission-label-suspended {
   background: var(--color-error-background);
   border-color: var(--color-error);
   color: var(--color-error);
 }
 
-.rating-star {
+.rating-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  line-height: 1.3;
+}
+
+.rating-stars {
   color: var(--color-accent);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.star-empty {
+  color: var(--color-border);
+}
+
+/* Left half gold, right half grey. */
+.star-half {
+  background: linear-gradient(90deg, var(--color-accent) 50%, var(--color-border) 50%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.rating-numbers {
+  white-space: nowrap;
 }
 
 .skeleton-inline {
@@ -1543,8 +1700,8 @@ h3 {
   vertical-align: middle;
 }
 
-.drivers-skeleton-row:hover > * {
-  background: transparent !important;
+.drivers-skeleton-row .skeleton-line {
+  flex: 1;
 }
 
 .drivers-pager {
@@ -2469,8 +2626,8 @@ a.btn-outline {
   font: inherit;
   font-size: 20px;
   line-height: 1;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-white);

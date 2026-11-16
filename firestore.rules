@@ -184,6 +184,16 @@ service cloud.firestore {
       return exists(path) && isSuspendedAccount(get(path).data);
     }
 
+    // Admin suspension (Admin Website, Drivers): drivers/{uid}.suspendedAt is set, the
+    // suspension was not lifted, and suspendedUntil is null (until lifted) or still ahead.
+    // Like the commission suspension it blocks only new work (T1 accept and the out-of-area
+    // propose); it ends by itself at suspendedUntil. Same test as src/utils/adminSuspension.ts.
+    function isAdminSuspended(driver) {
+      return driver.get('suspendedAt', null) != null
+        && driver.get('suspensionLiftedAt', null) == null
+        && (driver.get('suspendedUntil', null) == null || request.time < driver.suspendedUntil);
+    }
+
     function isSuspendedAccount(account) {
       return (account.unpaid != null && request.time.toMillis() >= graceEndMillis(account.unpaid))
         || (
@@ -605,7 +615,7 @@ service cloud.firestore {
         && isValidOutOfAreaBookingCreate();
 
       // T1 accept: a verified driver who is online, available, not on another trip, not
-      // reserved by an out-of-area proposal, not suspended for overdue commission and has
+      // reserved by an out-of-area proposal, not suspended (by an admin or for overdue commission) and has
       // the requested vehicle type claims an open, unexpired standard booking (bookings
       // without expiresAt, created before expiry existed, count as expired). The same
       // commit must mark the driver unavailable and link drivers/{uid}.currentBookingId.
@@ -621,6 +631,7 @@ service cloud.firestore {
         && driverDoc().data.get('currentBookingId', null) == null
         && driverDoc().data.get('currentRequestId', null) == null
         && driverDoc().data.vehicleType == resource.data.vehicleType
+        && !isAdminSuspended(driverDoc().data)
         && !isCommissionSuspended()
         && request.resource.data.status == 'accepted'
         && request.resource.data.driverId == request.auth.uid
@@ -748,7 +759,7 @@ service cloud.firestore {
         && resource.data.driverId == request.auth.uid;
 
       // Propose (fareAgreementService.createProposal): a verified driver who is online,
-      // available, not on a trip, not already reserved, not suspended for overdue commission
+      // available, not on a trip, not already reserved, not suspended (admin or commission)
       // and has the requested vehicle type accepts an open, unexpired request. The fare is
       // locked to the request's admin per-km fare (standardEstimatedFare); drivers no longer
       // choose an amount. The same commit must reserve the driver
@@ -764,6 +775,7 @@ service cloud.firestore {
         && driverDoc().data.get('currentBookingId', null) == null
         && driverDoc().data.get('currentRequestId', null) == null
         && driverDoc().data.vehicleType == resource.data.vehicleType
+        && !isAdminSuspended(driverDoc().data)
         && !isCommissionSuspended()
         && request.resource.data.status == 'negotiating'
         && request.resource.data.driverId == request.auth.uid
@@ -1183,8 +1195,46 @@ service cloud.firestore {
         && resource.data.get('currentBookingId', null) == null
         && resource.data.get('currentRequestId', null) == null;
 
+      // Admin suspends the driver (Drivers page), replacing any earlier suspension: only the
+      // six suspension fields. suspendedAt is the server time, suspendedUntil a later time
+      // or null (until lifted), a reason of 1–500 characters, this admin, and an earlier lift
+      // cleared. An adminMessages notice is created in the same commit (not required here).
+      // The first term compares a field a driver can never change, so a driver's own commit
+      // stops there without evaluating isAdmin() (see the revoke rule above).
+      allow update: if request.resource.data.get('suspendedAt', null) != resource.data.get('suspendedAt', null)
+        && isAdmin()
+        && onlyChanged([
+          'suspendedAt', 'suspendedUntil', 'suspensionReason', 'suspendedBy',
+          'suspensionLiftedAt', 'suspensionLiftedBy'
+        ])
+        && resource.data.get('anonymizedAt', null) == null
+        && request.resource.data.suspendedAt == request.time
+        && (
+          request.resource.data.suspendedUntil == null
+          || (
+            request.resource.data.suspendedUntil is timestamp
+            && request.resource.data.suspendedUntil > request.time
+          )
+        )
+        && request.resource.data.suspensionReason is string
+        && request.resource.data.suspensionReason.trim().size() > 0
+        && request.resource.data.suspensionReason.size() <= 500
+        && request.resource.data.suspendedBy == request.auth.uid
+        && request.resource.data.suspensionLiftedAt == null
+        && request.resource.data.suspensionLiftedBy == null;
+
+      // Admin lifts the current suspension early: once, recording when and who. (An expired
+      // suspension may be lifted too; it changes nothing for the driver.) Same first term trick.
+      allow update: if request.resource.data.get('suspensionLiftedAt', null) != resource.data.get('suspensionLiftedAt', null)
+        && isAdmin()
+        && onlyChanged(['suspensionLiftedAt', 'suspensionLiftedBy'])
+        && resource.data.get('suspendedAt', null) != null
+        && resource.data.get('suspensionLiftedAt', null) == null
+        && request.resource.data.suspensionLiftedAt == request.time
+        && request.resource.data.suspensionLiftedBy == request.auth.uid;
+
       // Account deletion (admin website), in the commit that anonymizes users/{uid}: name,
-      // plate and vehicle details are blanked, the admin's note removed, and the driver is
+      // plate and vehicle details are blanked, the admin's note and suspension reason removed, and the driver is
       // unverified, offline, unavailable and without a position, for good (restore and
       // vehicle edits are refused afterwards). Refused while the driver is on a trip or
       // holding an out-of-area request. Type, rating and quota count stay (not personal).
@@ -1200,7 +1250,8 @@ service cloud.firestore {
         && onlyChanged([
           'fullName', 'vehiclePlate', 'vehicleBrand', 'vehicleModel', 'vehicleColor',
           'isVerified', 'isOnline', 'isAvailable', 'currentLocation',
-          'verificationNote', 'verificationUpdatedAt', 'verificationUpdatedBy', 'anonymizedAt', 'updatedAt'
+          'verificationNote', 'verificationUpdatedAt', 'verificationUpdatedBy', 'anonymizedAt', 'updatedAt',
+          'suspensionReason'
         ])
         && request.resource.data.fullName == 'Deleted user'
         && request.resource.data.vehiclePlate == ''
@@ -1212,6 +1263,7 @@ service cloud.firestore {
         && request.resource.data.isAvailable == false
         && request.resource.data.currentLocation == null
         && request.resource.data.get('verificationNote', null) == null
+        && request.resource.data.get('suspensionReason', null) == null
         && request.resource.data.verificationUpdatedAt == request.time
         && request.resource.data.verificationUpdatedBy == request.auth.uid
         && request.resource.data.anonymizedAt == request.time
@@ -2121,6 +2173,66 @@ service cloud.firestore {
       allow read: if isAdmin() || (isSignedIn() && resource.data.active == true);
       allow create, update: if isValidContactWrite();
       allow delete: if isAdmin();
+    }
+
+    // ─── Admin messages ("messages from TriGo") ──────────────────────────────
+    //
+    // adminMessages/{messageId}: { userId, kind, title, body, reason, until, createdBy,
+    // createdAt, readAt }. Created by an admin with each suspension, lift, revoke and restore
+    // (Admin Website, Drivers), in the same commit as the driver change. kind is one of
+    // 'suspended', 'suspension_lifted', 'revoked', 'restored' (more kinds, e.g.
+    // announcements, may be added); until is the suspension end or null. The user reads only
+    // their own and sets readAt once; in the commit that anonymizes the user an admin clears
+    // reason and body (the record stays). Nobody deletes.
+    match /adminMessages/{messageId} {
+      function isValidAdminMessageCreate() {
+        let data = request.resource.data;
+        let keys = ['userId', 'kind', 'title', 'body', 'reason', 'until', 'createdBy', 'createdAt', 'readAt'];
+        return isAdmin()
+          && data.keys().hasOnly(keys)
+          && data.keys().hasAll(keys)
+          && data.userId is string
+          && data.userId.size() > 0
+          && data.kind in ['suspended', 'suspension_lifted', 'revoked', 'restored']
+          && data.title is string
+          && data.title.size() > 0
+          && data.title.size() <= 120
+          && data.body is string
+          && data.body.size() > 0
+          && data.body.size() <= 1000
+          && data.reason is string
+          && data.reason.trim().size() > 0
+          && data.reason.size() <= 500
+          && (data.until == null || data.until is timestamp)
+          && data.createdBy == request.auth.uid
+          && data.createdAt == request.time
+          && data.readAt == null;
+      }
+
+      function isMarkRead() {
+        return isSignedIn()
+          && resource.data.userId == request.auth.uid
+          && resource.data.readAt == null
+          && onlyChanged(['readAt'])
+          && request.resource.data.readAt == request.time;
+      }
+
+      // Account deletion: reason and body are cleared in the commit that anonymizes users/{uid}.
+      function isTextCleared() {
+        let data = request.resource.data;
+        return isAdmin()
+          && onlyChanged(['reason', 'body', 'reasonClearedAt'])
+          && data.reason == ''
+          && data.body == ''
+          && isAnonymizedInThisCommit(userPath(resource.data.userId))
+          && data.reasonClearedAt == request.time;
+      }
+
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isValidAdminMessageCreate();
+      allow update: if isMarkRead() || isTextCleared();
+      allow delete: if false;
     }
 
     // ─── Complaints ────────────────────────────────────────────────────────
