@@ -164,9 +164,9 @@ export function DriversPage() {
         </div>
       )}
 
-      <div className="card drivers-card">
-        <div className="drivers-toolbar">
-          <label className="drivers-search" htmlFor="driver-search">
+      <div className="card list-card">
+        <div className="list-toolbar">
+          <label className="list-search" htmlFor="driver-search">
             <span className="visually-hidden">Search driver name</span>
             <input
               id="driver-search"
@@ -178,7 +178,7 @@ export function DriversPage() {
               autoComplete="off"
             />
           </label>
-          <label className="drivers-select" htmlFor="driver-rows">
+          <label className="list-select" htmlFor="driver-rows">
             <span>Show</span>
             <select
               id="driver-rows"
@@ -192,7 +192,7 @@ export function DriversPage() {
               ))}
             </select>
           </label>
-          <label className="drivers-select" htmlFor="driver-vehicle">
+          <label className="list-select" htmlFor="driver-vehicle">
             <span className="visually-hidden">Vehicle</span>
             <select
               id="driver-vehicle"
@@ -206,13 +206,13 @@ export function DriversPage() {
               ))}
             </select>
           </label>
-          <span className="drivers-count muted small" aria-live="polite">
+          <span className="list-count muted small" aria-live="polite">
             {loaded ? plural(filtered.length, 'driver') : loadError ? '' : 'Loading…'}
           </span>
         </div>
 
         {loadError ? (
-          <div className="drivers-error" role="alert">
+          <div className="list-error" role="alert">
             <p>{loadError}</p>
             <button type="button" className="btn-outline" onClick={() => void reload()}>
               Retry
@@ -220,8 +220,8 @@ export function DriversPage() {
           </div>
         ) : (
           <>
-            <div className="drivers-table-scroll">
-              <table className="drivers-table">
+            <div className="list-table-scroll">
+              <table className="list-table">
                 <colgroup>
                   <col className="col-driver" />
                   <col className="col-vehicle" />
@@ -250,7 +250,7 @@ export function DriversPage() {
                   {!loaded ? (
                     <SkeletonRows count={filters.pageSize} />
                   ) : slice.items.length === 0 ? (
-                    <tr className="drivers-empty-row">
+                    <tr className="list-empty-row">
                       <td colSpan={COLUMN_COUNT}>
                         <div className="empty-state">
                           {rows.length === 0 ? (
@@ -285,7 +285,7 @@ export function DriversPage() {
               </table>
             </div>
             {loaded && slice.total > 0 && (
-              <div className="drivers-pager">
+              <div className="list-pager">
                 <span className="muted small">
                   Showing {formatCount(slice.from)}–{formatCount(slice.to)} of {formatCount(slice.total)}
                 </span>
@@ -322,7 +322,7 @@ function SkeletonRows({ count }: { count: number }) {
   return (
     <>
       {Array.from({ length: Math.min(count, 10) }, (_, index) => (
-        <tr key={index} className="drivers-skeleton-row" aria-hidden="true">
+        <tr key={index} className="list-skeleton-row" aria-hidden="true">
           <td>
             <div className="driver-cell">
               <span className="avatar avatar-skeleton" />
@@ -362,7 +362,7 @@ function DriverRow({
         <div className="driver-cell">
           <Avatar name={driver.fullName} imageUrl={row.profileImage} />
           <div className="cell-text">
-            <Link className="drivers-name truncate" to={detailPath} title={name}>
+            <Link className="list-name truncate" to={detailPath} title={name}>
               {name}
             </Link>
             {suspended && (

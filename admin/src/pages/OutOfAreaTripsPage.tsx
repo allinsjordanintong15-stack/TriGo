@@ -1,81 +1,107 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
-import { BOOKING_STATUS_LABELS, VEHICLE_TYPE_LABELS } from '../bookings/bookings';
-import { EmptyState } from '../components/EmptyState';
-import { LoadingBlock } from '../components/LoadingBlock';
+import { VEHICLE_TYPE_LABELS } from '../bookings/bookings';
+import { Avatar } from '../components/Avatar';
 import { PageHeader } from '../components/PageHeader';
-import { formatDateTime, formatIsoDay, formatPeso, formatTime, plural } from '../lib/format';
-import { loadOutOfAreaTrips, type OutOfAreaTrip } from '../outOfArea/outOfAreaRequests';
+import { Pagination } from '../components/Pagination';
+import { pageSlice, readDriverPage } from '../drivers/driverTable';
 import { defaultDateRange, parseDateRange } from '../lib/dateRange';
-import {
-  DEFAULT_RANGE_DAYS,
-  DISPLAY_STATUS_LABELS,
-  displayStatus,
-  REQUEST_QUERY_LIMIT,
-  type DisplayStatus,
-} from '../outOfArea/requests';
+import { formatCount, formatDate, formatDateTime, formatIsoDay, formatPeso, formatTime, plural } from '../lib/format';
 import { listLoadErrorMessage } from '../lib/loadError';
+import { loadOutOfAreaTrips, type OutOfAreaTrip } from '../outOfArea/outOfAreaRequests';
+import { DEFAULT_RANGE_DAYS, displayStatus, REQUEST_QUERY_LIMIT } from '../outOfArea/requests';
+import {
+  chipLabel,
+  DEFAULT_TRIP_FILTERS,
+  hasTripFilters,
+  matchesTripSearch,
+  RANGE_PRESETS,
+  readTripFilters,
+  statusCounts,
+  TRIP_PAGE_SIZES,
+  TRIP_STATUS_LABELS,
+  tripStatus,
+  tripTableParams,
+  visibleChips,
+  type RangePreset,
+  type TripFilters,
+  type TripPageSize,
+  type TripStatus,
+} from '../outOfArea/tripsTable';
 
-type Filter = 'all' | DisplayStatus;
+const COLUMN_COUNT = 7;
 
-const FILTER_ORDER: DisplayStatus[] = ['searching', 'awaiting_passenger', 'confirmed', 'expired', 'cancelled', 'rejected'];
+type Row = { trip: OutOfAreaTrip; status: TripStatus };
 
+/** The from/to days the filters stand for (custom days missing → the default range). */
+function rangeFor(filters: TripFilters, now: Date): { from: string; to: string } {
+  const preset = RANGE_PRESETS.find((p) => p.value === filters.preset);
+  if (preset?.days) return defaultDateRange(now, preset.days);
+  const fallback = defaultDateRange(now, DEFAULT_RANGE_DAYS);
+  return { from: filters.from || fallback.from, to: filters.to || fallback.to };
+}
+
+/** /trips/out-of-area: requests opened in the date range, one row per trip. */
 export function OutOfAreaTripsPage() {
-  const [trips, setTrips] = useState<OutOfAreaTrip[] | null>(null);
-  const [loadedAt, setLoadedAt] = useState(() => new Date());
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filters = useMemo(() => readTripFilters(searchParams), [searchParams]);
+  const requestedPage = readDriverPage(searchParams);
+  const { from, to } = rangeFor(filters, new Date());
+  const range = useMemo(() => parseDateRange(from, to), [from, to]);
+  const rangeError = 'error' in range ? range.error : null;
+
+  const [loaded, setLoaded] = useState<{ trips: OutOfAreaTrip[]; truncated: boolean; at: Date } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('all');
-  const [truncated, setTruncated] = useState(false);
-  // `draft` follows the date inputs; `applied` is the range the table shows (on createdAt).
-  const [draft, setDraft] = useState(() => defaultDateRange(new Date(), DEFAULT_RANGE_DAYS));
-  const [applied, setApplied] = useState(draft);
-  const [rangeError, setRangeError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    const range = parseDateRange(applied.from, applied.to);
-    if ('error' in range) return; // applyRange never applies an invalid range
+    if ('error' in range) return;
     setLoadError(null);
+    setLoaded(null);
     try {
-      const loaded = await loadOutOfAreaTrips(range);
-      setTrips(loaded.trips);
-      setTruncated(loaded.truncated);
-      setLoadedAt(new Date());
+      const result = await loadOutOfAreaTrips(range);
+      setLoaded({ trips: result.trips, truncated: result.truncated, at: new Date() });
     } catch (error) {
-      setLoadError(listLoadErrorMessage(error, 'Could not load out-of-area trips. Check your connection and reload the page.'));
+      setLoadError(listLoadErrorMessage(error, 'Could not load out-of-area trips. Check your connection and try again.'));
     }
-  }, [applied]);
+  }, [range]);
 
-  function applyRange(event: FormEvent) {
-    event.preventDefault();
-    const range = parseDateRange(draft.from, draft.to);
-    if ('error' in range) {
-      setRangeError(range.error);
-      return;
-    }
-    setRangeError(null);
-    setTrips(null);
-    setApplied({ ...draft });
-  }
-
+  // A new preset or date loads the list at once (no separate Show button).
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  // Expiry is judged at load time so the statuses and counts agree; Refresh updates both.
-  const rows = useMemo(
-    () => (trips ?? []).map((trip) => ({ trip, status: displayStatus(trip.request, loadedAt) })),
-    [trips, loadedAt],
+  // Expiry is judged at load time so statuses and counts agree; Refresh updates both.
+  const rows = useMemo<Row[]>(
+    () =>
+      loaded
+        ? loaded.trips.map((trip) => ({
+            trip,
+            status: tripStatus(displayStatus(trip.request, loaded.at), trip.bookingStatus),
+          }))
+        : [],
+    [loaded],
   );
+  // Chip counts follow the search, so each chip says how many rows it would show.
+  const searched = useMemo(
+    () => rows.filter((row) => matchesTripSearch(row.trip.passengerName, row.trip.driverName, filters.search)),
+    [rows, filters.search],
+  );
+  const counts = useMemo(() => statusCounts(searched.map((row) => row.status)), [searched]);
+  const filtered = filters.status === 'all' ? searched : searched.filter((row) => row.status === filters.status);
+  const slice = pageSlice(filtered, requestedPage, filters.pageSize);
 
-  const counts = useMemo(() => {
-    const result = new Map<DisplayStatus, number>();
-    for (const row of rows) result.set(row.status, (result.get(row.status) ?? 0) + 1);
-    return result;
-  }, [rows]);
+  function update(next: TripFilters, page: number, replace = false) {
+    setSearchParams(tripTableParams(next, page), { replace });
+  }
 
-  const completedTrips = rows.filter((row) => row.trip.bookingStatus === 'completed').length;
-  const filtered = filter === 'all' ? rows : rows.filter((row) => row.status === filter);
+  function choosePreset(preset: RangePreset) {
+    // Custom starts from the range shown now, so the dates are never empty.
+    update(preset === 'custom' ? { ...filters, preset, from, to } : { ...filters, preset, from: '', to: '' }, 1);
+  }
+
+  const clearFilters = () => update({ ...filters, search: '', status: DEFAULT_TRIP_FILTERS.status }, 1);
 
   return (
     <div className="stack">
@@ -89,182 +115,300 @@ export function OutOfAreaTripsPage() {
         }
       />
 
-      <div className="card">
-        <form className="date-range-form" onSubmit={applyRange} noValidate>
-          <label className="field" htmlFor="out-of-area-from">
-            <span>Requested from</span>
+      <div className="card list-card">
+        <div className="list-toolbar">
+          <div className="segmented" role="group" aria-label="Requested in">
+            {RANGE_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className="segmented-button"
+                aria-pressed={filters.preset === preset.value}
+                onClick={() => choosePreset(preset.value)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          {filters.preset === 'custom' && (
+            <div className="custom-range">
+              <label className="list-select" htmlFor="trips-from">
+                <span>From</span>
+                <input
+                  id="trips-from"
+                  type="date"
+                  value={from}
+                  max={to || undefined}
+                  onChange={(e) => update({ ...filters, from: e.target.value, to }, 1, true)}
+                />
+              </label>
+              <label className="list-select" htmlFor="trips-to">
+                <span>To</span>
+                <input
+                  id="trips-to"
+                  type="date"
+                  value={to}
+                  min={from || undefined}
+                  onChange={(e) => update({ ...filters, from, to: e.target.value }, 1, true)}
+                />
+              </label>
+            </div>
+          )}
+        </div>
+
+        <div className="list-toolbar">
+          <label className="list-search" htmlFor="trips-search">
+            <span className="visually-hidden">Search passenger or driver name</span>
             <input
-              id="out-of-area-from"
-              type="date"
-              value={draft.from}
-              max={draft.to || undefined}
-              onChange={(e) => setDraft((range) => ({ ...range, from: e.target.value }))}
+              id="trips-search"
+              type="search"
+              value={filters.search}
+              onChange={(e) => update({ ...filters, search: e.target.value }, 1, true)}
+              placeholder="Search passenger or driver name"
+              autoComplete="off"
             />
           </label>
-          <label className="field" htmlFor="out-of-area-to">
-            <span>to</span>
-            <input
-              id="out-of-area-to"
-              type="date"
-              value={draft.to}
-              min={draft.from || undefined}
-              onChange={(e) => setDraft((range) => ({ ...range, to: e.target.value }))}
-            />
+          <label className="list-select" htmlFor="trips-rows">
+            <span>Show</span>
+            <select
+              id="trips-rows"
+              value={filters.pageSize}
+              onChange={(e) => update({ ...filters, pageSize: Number(e.target.value) as TripPageSize }, 1)}
+            >
+              {TRIP_PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
           </label>
-          <button type="submit" className="btn-primary">
-            Show
-          </button>
-        </form>
-        {rangeError && (
-          <div className="alert-error" role="alert">
-            {rangeError}
-          </div>
-        )}
-      </div>
-
-      {loadError ? (
-        <div className="alert-error" role="alert">
-          {loadError}
+          <span className="list-count muted small" aria-live="polite">
+            {rangeError
+              ? ''
+              : loaded
+                ? `${plural(filtered.length, 'trip')} · ${formatIsoDay(from)}${from === to ? '' : ` – ${formatIsoDay(to)}`} · as of ${formatTime(loaded.at)}`
+                : loadError
+                  ? ''
+                  : 'Loading…'}
+          </span>
         </div>
-      ) : !trips ? (
-        <div className="card">
-          <LoadingBlock label="Loading out-of-area trips…" lines={5} />
-        </div>
-      ) : (
-        <>
-          <div className="stat-grid">
-            <Stat label={truncated ? `Requests (latest ${REQUEST_QUERY_LIMIT})` : 'Requests'} value={rows.length} />
-            <Stat label="Looking for a driver" value={counts.get('searching') ?? 0} />
-            <Stat label="Waiting for passenger" value={counts.get('awaiting_passenger') ?? 0} />
-            <Stat label="Confirmed" value={counts.get('confirmed') ?? 0} />
-            <Stat label="Completed trips" value={completedTrips} />
-            <Stat label="Expired" value={counts.get('expired') ?? 0} />
-            <Stat label="Cancelled" value={counts.get('cancelled') ?? 0} />
-          </div>
 
-          <div className="card">
-            <label className="field filter-field" htmlFor="out-of-area-filter">
-              <span>Show</span>
-              <select id="out-of-area-filter" value={filter} onChange={(e) => setFilter(e.target.value as Filter)}>
-                <option value="all">All requests ({rows.length})</option>
-                {FILTER_ORDER.map((status) => (
-                  <option key={status} value={status}>
-                    {DISPLAY_STATUS_LABELS[status]} ({counts.get(status) ?? 0})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="muted small" aria-live="polite">
-              {filter === 'all'
-                ? `${plural(rows.length, 'request')} from ${formatIsoDay(applied.from)} to ${formatIsoDay(applied.to)}.`
-                : `${filtered.length} of ${plural(rows.length, 'request')} from ${formatIsoDay(applied.from)} to ${formatIsoDay(applied.to)}.`}{' '}
-              Statuses as of {formatTime(loadedAt)}.
-            </p>
-            {truncated && (
+        <div className="status-chips" role="group" aria-label="Status">
+          {visibleChips(counts, filters.status).map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              className={`status-chip${counts[chip] === 0 ? ' is-empty' : ''}`}
+              aria-pressed={filters.status === chip}
+              onClick={() => update({ ...filters, status: chip }, 1)}
+            >
+              {chipLabel(chip)} <span className="status-chip-count">{loaded ? formatCount(counts[chip]) : '–'}</span>
+            </button>
+          ))}
+        </div>
+
+        {rangeError ? (
+          <div className="list-error" role="alert">
+            <p>{rangeError}</p>
+          </div>
+        ) : loadError ? (
+          <div className="list-error" role="alert">
+            <p>{loadError}</p>
+            <button type="button" className="btn-outline" onClick={() => void reload()}>
+              Retry
+            </button>
+          </div>
+        ) : (
+          <>
+            {loaded?.truncated && (
               <p className="alert-warning" role="status">
                 Latest {REQUEST_QUERY_LIMIT} requests shown. Choose a shorter range to see older ones.
               </p>
             )}
-
-            {filtered.length === 0 ? (
-              <EmptyState>
-                {rows.length === 0 ? 'No out-of-area requests in this date range.' : 'No requests with this status.'}
-              </EmptyState>
-            ) : (
-              <div className="table-scroll">
-                <table className="data-table booking-table out-of-area-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Requested</th>
-                      <th scope="col">Passenger</th>
-                      <th scope="col">Route</th>
-                      <th scope="col" className="num">Fare</th>
-                      <th scope="col">Driver</th>
-                      <th scope="col">Request</th>
-                      <th scope="col">Trip</th>
-                      <th scope="col">
-                        <span className="visually-hidden">Actions</span>
-                      </th>
+            <div className="list-table-scroll">
+              <table className="list-table trips-table">
+                <colgroup>
+                  <col className="col-requested" />
+                  <col className="col-passenger" />
+                  <col className="col-route" />
+                  <col className="col-fare" />
+                  <col className="col-trip-driver" />
+                  <col className="col-trip-status" />
+                  <col className="col-chevron" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col">Requested</th>
+                    <th scope="col">Passenger</th>
+                    <th scope="col">Route</th>
+                    <th scope="col" className="num">
+                      Fare
+                    </th>
+                    <th scope="col">Driver</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">
+                      <span className="visually-hidden">Open</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!loaded ? (
+                    <SkeletonRows count={filters.pageSize} />
+                  ) : slice.items.length === 0 ? (
+                    <tr className="list-empty-row">
+                      <td colSpan={COLUMN_COUNT}>
+                        <div className="empty-state">
+                          No out-of-area trips in this period.{' '}
+                          {hasTripFilters(filters) && (
+                            <button type="button" className="link-button" onClick={clearFilters}>
+                              Clear filters
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map(({ trip, status }) => {
-                      const { request } = trip;
-                      return (
-                        <tr key={request.requestId}>
-                          <td>
-                            <div>{formatDateTime(request.createdAt)}</div>
-                          </td>
-                          <td>
-                            {request.passengerId ? (
-                              <Link className="btn-link" to={`/passengers/${request.passengerId}`}>
-                                {trip.passengerName || '(no name)'}
-                              </Link>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="route-cell">
-                            <div>
-                              <span className="muted small">From </span>
-                              {request.pickupAddress || '—'}
-                            </div>
-                            <div>
-                              <span className="muted small">To </span>
-                              {request.destinationAddress || '—'}
-                            </div>
-                            <div className="muted small">
-                              {[
-                                request.vehicleType ? VEHICLE_TYPE_LABELS[request.vehicleType] : null,
-                                request.distanceKm !== null ? `${request.distanceKm.toFixed(1)} km` : null,
-                              ]
-                                .filter(Boolean)
-                                .join(' · ')}
-                            </div>
-                          </td>
-                          <td className="num">{formatPeso(request.fare)}</td>
-                          <td>{trip.driverName === null ? <span className="muted">None</span> : trip.driverName || '(no name)'}</td>
-                          <td>
-                            <span className={`booking-status request-status-${status}`}>
-                              {DISPLAY_STATUS_LABELS[status]}
-                            </span>
-                            {(status === 'searching' || status === 'awaiting_passenger') && (
-                              <div className="muted small">Expires {formatDateTime(request.expiresAt)}</div>
-                            )}
-                          </td>
-                          <td>
-                            {trip.bookingStatus ? (
-                              <span className={`booking-status booking-status-${trip.bookingStatus}`}>
-                                {BOOKING_STATUS_LABELS[trip.bookingStatus]}
-                              </span>
-                            ) : (
-                              <span className="muted">—</span>
-                            )}
-                          </td>
-                          <td className="cell-action">
-                            <Link className="btn-link" to={`/trips/out-of-area/${request.requestId}`}>
-                              View
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                  ) : (
+                    slice.items.map((row) => (
+                      <TripRow
+                        key={row.trip.request.requestId}
+                        row={row}
+                        onOpen={() => navigate(`/trips/out-of-area/${row.trip.request.requestId}`)}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {loaded && slice.total > 0 && (
+              <div className="list-pager">
+                <span className="muted small">
+                  Showing {formatCount(slice.from)}–{formatCount(slice.to)} of {formatCount(slice.total)}
+                </span>
+                <Pagination
+                  page={slice.page}
+                  pageCount={slice.pageCount}
+                  onChange={(page) => update(filters, page)}
+                  label="Trip pages"
+                />
               </div>
             )}
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function SkeletonRows({ count }: { count: number }) {
   return (
-    <div className="card stat-card">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-    </div>
+    <>
+      {Array.from({ length: Math.min(count, 10) }, (_, index) => (
+        <tr key={index} className="list-skeleton-row" aria-hidden="true">
+          {Array.from({ length: COLUMN_COUNT }, (__, cell) => (
+            <td key={cell}>{cell < COLUMN_COUNT - 1 && <div className="skeleton-line" />}</td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
+/** Links inside the row handle their own clicks (the row would open the trip). */
+function stop(event: MouseEvent) {
+  event.stopPropagation();
+}
+
+function TripRow({ row, onOpen }: { row: Row; onOpen: () => void }) {
+  const { trip, status } = row;
+  const { request } = trip;
+  const passenger = trip.passengerName || '(no name)';
+  const details = [
+    request.vehicleType ? VEHICLE_TYPE_LABELS[request.vehicleType] : null,
+    request.distanceKm !== null ? `${request.distanceKm.toFixed(1)} km` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const statusTitle =
+    (status === 'searching' || status === 'awaiting_passenger') && request.expiresAt
+      ? `Expires ${formatDateTime(request.expiresAt)}`
+      : TRIP_STATUS_LABELS[status];
+
+  function onKeyDown(event: KeyboardEvent<HTMLTableRowElement>) {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onOpen();
+    }
+  }
+
+  return (
+    <tr
+      className="clickable-row"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={onKeyDown}
+      aria-label={`Open the trip requested ${formatDateTime(request.createdAt)} by ${passenger}`}
+    >
+      <td>
+        <div>{formatDate(request.createdAt)}</div>
+        <div className="muted small">{formatTime(request.createdAt)}</div>
+      </td>
+      <td>
+        <div className="driver-cell">
+          <Avatar name={trip.passengerName} imageUrl={null} size={28} />
+          {request.passengerId ? (
+            <Link className="list-name truncate" to={`/passengers/${request.passengerId}`} title={passenger} onClick={stop}>
+              {passenger}
+            </Link>
+          ) : (
+            <span className="muted">—</span>
+          )}
+        </div>
+      </td>
+      <td>
+        <div className="route-mini cell-text">
+          <div className="route-mini-line">
+            <span className="route-dot" aria-hidden="true" />
+            <span className="visually-hidden">From </span>
+            <span className="truncate" title={request.pickupAddress}>
+              {request.pickupAddress || '—'}
+            </span>
+          </div>
+          <div className="route-mini-line">
+            <svg className="route-pin" viewBox="0 0 12 16" width="10" height="13" aria-hidden="true">
+              <path d="M6 0a6 6 0 0 0-6 6c0 4.5 6 10 6 10s6-5.5 6-10a6 6 0 0 0-6-6zm0 8.2A2.2 2.2 0 1 1 6 3.8a2.2 2.2 0 0 1 0 4.4z" />
+            </svg>
+            <span className="visually-hidden">To </span>
+            <span className="truncate" title={request.destinationAddress}>
+              {request.destinationAddress || '—'}
+            </span>
+          </div>
+          {details && <div className="muted small truncate route-mini-details">{details}</div>}
+        </div>
+      </td>
+      <td className="num">{formatPeso(request.fare)}</td>
+      <td>
+        {trip.driverName === null || !request.driverId ? (
+          <span className="muted small">No driver yet</span>
+        ) : (
+          <Link
+            className="list-name truncate"
+            to={`/drivers/all/${request.driverId}`}
+            title={trip.driverName || '(no name)'}
+            onClick={stop}
+          >
+            {trip.driverName || '(no name)'}
+          </Link>
+        )}
+      </td>
+      <td>
+        <span className={`trip-pill trip-pill-${status}`} title={statusTitle}>
+          {TRIP_STATUS_LABELS[status]}
+        </span>
+      </td>
+      <td className="cell-chevron" aria-hidden="true">
+        ›
+      </td>
+    </tr>
   );
 }

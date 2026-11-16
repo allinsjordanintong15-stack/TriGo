@@ -1272,10 +1272,6 @@ h3 {
   max-width: 320px;
 }
 
-.out-of-area-table {
-  min-width: 900px;
-}
-
 .request-status-confirmed {
   background: var(--color-primary-light);
   color: var(--color-primary-dark);
@@ -1345,27 +1341,27 @@ h3 {
 
 /* ─── Drivers ──────────────────────────────────────────────────────────── */
 
-.drivers-card {
+.list-card {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
 }
 
 /* Search, rows per page and vehicle on one row; wraps only on narrow screens. */
-.drivers-toolbar {
+.list-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm) var(--space-md);
 }
 
-.drivers-search {
+.list-search {
   flex: 1 1 260px;
   max-width: 420px;
 }
 
-.drivers-search input,
-.drivers-select select {
+.list-search input,
+.list-select select {
   font: inherit;
   font-size: 15px;
   color: var(--color-text);
@@ -1376,17 +1372,17 @@ h3 {
   background: var(--color-white);
 }
 
-.drivers-search input {
+.list-search input {
   width: 100%;
 }
 
-.drivers-search input:focus,
-.drivers-select select:focus {
+.list-search input:focus,
+.list-select select:focus {
   outline: 2px solid var(--color-primary);
   outline-offset: 1px;
 }
 
-.drivers-select {
+.list-select {
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
@@ -1395,7 +1391,7 @@ h3 {
   color: var(--color-text-secondary);
 }
 
-.drivers-count {
+.list-count {
   margin-left: auto;
 }
 
@@ -1416,7 +1412,7 @@ h3 {
   outline-offset: 2px;
 }
 
-.drivers-error {
+.list-error {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1427,13 +1423,13 @@ h3 {
   color: var(--color-error);
 }
 
-.drivers-error p {
+.list-error p {
   margin: 0;
 }
 
 /* Fits the card at 1366px; below ~900px it scrolls inside the card (the page never does).
    max-height lets the header stick while scrolling long pages of 20 or 50 rows. */
-.drivers-table-scroll {
+.list-table-scroll {
   position: relative;
   width: 100%;
   max-height: 72vh;
@@ -1443,7 +1439,7 @@ h3 {
   background: var(--color-white);
 }
 
-.drivers-table {
+.list-table {
   width: 100%;
   min-width: 860px;
   table-layout: fixed;
@@ -1451,20 +1447,20 @@ h3 {
   font-size: 14px;
 }
 
-.drivers-table .small {
+.list-table .small {
   font-size: 12.5px;
 }
 
-.drivers-table .col-driver { width: 19%; }
-.drivers-table .col-vehicle { width: 19%; }
-.drivers-table .col-contact { width: 17%; }
-.drivers-table .col-status { width: 8%; }
-.drivers-table .col-commission { width: 18%; }
-.drivers-table .col-rating { width: 14%; }
-.drivers-table .col-actions { width: 52px; }
+.list-table .col-driver { width: 19%; }
+.list-table .col-vehicle { width: 19%; }
+.list-table .col-contact { width: 17%; }
+.list-table .col-status { width: 8%; }
+.list-table .col-commission { width: 18%; }
+.list-table .col-rating { width: 14%; }
+.list-table .col-actions { width: 52px; }
 
-.drivers-table th,
-.drivers-table td {
+.list-table th,
+.list-table td {
   padding: 6px 12px;
   text-align: left;
   vertical-align: middle;
@@ -1472,7 +1468,7 @@ h3 {
   overflow: hidden;
 }
 
-.drivers-table thead th {
+.list-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -1486,26 +1482,26 @@ h3 {
   border-bottom: 1px solid var(--color-border);
 }
 
-.drivers-table td {
+.list-table td {
   height: 60px;
   line-height: 1.35;
 }
 
-.drivers-table tbody tr:last-child td {
+.list-table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.drivers-table tbody tr:not(.drivers-empty-row):not(.drivers-skeleton-row):hover > td {
+.list-table tbody tr:not(.list-empty-row):not(.list-skeleton-row):hover > td {
   background: #f4f8f5;
 }
 
-.drivers-table .num {
+.list-table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
   padding-left: 6px;
 }
 
-.drivers-table .cell-actions {
+.list-table .cell-actions {
   padding: 6px 8px 6px 0;
   text-align: right;
   overflow: visible;
@@ -1536,13 +1532,13 @@ h3 {
   white-space: nowrap;
 }
 
-.drivers-name {
+.list-name {
   font-weight: 600;
   color: var(--color-primary-dark);
   text-decoration: none;
 }
 
-.drivers-name:hover {
+.list-name:hover {
   text-decoration: underline;
 }
 
@@ -1700,11 +1696,11 @@ h3 {
   vertical-align: middle;
 }
 
-.drivers-skeleton-row .skeleton-line {
+.list-skeleton-row .skeleton-line {
   flex: 1;
 }
 
-.drivers-pager {
+.list-pager {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2756,4 +2752,232 @@ a.btn-outline {
   margin: var(--space-xs) 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* ─── Out-of-area trips table (shares the list-* styles of All drivers) ── */
+
+.list-select input[type='date'] {
+  font: inherit;
+  font-size: 15px;
+  color: var(--color-text);
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+}
+
+.list-select input[type='date']:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.custom-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+}
+
+/* Preset range buttons joined into one control. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-white);
+}
+
+.segmented-button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  height: 38px;
+  padding: 0 14px;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  background: none;
+  color: var(--color-primary-dark);
+  cursor: pointer;
+}
+
+.segmented-button:last-child {
+  border-right: none;
+}
+
+.segmented-button:hover {
+  background: var(--color-primary-light);
+}
+
+.segmented-button[aria-pressed='true'] {
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+.segmented-button:focus-visible,
+.status-chip:focus-visible,
+.clickable-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* Status chips: outlined, the active one filled green; empty ones muted but clickable. */
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.status-chip {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  background: var(--color-white);
+  color: var(--color-primary-dark);
+  cursor: pointer;
+}
+
+.status-chip:hover {
+  background: var(--color-primary-light);
+}
+
+.status-chip-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.status-chip.is-empty {
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.status-chip.is-empty .status-chip-count {
+  color: var(--color-text-muted);
+}
+
+.status-chip[aria-pressed='true'],
+.status-chip[aria-pressed='true']:hover {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-white);
+}
+
+.status-chip[aria-pressed='true'] .status-chip-count {
+  color: var(--color-white);
+}
+
+.list-table .col-requested { width: 11%; }
+.list-table .col-passenger { width: 18%; }
+.list-table .col-route { width: 27%; }
+.list-table .col-fare { width: 9%; }
+.list-table .col-trip-driver { width: 15%; }
+.list-table .col-trip-status { width: 17%; }
+.list-table .col-chevron { width: 32px; }
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.cell-chevron {
+  padding-left: 0 !important;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  text-align: center !important;
+}
+
+.clickable-row:hover .cell-chevron {
+  color: var(--color-primary);
+}
+
+/* Pickup and destination like the app's route timeline: green dot, gold pin. */
+.route-mini {
+  gap: 0;
+  line-height: 1.25;
+}
+
+.route-mini-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.route-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 1px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.route-pin {
+  flex: none;
+  fill: var(--color-accent);
+}
+
+.route-mini-details {
+  padding-left: 16px;
+}
+
+.trips-table td {
+  height: 62px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+/* One combined status per trip. */
+.trip-pill {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.trip-pill-searching,
+.trip-pill-awaiting_passenger {
+  background: var(--color-gold-light);
+  border-color: var(--color-accent);
+  color: var(--color-primary-dark);
+}
+
+.trip-pill-confirmed,
+.trip-pill-in_progress {
+  background: var(--color-white);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.trip-pill-completed {
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+.trip-pill-expired,
+.trip-pill-unknown {
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.trip-pill-cancelled {
+  background: var(--color-error-background);
+  border-color: var(--color-error);
+  color: var(--color-error);
 }
