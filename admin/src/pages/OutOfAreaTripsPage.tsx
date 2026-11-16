@@ -349,7 +349,7 @@ function TripRow({ row, onOpen }: { row: Row; onOpen: () => void }) {
       onKeyDown={onKeyDown}
       aria-label={`Open the trip requested ${formatDateTime(request.createdAt)} by ${passenger}`}
     >
-      <td>
+      <td className="date-cell">
         <div>{formatDate(request.createdAt)}</div>
         <div className="muted small">{formatTime(request.createdAt)}</div>
       </td>

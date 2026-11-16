@@ -65,12 +65,9 @@ function SectionError() {
   return <p className="field-error">Could not load this. Check your connection and press Refresh.</p>;
 }
 
-/** The booking's own page: the out-of-area request, else the passenger's booking history. */
+/** The booking's own page (Trips → Bookings). */
 function bookingLink(booking: AdminBooking): string {
-  if (booking.bookingType === 'out_of_area' && booking.outOfAreaRequestId) {
-    return `/trips/out-of-area/${encodeURIComponent(booking.outOfAreaRequestId)}`;
-  }
-  return `/passengers/${encodeURIComponent(booking.passengerId)}#booking-${booking.bookingId}`;
+  return `/trips/bookings/${encodeURIComponent(booking.bookingId)}`;
 }
 
 export function DashboardPage() {
@@ -272,6 +269,9 @@ export function DashboardPage() {
           ) : (
             <RecentTable rows={recent.data} />
           )}
+          <p className="small">
+            <Link to="/trips/bookings">All bookings →</Link>
+          </p>
         </section>
 
         <section className="card money-card" aria-labelledby="money-title">

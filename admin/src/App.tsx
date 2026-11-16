@@ -4,6 +4,8 @@ import { AuthProvider } from './auth/AuthContext';
 import { RequireAdmin } from './auth/RequireAdmin';
 import { AdminLayout } from './components/AdminLayout';
 import { enc, Redirect } from './components/Redirect';
+import { BookingDetailPage } from './pages/BookingDetailPage';
+import { BookingsPage } from './pages/BookingsPage';
 import { ComplaintDetailPage } from './pages/ComplaintDetailPage';
 import { ComplaintsPage } from './pages/ComplaintsPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -59,9 +61,11 @@ export function App() {
             <Route path="/passengers" element={<PassengersPage />} />
             <Route path="/passengers/:uid" element={<PassengerDetailPage />} />
 
-            {/* Trips: Out-of-area trips (an "All bookings" tab can be added here later) */}
+            {/* Trips: Bookings | Out-of-area requests */}
             <Route path="/trips" element={<TripsLayout />}>
-              <Route index element={<Navigate to="out-of-area" replace />} />
+              <Route index element={<Navigate to="bookings" replace />} />
+              <Route path="bookings" element={<BookingsPage />} />
+              <Route path="bookings/:bookingId" element={<BookingDetailPage />} />
               <Route path="out-of-area" element={<OutOfAreaTripsPage />} />
               <Route path="out-of-area/:requestId" element={<OutOfAreaTripDetailPage />} />
             </Route>

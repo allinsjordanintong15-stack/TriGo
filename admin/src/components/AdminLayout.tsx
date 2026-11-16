@@ -30,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
     badge: { count: 'pendingApplications', noun: ['pending application', 'pending applications'] },
   },
   { to: '/passengers', label: 'Passengers', icon: 'passengers', section: '/passengers' },
-  { to: '/trips/out-of-area', label: 'Trips', icon: 'outOfArea', section: '/trips' },
+  { to: '/trips/bookings', label: 'Trips', icon: 'outOfArea', section: '/trips' },
   {
     to: '/earnings',
     label: 'Earnings',

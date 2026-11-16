@@ -63,7 +63,10 @@ export function ComplaintsLayout() {
 
 // One tab for now, so no tab bar is shown. To add "All bookings": add its route under /trips in
 // App.tsx and a second entry here; the tab bar then appears.
-const TRIP_TABS: PageTab[] = [{ to: '/trips/out-of-area', label: 'Out-of-area trips' }];
+const TRIP_TABS: PageTab[] = [
+  { to: '/trips/bookings', label: 'Bookings' },
+  { to: '/trips/out-of-area', label: 'Out-of-area requests' },
+];
 
 export function TripsLayout() {
   return (

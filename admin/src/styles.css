@@ -2981,3 +2981,101 @@ a.btn-outline {
   border-color: var(--color-error);
   color: var(--color-error);
 }
+
+/* ─── Bookings table and detail (Trips → Bookings) ───────────────────── */
+
+.list-table .col-booked { width: 12%; }
+.list-table .col-b-passenger { width: 16%; }
+.list-table .col-b-driver { width: 14%; }
+.list-table .col-b-route { width: 26%; }
+.list-table .col-b-fare { width: 9%; }
+.list-table .col-b-status { width: 15%; }
+
+.date-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trip-pill-pending {
+  background: var(--color-gold-light);
+  border-color: var(--color-accent);
+  color: var(--color-primary-dark);
+}
+
+.trip-pill-accepted,
+.trip-pill-arrived {
+  background: var(--color-white);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.no-show-note {
+  margin-top: 2px;
+  color: var(--color-error);
+}
+
+.booking-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.booking-summary-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.booking-route {
+  gap: var(--space-xs);
+  line-height: 1.4;
+}
+
+.person-card .driver-cell {
+  align-items: flex-start;
+}
+
+.fare-breakdown {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fare-line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 6px 0;
+  border-bottom: 1px solid #eef0ec;
+}
+
+.fare-line:last-child {
+  border-bottom: none;
+}
+
+.fare-line dt {
+  color: var(--color-text-secondary);
+}
+
+.fare-line dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.rating-tag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+}
