@@ -47,9 +47,9 @@ export function App() {
             </Route>
             <Route path="/dashboard" element={<Navigate to="/" replace />} />
 
-            {/* Drivers: Applications | All drivers */}
+            {/* Drivers: All drivers | Applications */}
             <Route path="/drivers" element={<DriversLayout />}>
-              <Route index element={<Navigate to="applications" replace />} />
+              <Route index element={<Navigate to="all" replace />} />
               <Route path="applications" element={<DriverVerificationPage />} />
               <Route path="applications/:uid" element={<DriverApplicationPage />} />
               <Route path="all" element={<DriversPage />} />

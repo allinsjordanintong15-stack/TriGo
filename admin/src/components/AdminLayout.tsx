@@ -23,7 +23,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: 'dashboard', section: '/dashboard' },
   {
-    to: '/drivers/applications',
+    to: '/drivers/all',
     label: 'Drivers',
     icon: 'drivers',
     section: '/drivers',

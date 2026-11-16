@@ -6,12 +6,12 @@ import { PageTabs, type PageTab } from '../components/PageTabs';
 // refresh and back/forward all work. Old URLs redirect here (see App.tsx).
 
 const DRIVER_TABS: PageTab[] = [
+  { to: '/drivers/all', label: 'All drivers' },
   {
     to: '/drivers/applications',
     label: 'Applications',
     badge: { count: 'pendingApplications', noun: ['pending application', 'pending applications'] },
   },
-  { to: '/drivers/all', label: 'All drivers' },
 ];
 
 export function DriversLayout() {
