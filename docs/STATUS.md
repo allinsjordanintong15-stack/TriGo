@@ -54,8 +54,11 @@ things stand.
   final fare, the driver, stars (1–5), quick tags, an optional comment, Skip, and Report a
   problem. Trips can also be rated later from Booking Details for 7 days; a given rating
   is shown there. Drivers' ratings show as the average (one decimal) or "New".
-- **Driver application:** personal and vehicle details, plus OR/CR and LTO license photos
-  (blocked by Storage, see Known limits).
+- **Driver application:** personal and vehicle details, plus OR/CR and LTO license photos.
+  Uploads work (2026-11-17, not deployed): photos only (no PDFs), compressed on the phone
+  (at most 1600 px, under 900 KB) and stored in Firestore with the application in one
+  commit. Admins see thumbnails and a zoom/rotate viewer on the application page. Needs a
+  new EAS development build (expo-image-manipulator).
 - **Notifications tab = inbox ("Messages from TriGo"):** the passenger's warnings, newest
   first, unread highlighted; a warning opens with its reason, date, related trip and an
   "I understand" button. The Home bell shows the number of unread warnings. Built to take
@@ -222,8 +225,11 @@ things stand.
 ## Known limits
 
 - **No Firebase Storage (needs the Blaze plan).**
-  - Driver application document uploads and profile photos cannot work in production.
-  - The profile-photo code is parked on the branch `feature/profile-photo`.
+  - Profile photos cannot work in production; the code is parked on the branch
+    `feature/profile-photo`.
+  - Driver application documents no longer need Storage: they are compressed photos in
+    Firestore (photos only, no PDFs; each under 900 KB). Older applications that point to
+    Storage files show "No documents on file".
 - **OpenRouteService dependency.**
   - Routing and reverse geocoding call the ORS public API with a client-side key (free
     tier).
@@ -319,7 +325,7 @@ things stand.
   decision.
 - **Rating, Earnings and Vehicle Fleet (#5):** Earnings exists as the commission Earnings
   tab. Rating and Vehicle Fleet are not built.
-- **Blaze plan for Storage:** needed for document uploads and profile photos.
+- **Blaze plan for Storage:** needed for profile photos (driver documents use Firestore).
 - **iOS photo/camera permission text:** needs updating in the next EAS build
   (`docs/DECISIONS.md`).
 - **SRS/SPMP updates:** no entry in `docs/DECISIONS.md` has been carried into

@@ -4,8 +4,8 @@
 //
 // One commit anonymizes the account (firestore.rules, Users / Contacts / Drivers / Driver
 // applications / Account deletion requests): users/{uid} blanked, contacts/{uid} deleted,
-// drivers/{uid} and driverApplications/{uid} blanked when they exist, and the pending
-// request completed. The user's warnings and messages from TriGo keep their record with the
+// drivers/{uid} and driverApplications/{uid} blanked when they exist, the application's
+// document photos deleted, and the pending request completed. The user's warnings and messages from TriGo keep their record with the
 // reason (and message body) cleared (clearedReasonUpdate in admin/src/warnings/warningPlan.ts,
 // clearedAdminMessageUpdate in admin/src/drivers/driverActionPlan.ts, same commit). Bookings hold
 // only IDs, so they stay as they are. The sign-in account
@@ -77,6 +77,12 @@ export function anonymizedApplicationUpdate(now: unknown) {
     updatedAt: now,
   };
 }
+
+/**
+ * driverApplications/{uid}/documents/{docType}: both document photos are deleted in the
+ * anonymizing commit (the rules check that none is left after it).
+ */
+export const DELETED_APPLICATION_DOCUMENT_TYPES = ['orCr', 'ltoLicense'] as const;
 
 /** deletionRequests/{uid}, in the anonymizing commit. */
 export function completedRequestUpdate(now: unknown, adminUid: string) {

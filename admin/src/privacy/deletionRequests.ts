@@ -26,6 +26,7 @@ import {
   authDeletedUpdate,
   completedRequestUpdate,
   declinedRequestUpdate,
+  DELETED_APPLICATION_DOCUMENT_TYPES,
   validateDeclineNote,
   type OpenItems,
 } from './deletionPlan';
@@ -201,6 +202,10 @@ export async function anonymizeAndComplete(uid: string, adminUid: string): Promi
     }
     if (applicationSnap.exists() && applicationSnap.data().anonymizedAt == null) {
       transaction.update(applicationRef, anonymizedApplicationUpdate(now));
+    }
+    // The document photos go in the same commit (deleting a missing one is harmless).
+    for (const type of DELETED_APPLICATION_DOCUMENT_TYPES) {
+      transaction.delete(doc(db, 'driverApplications', uid, 'documents', type));
     }
     for (const warningId of warningIds) {
       transaction.update(doc(db, 'warnings', warningId), clearedReasonUpdate(now));

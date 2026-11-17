@@ -1,4 +1,5 @@
 import type { BoundaryBarangayId } from '@/constants/barangays';
+import type { ApplicationDocumentType } from '@/constants/applicationDocuments';
 import type { AdminSuspension } from '@/utils/adminSuspension';
 
 export type UserRole = 'passenger' | 'driver' | 'admin';
@@ -142,20 +143,20 @@ export interface Passenger extends User {
 
 export type DriverApplicationStatus = 'pending' | 'approved' | 'rejected';
 
-export type DriverApplicationDocumentType = 'orCr' | 'ltoLicense';
+export type DriverApplicationDocumentType = ApplicationDocumentType;
 
-/** A verification image in Cloud Storage; the file itself is never stored in Firestore. */
+/**
+ * The application's small reference to a document photo. The photo itself (compressed JPEG
+ * bytes) is at driverApplications/{uid}/documents/{docType}; see
+ * src/services/applicationDocumentService.ts.
+ */
 export interface DriverApplicationDocument {
-  /** `driverApplications/{uid}/{orCr | ltoLicense}` in Cloud Storage. */
-  storagePath: string;
-  downloadUrl: string;
-  fileName: string;
-  contentType: string;
+  sizeBytes: number;
   uploadedAt: Date | null;
 }
 
 export interface DriverApplicationDocuments {
-  /** OR/CR of the registered vehicle. */
+  /** OR/CR of the registered vehicle. Null when none is on file (older records too). */
   orCr: DriverApplicationDocument | null;
   /** LTO-verified driver's license. */
   ltoLicense: DriverApplicationDocument | null;

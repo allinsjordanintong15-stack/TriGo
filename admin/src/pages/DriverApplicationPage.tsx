@@ -2,19 +2,24 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { DocumentViewer } from '../components/DocumentViewer';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
 import { VehicleDetailsFields } from '../components/VehicleDetailsFields';
 import {
+  APPLICATION_DOCUMENT_LABELS,
+  APPLICATION_DOCUMENT_TYPES,
   approveApplication,
   loadApplication,
+  loadApplicationDocumentImages,
   MAX_REMARKS_LENGTH,
   rejectApplication,
   ReviewConflictError,
   VEHICLE_LABELS,
   VEHICLE_TYPES,
-  type ApplicationDocument,
+  type ApplicationDocumentType,
+  type DocumentImage,
   type DriverApplication,
   type VehicleType,
 } from '../drivers/driverApplications';
@@ -192,14 +197,7 @@ export function DriverApplicationPage() {
         )}
       </div>
 
-      <div className="card">
-        <h3>Documents</h3>
-        <Notice>Document images need Firebase Storage.</Notice>
-        <ul className="document-list">
-          <DocumentRow label="OR/CR" entry={application.documents.orCr} />
-          <DocumentRow label="LTO driver's license" entry={application.documents.ltoLicense} />
-        </ul>
-      </div>
+      <DocumentsCard application={application} />
 
       {isPending ? (
         <div className="review-grid">
@@ -404,11 +402,101 @@ function Detail({ label, value, mono = false }: { label: string; value: string; 
   );
 }
 
-function DocumentRow({ label, entry }: { label: string; entry: ApplicationDocument }) {
+type DocumentImages = Record<ApplicationDocumentType, DocumentImage | null>;
+
+function formatKilobytes(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / 1000))} KB`;
+}
+
+/**
+ * The applicant's document photos as thumbnails; a click opens the full-size viewer (zoom,
+ * rotate). The bytes are read here only (never on the Applications list) and shown through
+ * blob: URLs, revoked when the page closes or the application changes.
+ */
+function DocumentsCard({ application }: { application: DriverApplication }) {
+  const hasReferences = APPLICATION_DOCUMENT_TYPES.some((type) => application.documents[type] !== null);
+  const referenceKey = APPLICATION_DOCUMENT_TYPES.map(
+    (type) => application.documents[type]?.uploadedAt?.getTime() ?? '',
+  ).join(',');
+  const [images, setImages] = useState<DocumentImages | null>(null);
+  const [error, setError] = useState('');
+  const [viewing, setViewing] = useState<ApplicationDocumentType | null>(null);
+
+  useEffect(() => {
+    if (!hasReferences) return;
+    let active = true;
+    let urls: string[] = [];
+    setImages(null);
+    setError('');
+    loadApplicationDocumentImages(application.uid)
+      .then((loaded) => {
+        urls = APPLICATION_DOCUMENT_TYPES.flatMap((type) => (loaded[type] ? [loaded[type].url] : []));
+        if (active) setImages(loaded);
+        else urls.forEach((url) => URL.revokeObjectURL(url));
+      })
+      .catch(() => {
+        if (active) setError('The document photos could not be loaded. Check your connection and reload the page.');
+      });
+    return () => {
+      active = false;
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [application.uid, hasReferences, referenceKey]);
+
+  const viewed = viewing && images?.[viewing];
+
   return (
-    <li>
-      <span className="cell-strong">{label}</span>
-      <span className="muted small">{entry ? `${entry.fileName} — image unavailable` : 'Not uploaded'}</span>
-    </li>
+    <div className="card">
+      <h3>Documents</h3>
+      {!hasReferences ? (
+        <p className="muted">No documents on file</p>
+      ) : error ? (
+        <Notice>{error}</Notice>
+      ) : (
+        <>
+          <p className="muted small">Click a photo to open it full size (zoom and rotate).</p>
+          <ul className="doc-thumbs">
+            {APPLICATION_DOCUMENT_TYPES.map((type) => {
+              const label = APPLICATION_DOCUMENT_LABELS[type];
+              const image = images?.[type] ?? null;
+              return (
+                <li key={type}>
+                  {!images ? (
+                    <div className="doc-thumb doc-thumb-empty" aria-busy="true">
+                      Loading…
+                    </div>
+                  ) : image ? (
+                    <button
+                      type="button"
+                      className="doc-thumb"
+                      onClick={() => setViewing(type)}
+                      aria-label={`Open ${label} full size`}
+                    >
+                      <img src={image.url} alt={label} />
+                    </button>
+                  ) : (
+                    <div className="doc-thumb doc-thumb-empty">Not on file</div>
+                  )}
+                  <span className="cell-strong">{label}</span>
+                  {image && (
+                    <span className="muted small">
+                      {image.width}×{image.height} · {formatKilobytes(image.sizeBytes)}
+                      {image.uploadedAt ? ` · ${formatDateTime(image.uploadedAt)}` : ''}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+      {viewing && viewed && (
+        <DocumentViewer
+          title={APPLICATION_DOCUMENT_LABELS[viewing]}
+          image={viewed}
+          onClose={() => setViewing(null)}
+        />
+      )}
+    </div>
   );
 }

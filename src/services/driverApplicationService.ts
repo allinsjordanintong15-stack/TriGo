@@ -1,5 +1,14 @@
+import {
+  APPLICATION_DOCUMENT_LABELS,
+  APPLICATION_DOCUMENT_TYPES,
+} from '@/constants/applicationDocuments';
 import { LEGAL_VERSION } from '@/constants/legal';
-import { COLLECTIONS, firestore, storage, STORAGE_PATHS } from '@/firebase';
+import { COLLECTIONS, firestore } from '@/firebase';
+import {
+  ApplicationDocumentImage,
+  ApplicationDocumentReference,
+  applicationDocumentStore,
+} from '@/services/applicationDocumentService';
 import {
   DriverApplication,
   DriverApplicationDocument,
@@ -13,7 +22,6 @@ import {
   normalizePersonName,
   normalizeVehiclePlate,
   normalizeVehicleText,
-  validateDocumentImage,
   validatePersonName,
   validateVehicleBrand,
   validateVehicleColor,
@@ -29,7 +37,6 @@ import {
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
 export class DriverApplicationServiceError extends Error {
   constructor(message: string) {
@@ -38,22 +45,7 @@ export class DriverApplicationServiceError extends Error {
   }
 }
 
-/** An image picked on the device that has not been uploaded yet. */
-export interface LocalDocumentImage {
-  kind: 'local';
-  uri: string;
-  fileName: string;
-  mimeType: string;
-  fileSize: number | null;
-}
-
-/** A document already uploaded with a previous (rejected) submission. */
-export interface UploadedDocumentImage {
-  kind: 'uploaded';
-  document: DriverApplicationDocument;
-}
-
-export type ApplicationDocumentImage = LocalDocumentImage | UploadedDocumentImage;
+export type { ApplicationDocumentImage };
 
 export interface DriverApplicationInput {
   firstName: string;
@@ -69,10 +61,7 @@ export interface DriverApplicationInput {
   privacyNoticeAcknowledged: boolean;
 }
 
-export const DOCUMENT_LABELS: Record<DriverApplicationDocumentType, string> = {
-  orCr: 'OR/CR of Vehicle',
-  ltoLicense: "LTO-Verified Driver's License",
-};
+export const DOCUMENT_LABELS: Record<DriverApplicationDocumentType, string> = APPLICATION_DOCUMENT_LABELS;
 
 export function composeFullName(firstName: string, middleName: string | null, lastName: string) {
   return [firstName, middleName, lastName]
@@ -103,18 +92,15 @@ function toDate(value: unknown): Date | null {
   return null;
 }
 
+/**
+ * The reference {sizeBytes, uploadedAt} to a photo on file. Null when missing, null, or in
+ * the older Cloud Storage shape (never uploaded in production): "No documents on file".
+ */
 function toApplicationDocument(value: unknown): DriverApplicationDocument | null {
   if (!value || typeof value !== 'object') return null;
   const data = value as Record<string, unknown>;
-  if (typeof data.storagePath !== 'string' || typeof data.downloadUrl !== 'string') return null;
-
-  return {
-    storagePath: data.storagePath,
-    downloadUrl: data.downloadUrl,
-    fileName: typeof data.fileName === 'string' ? data.fileName : '',
-    contentType: typeof data.contentType === 'string' ? data.contentType : '',
-    uploadedAt: toDate(data.uploadedAt),
-  };
+  if (typeof data.sizeBytes !== 'number') return null;
+  return { sizeBytes: data.sizeBytes, uploadedAt: toDate(data.uploadedAt) };
 }
 
 export function docToDriverApplication(uid: string, data: DocumentData): DriverApplication {
@@ -169,37 +155,6 @@ export function subscribeToDriverApplication(
   );
 }
 
-/** Read a local file URI into a Blob (XHR is the reliable way in React Native). */
-function readFileAsBlob(uri: string): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.onload = () => resolve(request.response as Blob);
-    request.onerror = () => reject(new Error('Unable to read the selected image.'));
-    request.responseType = 'blob';
-    request.open('GET', uri, true);
-    request.send(null);
-  });
-}
-
-async function uploadDocumentImage(
-  uid: string,
-  documentType: DriverApplicationDocumentType,
-  image: LocalDocumentImage,
-): Promise<Omit<DriverApplicationDocument, 'uploadedAt'>> {
-  const storagePath = STORAGE_PATHS.driverApplicationDocument(uid, documentType);
-  const blob = await readFileAsBlob(image.uri);
-
-  try {
-    // Fixed path per document type: replacing an image overwrites the previous upload.
-    const storageRef = ref(storage, storagePath);
-    await uploadBytes(storageRef, blob, { contentType: image.mimeType });
-    const downloadUrl = await getDownloadURL(storageRef);
-    return { storagePath, downloadUrl, fileName: image.fileName, contentType: image.mimeType };
-  } finally {
-    (blob as Blob & { close?: () => void }).close?.();
-  }
-}
-
 function validateInput(user: User, email: string, input: DriverApplicationInput): string | null {
   return (
     validatePersonName(input.firstName, 'First name', true) ??
@@ -221,10 +176,27 @@ function validateInput(user: User, email: string, input: DriverApplicationInput)
   );
 }
 
+/** Turns a Firestore error from the submit into a message the applicant can act on. */
+function submitErrorMessage(error: unknown): string {
+  const code = (error as { code?: string }).code ?? '';
+  const keep = 'Your photos and details are kept; tap Submit again.';
+  if (code === 'unavailable' || code === 'deadline-exceeded' || code === 'cancelled') {
+    return `No connection, so nothing was sent. Check your internet connection. ${keep}`;
+  }
+  if (code === 'permission-denied') {
+    return 'Your application could not be saved. It may already have been submitted or reviewed; go back to see its status.';
+  }
+  if (code === 'invalid-argument' || code === 'resource-exhausted') {
+    return 'Your photos could not be saved. Please retake them and try again.';
+  }
+  return `Your application was not submitted. ${keep}`;
+}
+
 /**
- * Upload the documents, then submit a new application or resubmit a rejected one.
- * Tied to the Firebase Auth UID (and its email): one application per account. Status is
- * always `pending`; approval is an administrator action only.
+ * Submit a new application or resubmit a rejected one, with its document photos, in ONE
+ * transaction: the photos and the application all save, or nothing does. Tied to the
+ * Firebase Auth UID (and its email): one application per account. Status is always
+ * `pending`; approval is an administrator action only.
  */
 export async function submitDriverApplication(
   user: User,
@@ -236,16 +208,9 @@ export async function submitDriverApplication(
     throw new DriverApplicationServiceError(validationError);
   }
 
-  for (const image of Object.values(input.documents)) {
-    if (image?.kind === 'local') {
-      const imageError = validateDocumentImage(image);
-      if (imageError) throw new DriverApplicationServiceError(imageError);
-    }
-  }
-
   const applicationRef = doc(firestore, COLLECTIONS.driverApplications, user.uid);
 
-  // Check before uploading so a duplicate submission fails fast without touching Storage.
+  // Check before sending the photos so a duplicate submission fails fast.
   const existing = await getDoc(applicationRef).catch(() => null);
   const existingStatus = existing?.exists()
     ? (existing.data().status as DriverApplicationStatus)
@@ -255,28 +220,6 @@ export async function submitDriverApplication(
       existingStatus === 'approved'
         ? 'Your driver application has already been approved.'
         : 'You already have a driver application waiting for verification.',
-    );
-  }
-
-  const documents: Record<string, unknown> = {};
-  try {
-    for (const documentType of ['orCr', 'ltoLicense'] as const) {
-      const image = input.documents[documentType]!;
-      if (image.kind === 'uploaded') {
-        documents[documentType] = image.document;
-      } else {
-        const uploaded = await uploadDocumentImage(user.uid, documentType, image);
-        documents[documentType] = { ...uploaded, uploadedAt: serverTimestamp() };
-      }
-    }
-  } catch (error) {
-    const code = (error as { code?: string }).code ?? '';
-    throw new DriverApplicationServiceError(
-      code === 'storage/unauthorized'
-        ? 'Your documents could not be uploaded. Please check that each file is an image under 10 MB.'
-        : code.startsWith('storage/')
-          ? 'Document upload is not available right now. Please try again later.'
-          : 'Unable to upload your documents. Please check your internet connection and try again.',
     );
   }
 
@@ -295,7 +238,6 @@ export async function submitDriverApplication(
     vehicleBrand: normalizeVehicleText(input.vehicleBrand),
     vehicleModel: normalizeVehicleText(input.vehicleModel),
     vehicleColor: normalizeVehicleText(input.vehicleColor),
-    documents,
     status: 'pending' as const,
     submittedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -307,34 +249,42 @@ export async function submitDriverApplication(
   try {
     await runTransaction(firestore, async (transaction) => {
       const snapshot = await transaction.get(applicationRef);
+      if (snapshot.exists() && snapshot.data().status !== 'rejected') {
+        throw new DriverApplicationServiceError(
+          'You already have a driver application. Duplicate applications are not allowed.',
+        );
+      }
+
+      // New photos are written here; kept ones are only referenced (firestore.rules).
+      const documents = {} as Record<DriverApplicationDocumentType, ApplicationDocumentReference>;
+      for (const documentType of APPLICATION_DOCUMENT_TYPES) {
+        documents[documentType] = applicationDocumentStore.addToSubmit(
+          transaction,
+          user.uid,
+          documentType,
+          input.documents[documentType]!,
+        );
+      }
 
       if (!snapshot.exists()) {
         transaction.set(applicationRef, {
           uid: user.uid,
           ...submittedFields,
+          documents,
           adminRemarks: null,
           reviewedAt: null,
         });
         return;
       }
 
-      const status = snapshot.data().status as DriverApplicationStatus;
-      if (status !== 'rejected') {
-        throw new DriverApplicationServiceError(
-          'You already have a driver application. Duplicate applications are not allowed.',
-        );
-      }
-
       // Controlled resubmission after rejection; admin remarks and review details stay.
-      transaction.update(applicationRef, submittedFields);
+      transaction.update(applicationRef, { ...submittedFields, documents });
     });
   } catch (error) {
     if (error instanceof DriverApplicationServiceError) {
       throw error;
     }
 
-    throw new DriverApplicationServiceError(
-      'Unable to submit your application. Please check your internet connection and try again.',
-    );
+    throw new DriverApplicationServiceError(submitErrorMessage(error));
   }
 }

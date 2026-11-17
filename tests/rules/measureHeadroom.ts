@@ -5,7 +5,8 @@
 //   npx firebase emulators:exec --only firestore --project demo-trigo-rules "node tests/rules/measureHeadroom.ts"
 // (TRIGO_HEADROOM=payments in the environment: commission payment and cash-out scenarios only;
 // TRIGO_HEADROOM=enforcement: T1 accept, propose, claim and the out-of-area confirm only;
-// TRIGO_HEADROOM=vehicle: driver application submit/resubmit, approval and vehicle edit only;
+// TRIGO_HEADROOM=vehicle: driver application submit/resubmit (with both document photos in
+// the same commit), approval and vehicle edit only;
 // TRIGO_HEADROOM=booking: standard booking create (older shape, per-km, barangay tariff) only;
 // TRIGO_HEADROOM=privacy: consent, re-consent, deletion request, anonymization and the driver
 // application submit/resubmit only;
@@ -24,6 +25,7 @@ import { readFileSync } from 'node:fs';
 
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import {
+  Bytes,
   doc,
   serverTimestamp,
   setDoc,
@@ -111,6 +113,8 @@ type Target =
   | 'ledger cash-out'
   | 'application create'
   | 'application resubmit'
+  | 'document create'
+  | 'document delete'
   | 'approve: application review'
   | 'approve: driver create'
   | 'vehicle edit'
@@ -203,6 +207,14 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'application resubmit': [
     '      allow update: if isOwner(uid)\n        && isPassenger()\n',
     '      allow update: if isOwner(uid)\n        && isPassenger()\n        && pad()\n',
+  ],
+  'document create': [
+    '          && getAfter(applicationPath(uid)).data.submittedAt == request.time;',
+    '          && getAfter(applicationPath(uid)).data.submittedAt == request.time\n          && pad();',
+  ],
+  'document delete': [
+    '        allow delete: if isAdmin()\n          || (isOwner(uid) && isApplicationOpenForDocuments());',
+    '        allow delete: if (isAdmin() && pad())\n          || (isOwner(uid) && isApplicationOpenForDocuments());',
   ],
   'approve: application review': [
     "      allow update: if isAdminReview()\n        && request.resource.data.status == 'approved'",
@@ -859,14 +871,34 @@ const APPLICANT = 'vehicleApplicant';
 const APPLICANT_EMAIL = `${APPLICANT}@example.com`;
 const APPLICANT_MOBILE = '+639171234567';
 
+// The largest photo the rules allow (899 999 bytes), as the app writes it.
+const PHOTO_BYTES = 899_999;
+const PHOTO_TIME = Timestamp.fromMillis(Date.UTC(2026, 10, 1));
+
+function documentPhoto(uid: string, type: string, uploadedAt: unknown = serverTimestamp()): DocumentData {
+  return {
+    uid,
+    docType: type,
+    mimeType: 'image/jpeg',
+    data: Bytes.fromUint8Array(new Uint8Array(PHOTO_BYTES)),
+    sizeBytes: PHOTO_BYTES,
+    width: 1600,
+    height: 1200,
+    uploadedAt,
+  };
+}
+
+/** Both photos written in the submit commit, and the references to put on the application. */
+function addPhotos(batch: ReturnType<typeof writeBatch>, firestore: Firestore, uid: string): DocumentData {
+  for (const type of ['orCr', 'ltoLicense']) {
+    batch.set(doc(firestore, 'driverApplications', uid, 'documents', type), documentPhoto(uid, type));
+  }
+  const reference = { sizeBytes: PHOTO_BYTES, uploadedAt: serverTimestamp() };
+  return { orCr: reference, ltoLicense: reference };
+}
+
 function applicationDoc(overrides: DocumentData = {}): DocumentData {
-  const image = (type: string) => ({
-    storagePath: `driverApplications/${APPLICANT}/${type}`,
-    downloadUrl: `https://firebasestorage.googleapis.com/v0/b/demo/o/${type}`,
-    fileName: `${type}.jpg`,
-    contentType: 'image/jpeg',
-    uploadedAt: Timestamp.now(),
-  });
+  const image = () => ({ sizeBytes: PHOTO_BYTES, uploadedAt: PHOTO_TIME });
   return {
     uid: APPLICANT,
     firstName: 'Juan',
@@ -880,7 +912,7 @@ function applicationDoc(overrides: DocumentData = {}): DocumentData {
     vehicleBrand: 'Honda',
     vehicleModel: 'TMX 155',
     vehicleColor: 'Red',
-    documents: { orCr: image('orCr'), ltoLicense: image('ltoLicense') },
+    documents: { orCr: image(), ltoLicense: image() },
     status: 'pending',
     adminRemarks: null,
     submittedAt: Timestamp.now(),
@@ -895,33 +927,42 @@ const applicantUser = {
 };
 
 const applicationCreate: Scenario = {
-  label: 'driver application: submit',
-  targets: ['application create'],
+  label: 'driver application: submit (application + both photos in one commit)',
+  targets: ['application create', 'document create'],
   run: async () => {
     await seed(applicantUser);
     const firestore = db(APPLICANT, { email: APPLICANT_EMAIL });
-    await setDoc(
+    const batch = writeBatch(firestore);
+    const documents = addPhotos(batch, firestore, APPLICANT);
+    batch.set(
       doc(firestore, 'driverApplications', APPLICANT),
       applicationDoc({
+        documents,
         submittedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         privacyNoticeVersion: '1.0',
         privacyNoticeAcknowledgedAt: serverTimestamp(),
       }),
     );
+    await batch.commit();
   },
 };
 
 const applicationResubmit: Scenario = {
-  label: 'driver application: resubmit after rejection (new details)',
-  targets: ['application resubmit'],
+  label: 'driver application: resubmit after rejection (new details, both photos retaken)',
+  targets: ['application resubmit', 'document create'],
   run: async () => {
     await seed({
       ...applicantUser,
       [`driverApplications/${APPLICANT}`]: applicationDoc({ status: 'rejected', adminRemarks: 'Blurry' }),
+      [`driverApplications/${APPLICANT}/documents/orCr`]: documentPhoto(APPLICANT, 'orCr', PHOTO_TIME),
+      [`driverApplications/${APPLICANT}/documents/ltoLicense`]: documentPhoto(APPLICANT, 'ltoLicense', PHOTO_TIME),
     });
     const firestore = db(APPLICANT, { email: APPLICANT_EMAIL });
-    await updateDoc(doc(firestore, 'driverApplications', APPLICANT), {
+    const batch = writeBatch(firestore);
+    const documents = addPhotos(batch, firestore, APPLICANT);
+    batch.update(doc(firestore, 'driverApplications', APPLICANT), {
+      documents,
       vehicleBrand: 'Yamaha',
       vehicleModel: 'Sniper 155',
       vehicleColor: 'Blue/White',
@@ -931,6 +972,7 @@ const applicationResubmit: Scenario = {
       privacyNoticeVersion: '1.0',
       privacyNoticeAcknowledgedAt: serverTimestamp(),
     });
+    await batch.commit();
   },
 };
 
@@ -1182,12 +1224,13 @@ const complaintResolveSuspended: Scenario = {
 
 // The heaviest deletion: a driver with an approved application and a pending request.
 const privacyAnonymizeDriver: Scenario = {
-  label: 'privacy: anonymize a driver account (users + contact + driver + application + request)',
+  label: 'privacy: anonymize a driver account (users + contact + driver + application + 2 photos + request)',
   targets: [
     'anonymize: user',
     'anonymize: contact delete',
     'anonymize: driver',
     'anonymize: application',
+    'document delete',
     'anonymize: request complete',
   ],
   run: async () => {
@@ -1217,6 +1260,8 @@ const privacyAnonymizeDriver: Scenario = {
         privacyNoticeVersion: LEGAL_VERSION,
         privacyNoticeAcknowledgedAt: Timestamp.now(),
       },
+      [`driverApplications/${ERASED}/documents/orCr`]: documentPhoto(ERASED, 'orCr', PHOTO_TIME),
+      [`driverApplications/${ERASED}/documents/ltoLicense`]: documentPhoto(ERASED, 'ltoLicense', PHOTO_TIME),
       [`deletionRequests/${ERASED}`]: {
         uid: ERASED,
         status: 'pending',
@@ -1267,6 +1312,8 @@ const privacyAnonymizeDriver: Scenario = {
       anonymizedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    batch.delete(doc(firestore, 'driverApplications', ERASED, 'documents', 'orCr'));
+    batch.delete(doc(firestore, 'driverApplications', ERASED, 'documents', 'ltoLicense'));
     batch.update(doc(firestore, 'deletionRequests', ERASED), {
       status: 'completed',
       completedAt: serverTimestamp(),

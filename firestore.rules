@@ -44,6 +44,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/driverApplications/$(uid);
     }
 
+    function applicationDocumentPath(uid, docType) {
+      return /databases/$(database)/documents/driverApplications/$(uid)/documents/$(docType);
+    }
+
     function userPath(uid) {
       return /databases/$(database)/documents/users/$(uid);
     }
@@ -1360,26 +1364,25 @@ service cloud.firestore {
     // One application per passenger at driverApplications/{uid}. Passengers can only
     // submit (always `pending`) or resubmit after a rejection. Approval, rejection,
     // adminRemarks and reviewedAt are set by admins only (Admin Website), so a passenger
-    // can never approve themselves.
+    // can never approve themselves. The document photos live in the `documents`
+    // subcollection and are written in the same commit as the submit (all or nothing).
 
     match /driverApplications/{uid} {
       function isValidPersonName(name) {
         return name is string && name.size() >= 1 && name.size() <= 50;
       }
 
-      // A document entry must reference this applicant's own file in Cloud Storage.
+      // A small reference {sizeBytes, uploadedAt} to the photo at
+      // driverApplications/{uid}/documents/{documentType}, which must exist after this commit
+      // and match it: a photo written in the same commit (submit) or kept from an earlier
+      // submission (resubmit without retaking).
       function isValidApplicationDocument(entry, documentType) {
         return entry is map
-          && entry.keys().hasAll(['storagePath', 'downloadUrl', 'fileName', 'contentType', 'uploadedAt'])
-          && entry.keys().hasOnly(['storagePath', 'downloadUrl', 'fileName', 'contentType', 'uploadedAt'])
-          && entry.storagePath == 'driverApplications/' + uid + '/' + documentType
-          && entry.downloadUrl is string
-          && entry.downloadUrl.matches('^https://firebasestorage[.]googleapis[.]com/.*')
-          && entry.fileName is string
-          && entry.fileName.size() <= 200
-          && entry.contentType is string
-          && entry.contentType.matches('^image/.*')
-          && (entry.uploadedAt == null || entry.uploadedAt is timestamp);
+          && entry.keys().hasAll(['sizeBytes', 'uploadedAt'])
+          && entry.keys().hasOnly(['sizeBytes', 'uploadedAt'])
+          && existsAfter(applicationDocumentPath(uid, documentType))
+          && getAfter(applicationDocumentPath(uid, documentType)).data.sizeBytes == entry.sizeBytes
+          && getAfter(applicationDocumentPath(uid, documentType)).data.uploadedAt == entry.uploadedAt;
       }
 
       // Both required documents (OR/CR and LTO driver's license), nothing else.
@@ -1485,9 +1488,9 @@ service cloud.firestore {
 
       // Account deletion (admin website), in the commit that anonymizes users/{uid}: names,
       // email, mobile number, plate, vehicle details, document references and the admin's
-      // remarks are removed, once. Status, vehicle type, dates and the privacy
-      // acknowledgement stay; an anonymized application can no longer be reviewed or
-      // resubmitted.
+      // remarks are removed, once, and both document photos are deleted in the same commit.
+      // Status, vehicle type, dates and the privacy acknowledgement stay; an anonymized
+      // application can no longer be reviewed or resubmitted.
       allow update: if isAdmin()
         && request.resource.data.get('anonymizedAt', null) == request.time
         && resource.data.get('anonymizedAt', null) == null
@@ -1510,9 +1513,59 @@ service cloud.firestore {
         && request.resource.data.get('adminRemarks', null) == null
         && request.resource.data.anonymizedAt == request.time
         && request.resource.data.updatedAt == request.time
+        && !existsAfter(applicationDocumentPath(uid, 'orCr'))
+        && !existsAfter(applicationDocumentPath(uid, 'ltoLicense'))
         && isAnonymizedInThisCommit(userPath(uid));
 
       allow delete: if false;
+
+      // ─── Application document photos ─────────────────────────────────────
+      // driverApplications/{uid}/documents/{docType} {uid, docType, mimeType, data, sizeBytes,
+      // width, height, uploadedAt}: one compressed JPEG per required document, stored as
+      // Firestore bytes (Cloud Storage needs the Blaze plan; see docs/DECISIONS.md).
+      // The applicant writes a photo only in the commit that submits or resubmits the
+      // application, and only while there is no application yet or it was rejected, so
+      // photos never change while pending or after approval, and no photo exists without an
+      // application. The applicant may delete their own photos under the same condition;
+      // admins may delete any (account deletion). Reads: the applicant and admins only.
+      match /documents/{docType} {
+        function isApplicationOpenForDocuments() {
+          return !exists(applicationPath(uid))
+            || (
+              get(applicationPath(uid)).data.status == 'rejected'
+              && get(applicationPath(uid)).data.get('anonymizedAt', null) == null
+            );
+        }
+
+        allow read: if isOwner(uid) || isAdmin();
+
+        allow create, update: if isOwner(uid)
+          && isPassenger()
+          && docType in ['orCr', 'ltoLicense']
+          && request.resource.data.keys().hasOnly([
+            'uid', 'docType', 'mimeType', 'data', 'sizeBytes', 'width', 'height', 'uploadedAt'
+          ])
+          && request.resource.data.uid == uid
+          && request.resource.data.docType == docType
+          && request.resource.data.mimeType == 'image/jpeg'
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() < 900000
+          && request.resource.data.sizeBytes == request.resource.data.data.size()
+          && request.resource.data.width is int
+          && request.resource.data.width >= 1
+          && request.resource.data.width <= 1600
+          && request.resource.data.height is int
+          && request.resource.data.height >= 1
+          && request.resource.data.height <= 1600
+          && request.resource.data.uploadedAt == request.time
+          && isApplicationOpenForDocuments()
+          // Only together with the submit or resubmit of the application.
+          && getAfter(applicationPath(uid)).data.status == 'pending'
+          && getAfter(applicationPath(uid)).data.submittedAt == request.time;
+
+        allow delete: if isAdmin()
+          || (isOwner(uid) && isApplicationOpenForDocuments());
+      }
     }
 
     // ─── Fare settings ─────────────────────────────────────────────────────

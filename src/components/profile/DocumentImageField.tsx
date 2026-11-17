@@ -1,11 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '@/components/ui/Button';
+import { DOCUMENT_PHOTO_HINT } from '@/constants/applicationDocuments';
 import { colors, spacing, typography } from '@/constants/theme';
-import { ApplicationDocumentImage, LocalDocumentImage } from '@/services/driverApplicationService';
-import { validateDocumentImage } from '@/validations/driverApplication';
+import {
+  ApplicationDocumentError,
+  ApplicationDocumentImage,
+  prepareDocumentImage,
+  PreparedDocumentImage,
+} from '@/services/applicationDocumentService';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type PickSource = 'camera' | 'library';
@@ -13,47 +18,34 @@ type PickSource = 'camera' | 'library';
 interface DocumentImageFieldProps {
   label: string;
   description: string;
-  /** Used for the default file name, e.g. "orCr" → "orCr.jpg". */
-  fileNamePrefix: string;
   value: ApplicationDocumentImage | null;
   onChange: (value: ApplicationDocumentImage) => void;
   error?: string;
 }
 
+// Full quality from the picker: the app compresses once, itself (applicationDocumentService).
 const PICKER_OPTIONS: ImagePicker.ImagePickerOptions = {
   mediaTypes: ['images'],
-  quality: 0.7,
+  quality: 1,
   allowsEditing: false,
   exif: false,
 };
 
-function imageUri(value: ApplicationDocumentImage): string {
-  return value.kind === 'local' ? value.uri : value.document.downloadUrl;
-}
-
-function extensionFor(mimeType: string): string {
-  if (mimeType === 'image/png') return 'png';
-  if (mimeType === 'image/webp') return 'webp';
-  if (mimeType === 'image/heic' || mimeType === 'image/heif') return 'heic';
-  return 'jpg';
+function formatKilobytes(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / 1000))} KB`;
 }
 
 /**
- * Required document photo: take a photo or choose one from the device, confirm it in a
- * preview (Use / Retake), then view or replace it until the application is submitted.
+ * Required document photo: take a photo or choose one from the gallery. It is compressed
+ * on the device right away (with a progress state), confirmed in a preview (Use / Retake),
+ * and can be viewed or replaced until the application is submitted. Photos only.
  */
-export function DocumentImageField({
-  label,
-  description,
-  fileNamePrefix,
-  value,
-  onChange,
-  error,
-}: DocumentImageFieldProps) {
+export function DocumentImageField({ label, description, value, onChange, error }: DocumentImageFieldProps) {
   const insets = useSafeAreaInsets();
-  const [pending, setPending] = useState<{ image: LocalDocumentImage; source: PickSource } | null>(
+  const [pending, setPending] = useState<{ image: PreparedDocumentImage; source: PickSource } | null>(
     null,
   );
+  const [preparing, setPreparing] = useState(false);
   const [viewing, setViewing] = useState(false);
   const [pickError, setPickError] = useState('');
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -81,23 +73,19 @@ export function DocumentImageField({
       if (result.canceled || !result.assets?.[0]) return;
 
       const asset = result.assets[0];
-      const mimeType = asset.mimeType ?? 'image/jpeg';
-      const validationError = validateDocumentImage({ mimeType, fileSize: asset.fileSize });
-      if (validationError) {
-        setPickError(validationError);
-        return;
+      setPreparing(true);
+      try {
+        const image = await prepareDocumentImage(asset);
+        setPending({ source, image });
+      } catch (prepareError) {
+        setPickError(
+          prepareError instanceof ApplicationDocumentError
+            ? prepareError.message
+            : 'This photo could not be read. Please take the photo again or choose another one.',
+        );
+      } finally {
+        setPreparing(false);
       }
-
-      setPending({
-        source,
-        image: {
-          kind: 'local',
-          uri: asset.uri,
-          fileName: asset.fileName ?? `${fileNamePrefix}.${extensionFor(mimeType)}`,
-          mimeType,
-          fileSize: asset.fileSize ?? null,
-        },
-      });
     } catch {
       setPickError(
         source === 'camera'
@@ -129,26 +117,33 @@ export function DocumentImageField({
         {label} <Text style={styles.required}>*</Text>
       </Text>
       <Text style={styles.description}>{description}</Text>
+      <Text style={styles.hint}>{DOCUMENT_PHOTO_HINT}</Text>
 
-      {value ? (
+      {preparing ? (
+        <View style={styles.placeholder} accessibilityLiveRegion="polite">
+          <ActivityIndicator color={colors.primary} />
+          <Text style={styles.placeholderText}>Preparing photo…</Text>
+        </View>
+      ) : value ? (
         <Pressable
           accessibilityRole="imagebutton"
           accessibilityLabel={`View ${label}`}
           onPress={() => setViewing(true)}
           style={styles.previewWrap}
         >
-          <Image source={{ uri: imageUri(value) }} style={styles.preview} resizeMode="cover" />
+          <Image source={{ uri: value.uri }} style={styles.preview} resizeMode="cover" />
           <View style={styles.previewBadge}>
             <Ionicons name="checkmark-circle" size={16} color={colors.white} />
             <Text style={styles.previewBadgeText}>
-              {value.kind === 'uploaded' ? 'Previously submitted' : 'Added'} · Tap to view
+              {value.kind === 'stored' ? 'Previously submitted' : `Ready · ${formatKilobytes(value.sizeBytes)}`} · Tap
+              to view
             </Text>
           </View>
         </Pressable>
       ) : (
         <View style={[styles.placeholder, shownError ? styles.placeholderError : null]}>
           <Ionicons name="document-text-outline" size={32} color={colors.textMuted} />
-          <Text style={styles.placeholderText}>No image added yet</Text>
+          <Text style={styles.placeholderText}>No photo added yet</Text>
         </View>
       )}
 
@@ -157,20 +152,22 @@ export function DocumentImageField({
           accessibilityRole="button"
           style={({ pressed }) => [styles.action, pressed ? styles.actionPressed : null]}
           onPress={() => pick('camera')}
+          disabled={preparing}
         >
           <Ionicons name="camera-outline" size={18} color={colors.primary} />
           <Text style={styles.actionText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-            {value ? 'Retake Photo' : 'Take Photo'}
+            {value ? 'Retake' : 'Take photo'}
           </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           style={({ pressed }) => [styles.action, pressed ? styles.actionPressed : null]}
           onPress={() => pick('library')}
+          disabled={preparing}
         >
           <Ionicons name="images-outline" size={18} color={colors.primary} />
           <Text style={styles.actionText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-            {value ? 'Replace' : 'Choose from Device'}
+            {value ? 'Choose another' : 'Choose from gallery'}
           </Text>
         </Pressable>
       </View>
@@ -193,6 +190,7 @@ export function DocumentImageField({
           <Text style={styles.modalTitle}>Check your {label}</Text>
           <Text style={styles.modalHint}>
             Make sure the whole document is visible, in focus and readable.
+            {pending ? ` Compressed to ${formatKilobytes(pending.image.sizeBytes)}.` : ''}
           </Text>
           {pending ? (
             <Image
@@ -226,7 +224,7 @@ export function DocumentImageField({
           ]}
         >
           {value ? (
-            <Image source={{ uri: imageUri(value) }} style={styles.viewerImage} resizeMode="contain" />
+            <Image source={{ uri: value.uri }} style={styles.viewerImage} resizeMode="contain" />
           ) : null}
           <Button title="Close" variant="secondary" onPress={() => setViewing(false)} />
         </View>
@@ -255,6 +253,13 @@ const styles = StyleSheet.create({
   description: {
     ...typography.caption,
     color: colors.textSecondary,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  hint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
     lineHeight: 18,
     marginTop: 2,
     marginBottom: spacing.sm,

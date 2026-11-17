@@ -53,14 +53,79 @@ function minutesAgo(minutes) {
   return Timestamp.fromMillis(Date.now() - minutes * 60_000);
 }
 
-function documentEntry(uid, type) {
-  return {
-    storagePath: `driverApplications/${uid}/${type}`,
-    downloadUrl: `https://firebasestorage.googleapis.com/v0/b/${PROJECT_ID}.appspot.com/o/${type}`,
-    fileName: `${type}.jpg`,
-    contentType: 'image/jpeg',
-    uploadedAt: minutesAgo(30),
-  };
+// A small placeholder JPEG (240×160, "seed placeholder") for every seeded document photo.
+const PLACEHOLDER_JPEG = Buffer.from(
+  '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',
+  'base64',
+);
+
+// Document photos at driverApplications/{uid}/documents/{docType} and the application's
+// references to them (firestore.rules). The older applicant keeps the retired Cloud Storage
+// shape, which the app and the admin website show as "No documents on file".
+async function seedDocuments(uid, legacy) {
+  if (legacy) {
+    const storageEntry = (type) => ({
+      storagePath: `driverApplications/${uid}/${type}`,
+      downloadUrl: `https://firebasestorage.googleapis.com/v0/b/${PROJECT_ID}.appspot.com/o/${type}`,
+      fileName: `${type}.jpg`,
+      contentType: 'image/jpeg',
+      uploadedAt: minutesAgo(30),
+    });
+    return { orCr: storageEntry('orCr'), ltoLicense: storageEntry('ltoLicense') };
+  }
+  const uploadedAt = minutesAgo(30);
+  const references = {};
+  for (const type of ['orCr', 'ltoLicense']) {
+    await db.doc(`driverApplications/${uid}/documents/${type}`).set({
+      uid,
+      docType: type,
+      mimeType: 'image/jpeg',
+      data: PLACEHOLDER_JPEG,
+      sizeBytes: PLACEHOLDER_JPEG.length,
+      width: 240,
+      height: 160,
+      uploadedAt,
+    });
+    references[type] = { sizeBytes: PLACEHOLDER_JPEG.length, uploadedAt };
+  }
+  return references;
 }
 
 // vehicle: { vehicleBrand, vehicleModel, vehicleColor }, or null for an application
@@ -90,7 +155,7 @@ async function seedApplicant({ email, firstName, middleName, lastName, mobileNum
     vehicleType,
     vehiclePlate,
     ...(vehicle ?? {}),
-    documents: { orCr: documentEntry(uid, 'orCr'), ltoLicense: documentEntry(uid, 'ltoLicense') },
+    documents: await seedDocuments(uid, !vehicle),
     status,
     adminRemarks,
     submittedAt: minutesAgo(submittedMinutesAgo),

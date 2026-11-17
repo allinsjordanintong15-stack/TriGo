@@ -18,6 +18,7 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import {
+  Bytes,
   deleteDoc,
   doc,
   getDoc,
@@ -38,6 +39,7 @@ import {
   anonymizedUserUpdate,
   authDeletedUpdate,
   completedRequestUpdate,
+  DELETED_APPLICATION_DOCUMENT_TYPES,
   declinedRequestUpdate,
 } from '../../admin/src/privacy/deletionPlan.ts';
 
@@ -112,13 +114,32 @@ function driverRecord(overrides: DocumentData = {}): DocumentData {
   };
 }
 
-function storageDoc(uid: string, type: string): DocumentData {
+// Document photos at driverApplications/{uid}/documents/{docType}; the application holds
+// references {sizeBytes, uploadedAt} that must match them (firestore.rules).
+const DOC_TIME = Timestamp.fromMillis(Date.UTC(2026, 10, 1));
+const DOC_SIZE = 1234;
+
+function documentReference(): DocumentData {
+  return { sizeBytes: DOC_SIZE, uploadedAt: DOC_TIME };
+}
+
+function documentPhoto(uid: string, type: string): DocumentData {
   return {
-    storagePath: `driverApplications/${uid}/${type}`,
-    downloadUrl: `https://firebasestorage.googleapis.com/v0/b/demo/o/${type}`,
-    fileName: `${type}.jpg`,
-    contentType: 'image/jpeg',
-    uploadedAt: Timestamp.now(),
+    uid,
+    docType: type,
+    mimeType: 'image/jpeg',
+    data: Bytes.fromUint8Array(new Uint8Array(DOC_SIZE)),
+    sizeBytes: DOC_SIZE,
+    width: 1600,
+    height: 1200,
+    uploadedAt: DOC_TIME,
+  };
+}
+
+function documentPhotos(uid: string): Record<string, DocumentData> {
+  return {
+    [`driverApplications/${uid}/documents/orCr`]: documentPhoto(uid, 'orCr'),
+    [`driverApplications/${uid}/documents/ltoLicense`]: documentPhoto(uid, 'ltoLicense'),
   };
 }
 
@@ -136,7 +157,7 @@ function application(uid: string, overrides: DocumentData = {}): DocumentData {
     vehicleBrand: 'Honda',
     vehicleModel: 'TMX 155',
     vehicleColor: 'Red',
-    documents: { orCr: storageDoc(uid, 'orCr'), ltoLicense: storageDoc(uid, 'ltoLicense') },
+    documents: { orCr: documentReference(), ltoLicense: documentReference() },
     status: 'pending',
     adminRemarks: null,
     submittedAt: Timestamp.now(),
@@ -524,6 +545,8 @@ interface AnonymizeParts {
   contact?: boolean;
   driver?: DocumentData | null;
   application?: DocumentData | null;
+  /** Delete the application's document photos (default true, as the admin website does). */
+  photos?: boolean;
   request?: DocumentData | null;
 }
 
@@ -537,6 +560,11 @@ function anonymize(uid: string, parts: AnonymizeParts = {}, firestore: Firestore
   if (parts.contact !== false) batch.delete(doc(firestore, 'contacts', uid));
   if (parts.driver) batch.update(doc(firestore, 'drivers', uid), parts.driver);
   if (parts.application) batch.update(doc(firestore, 'driverApplications', uid), parts.application);
+  if (parts.photos !== false) {
+    for (const type of DELETED_APPLICATION_DOCUMENT_TYPES) {
+      batch.delete(doc(firestore, 'driverApplications', uid, 'documents', type));
+    }
+  }
   if (parts.request) batch.update(doc(firestore, 'deletionRequests', uid), parts.request);
   return batch.commit();
 }
@@ -728,11 +756,28 @@ describe('privacy: anonymizing a driver', () => {
 
 describe('privacy: anonymizing an applicant', () => {
   beforeEach(async () => {
-    await seed({ [`driverApplications/${APPLICANT}`]: application(APPLICANT, { adminRemarks: null }) });
+    await seed({
+      [`driverApplications/${APPLICANT}`]: application(APPLICANT, { adminRemarks: null }),
+      ...documentPhotos(APPLICANT),
+    });
   });
 
-  it('allows the deletion with the application anonymized', async () => {
+  it('allows the deletion with the application anonymized and its photos deleted', async () => {
     await assertSucceeds(anonymize(APPLICANT, { application: anonymizedApplication() }));
+  });
+
+  it('denies keeping the document photos', async () => {
+    await assertFails(anonymize(APPLICANT, { application: anonymizedApplication(), photos: false }));
+  });
+
+  it('denies keeping one of the two photos', async () => {
+    const firestore = adminDb();
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'users', APPLICANT), anonymizedUser());
+    batch.delete(doc(firestore, 'contacts', APPLICANT));
+    batch.update(doc(firestore, 'driverApplications', APPLICANT), anonymizedApplication());
+    batch.delete(doc(firestore, 'driverApplications', APPLICANT, 'documents', 'orCr'));
+    await assertFails(batch.commit());
   });
 
   it('denies leaving the application', async () => {
@@ -799,6 +844,11 @@ function resubmission(overrides: DocumentData = {}): DocumentData {
 }
 
 describe('privacy: driver application acknowledgement', () => {
+  beforeEach(async () => {
+    // Photos already on file, so these submits reference them (kept photos).
+    await seed(documentPhotos(APPLICANT));
+  });
+
   it('allows a submission that acknowledges the current notice', async () => {
     await assertSucceeds(setDoc(doc(applicantDb(), 'driverApplications', APPLICANT), submission()));
   });

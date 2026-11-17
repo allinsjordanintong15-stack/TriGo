@@ -1,6 +1,9 @@
 rules_version = '2';
 
 // Cloud Storage rules for TriGo.
+// NOT IN USE: Storage needs the Blaze plan. Driver application documents are stored in
+// Firestore since 2026-11-17 (firestore.rules, driverApplications/{uid}/documents). Kept for a
+// later move back to Storage (src/services/applicationDocumentService.ts).
 // Publish in Firebase Console → Storage → Rules (Storage must be enabled first).
 
 service firebase.storage {

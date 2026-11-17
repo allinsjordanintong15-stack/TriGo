@@ -18,6 +18,7 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import {
+  Bytes,
   collection,
   deleteDoc,
   doc,
@@ -56,13 +57,32 @@ function adminDb(): Firestore {
   return db(ADMIN, { admin: true });
 }
 
-function storageDoc(type: string): DocumentData {
+// Document photos at driverApplications/{uid}/documents/{docType}; the application holds
+// references {sizeBytes, uploadedAt} that must match them (firestore.rules).
+const DOC_TIME = Timestamp.fromMillis(Date.UTC(2026, 10, 1));
+const DOC_SIZE = 1234;
+
+function documentReference(): DocumentData {
+  return { sizeBytes: DOC_SIZE, uploadedAt: DOC_TIME };
+}
+
+function documentPhoto(uid: string, type: string): DocumentData {
   return {
-    storagePath: `driverApplications/${APPLICANT}/${type}`,
-    downloadUrl: `https://firebasestorage.googleapis.com/v0/b/demo/o/${type}`,
-    fileName: `${type}.jpg`,
-    contentType: 'image/jpeg',
-    uploadedAt: Timestamp.now(),
+    uid,
+    docType: type,
+    mimeType: 'image/jpeg',
+    data: Bytes.fromUint8Array(new Uint8Array(DOC_SIZE)),
+    sizeBytes: DOC_SIZE,
+    width: 1600,
+    height: 1200,
+    uploadedAt: DOC_TIME,
+  };
+}
+
+function documentPhotos(uid: string): Record<string, DocumentData> {
+  return {
+    [`driverApplications/${uid}/documents/orCr`]: documentPhoto(uid, 'orCr'),
+    [`driverApplications/${uid}/documents/ltoLicense`]: documentPhoto(uid, 'ltoLicense'),
   };
 }
 
@@ -80,7 +100,7 @@ function application(overrides: DocumentData = {}): DocumentData {
     vehicleBrand: 'Honda',
     vehicleModel: 'TMX 155',
     vehicleColor: 'Red',
-    documents: { orCr: storageDoc('orCr'), ltoLicense: storageDoc('ltoLicense') },
+    documents: { orCr: documentReference(), ltoLicense: documentReference() },
     status: 'pending',
     adminRemarks: null,
     submittedAt: Timestamp.now(),
@@ -244,6 +264,8 @@ beforeEach(async () => {
     [`users/${OTHER_PASSENGER}`]: { uid: OTHER_PASSENGER, role: 'passenger', fullName: 'Ana Cruz', mobileNumber: '+639181234567', email: `${OTHER_PASSENGER}@example.com` },
     [`users/${DRIVER}`]: { uid: DRIVER, role: 'driver', fullName: 'Pedro Reyes', mobileNumber: '+639191234567', email: `${DRIVER}@example.com` },
     [`driverApplications/${APPLICANT}`]: application(),
+    // Photos already on file, so submits and resubmits here reference them (kept photos).
+    ...documentPhotos(APPLICANT),
   });
 });
 

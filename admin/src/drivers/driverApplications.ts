@@ -1,4 +1,5 @@
 import {
+  Bytes,
   collection,
   doc,
   getDoc,
@@ -31,7 +32,20 @@ export const MAX_REMARKS_LENGTH = 500;
 
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
 
-export type ApplicationDocument = { fileName: string; contentType: string } | null;
+/** The required document photos, in display order (src/constants/applicationDocuments.ts). */
+export const APPLICATION_DOCUMENT_TYPES = ['orCr', 'ltoLicense'] as const;
+export type ApplicationDocumentType = (typeof APPLICATION_DOCUMENT_TYPES)[number];
+
+export const APPLICATION_DOCUMENT_LABELS: Record<ApplicationDocumentType, string> = {
+  orCr: 'OR/CR',
+  ltoLicense: "LTO driver's license",
+};
+
+/**
+ * The application's reference to a photo on file. Null when missing, null, or in the older
+ * Cloud Storage shape (never uploaded in production): shown as "No documents on file".
+ */
+export type ApplicationDocument = { sizeBytes: number; uploadedAt: Date | null } | null;
 
 export type DriverApplication = {
   uid: string;
@@ -62,12 +76,10 @@ function toDate(value: unknown): Date | null {
 }
 
 function readDocument(value: unknown): ApplicationDocument {
-  const entry = value as { fileName?: unknown; contentType?: unknown } | null | undefined;
-  if (!entry) return null;
-  return {
-    fileName: typeof entry.fileName === 'string' ? entry.fileName : 'Unnamed file',
-    contentType: typeof entry.contentType === 'string' ? entry.contentType : '',
-  };
+  if (!value || typeof value !== 'object') return null;
+  const entry = value as { sizeBytes?: unknown; uploadedAt?: unknown };
+  if (typeof entry.sizeBytes !== 'number') return null;
+  return { sizeBytes: entry.sizeBytes, uploadedAt: toDate(entry.uploadedAt) };
 }
 
 function readApplication(uid: string, data: DocumentData): DriverApplication {
@@ -87,8 +99,8 @@ function readApplication(uid: string, data: DocumentData): DriverApplication {
     vehicleModel: readVehicleText(data.vehicleModel),
     vehicleColor: readVehicleText(data.vehicleColor),
     documents: {
-      orCr: readDocument(data.documents?.orCr),
-      ltoLicense: readDocument(data.documents?.ltoLicense),
+      orCr: readDocument(data.documents?.orCr ?? null),
+      ltoLicense: readDocument(data.documents?.ltoLicense ?? null),
     },
     status: data.status,
     adminRemarks: data.adminRemarks ?? null,
@@ -184,4 +196,40 @@ export async function rejectApplication(viewed: DriverApplication, remarks: stri
       updatedAt: serverTimestamp(),
     });
   });
+}
+
+/** A document photo for the detail page, as a blob: URL made in the browser from the bytes. */
+export type DocumentImage = {
+  url: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  uploadedAt: Date | null;
+};
+
+/**
+ * Reads the applicant's document photos (driverApplications/{uid}/documents/{docType}).
+ * Detail page only: the Applications list never loads photo bytes. The caller revokes the
+ * URLs (URL.revokeObjectURL) when it no longer shows them.
+ */
+export async function loadApplicationDocumentImages(
+  uid: string,
+): Promise<Record<ApplicationDocumentType, DocumentImage | null>> {
+  const snapshots = await Promise.all(
+    APPLICATION_DOCUMENT_TYPES.map((type) => getDoc(doc(db, 'driverApplications', uid, 'documents', type))),
+  );
+  const images = snapshots.map((snapshot): DocumentImage | null => {
+    const data = snapshot.data();
+    if (!data || !(data.data instanceof Bytes)) return null;
+    const bytes = data.data.toUint8Array();
+    const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' });
+    return {
+      url: URL.createObjectURL(blob),
+      width: typeof data.width === 'number' ? data.width : 0,
+      height: typeof data.height === 'number' ? data.height : 0,
+      sizeBytes: bytes.byteLength,
+      uploadedAt: toDate(data.uploadedAt),
+    };
+  });
+  return { orCr: images[0], ltoLicense: images[1] };
 }

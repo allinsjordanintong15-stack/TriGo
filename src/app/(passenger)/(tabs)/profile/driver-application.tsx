@@ -4,6 +4,7 @@ import { DriverApplicationPrivacyNotice } from '@/components/legal/DriverApplica
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { DocumentImageField } from '@/components/profile/DocumentImageField';
 import { VehicleColorField } from '@/components/profile/VehicleColorField';
+import { APPLICATION_DOCUMENT_TYPES } from '@/constants/applicationDocuments';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ScreenHeader, useScreenBack } from '@/components/ui/ScreenHeader';
@@ -11,6 +12,7 @@ import { TextInputField } from '@/components/ui/TextInputField';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useDriverApplication } from '@/hooks/useDriverApplication';
+import { applicationDocumentStore, StoredDocumentImage } from '@/services/applicationDocumentService';
 import {
   ApplicationDocumentImage,
   DOCUMENT_LABELS,
@@ -38,14 +40,17 @@ import {
   VEHICLE_MODEL_MAX_LENGTH,
 } from '@/validations/driverApplication';
 import { router } from 'expo-router';
-import { ReactNode, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ReactNode, useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatDateTime } from '@/utils/dateTime';
 
 const STEPS = ['Personal', 'Vehicle', 'Documents', 'Review'] as const;
 type Step = 0 | 1 | 2 | 3;
 type DocumentState = Record<DriverApplicationDocumentType, ApplicationDocumentImage | null>;
+type StoredDocuments = Record<DriverApplicationDocumentType, StoredDocumentImage | null>;
+
+const NO_STORED_DOCUMENTS: StoredDocuments = { orCr: null, ltoLicense: null };
 
 const STATUS_LABELS: Record<DriverApplicationStatus, string> = {
   pending: 'Pending Verification',
@@ -58,7 +63,7 @@ const DOCUMENT_DESCRIPTIONS: Record<DriverApplicationDocumentType, string> = {
   ltoLicense: "Your valid driver's license issued and verified by the LTO.",
 };
 
-const DOCUMENT_TYPES: DriverApplicationDocumentType[] = ['orCr', 'ltoLicense'];
+const DOCUMENT_TYPES: readonly DriverApplicationDocumentType[] = APPLICATION_DOCUMENT_TYPES;
 
 type VehicleDetails = { vehicleBrand: string; vehicleModel: string; vehicleColor: string };
 
@@ -74,10 +79,6 @@ function validateVehicleDetails(details: VehicleDetails): Record<keyof VehicleDe
 
 function formatVehicleType(vehicleType: VehicleType | null): string {
   return vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) : '—';
-}
-
-function documentUri(image: ApplicationDocumentImage): string {
-  return image.kind === 'local' ? image.uri : image.document.downloadUrl;
 }
 
 function Row({ label, value, last }: { label: string; value: string; last?: boolean }) {
@@ -126,11 +127,15 @@ function CheckItem({ label, done }: { label: string; done: boolean }) {
   );
 }
 
-function DocumentThumbnail({ label, uri }: { label: string; uri: string | null }) {
+function DocumentThumbnail({ label, uri, loading }: { label: string; uri: string | null; loading?: boolean }) {
   return (
     <View style={styles.thumbnailItem}>
       {uri ? (
         <Image source={{ uri }} style={styles.thumbnail} resizeMode="cover" />
+      ) : loading ? (
+        <View style={[styles.thumbnail, styles.thumbnailLoading]}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
       ) : (
         <View style={[styles.thumbnail, styles.thumbnailMissing]}>
           <Ionicons name="alert-circle-outline" size={22} color={colors.error} />
@@ -169,6 +174,44 @@ export default function DriverApplicationScreen() {
   // "I've read this" under the privacy notice: unticked for every submit and resubmit.
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
   const [privacyError, setPrivacyError] = useState('');
+  // Photos on file (shown on the status view, kept on resubmit unless retaken).
+  const [storedDocuments, setStoredDocuments] = useState<StoredDocuments>(NO_STORED_DOCUMENTS);
+  const [storedLoading, setStoredLoading] = useState(false);
+
+  const applicationUid = application?.uid ?? null;
+  // Which photos the application references, and when they were stored.
+  const storedKey = application
+    ? DOCUMENT_TYPES.map((type) => {
+        const reference = application.documents[type];
+        return reference ? `${type}@${reference.uploadedAt?.getTime() ?? 0}` : '';
+      }).join(',')
+    : '';
+
+  useEffect(() => {
+    const types = DOCUMENT_TYPES.filter((type) => storedKey.includes(`${type}@`));
+    if (!applicationUid || types.length === 0) {
+      setStoredDocuments(NO_STORED_DOCUMENTS);
+      return;
+    }
+    let active = true;
+    setStoredLoading(true);
+    Promise.all(
+      DOCUMENT_TYPES.map((type) =>
+        types.includes(type)
+          ? applicationDocumentStore.load(applicationUid, type).catch(() => null)
+          : Promise.resolve(null),
+      ),
+    )
+      .then(([orCr, ltoLicense]) => {
+        if (active) setStoredDocuments({ orCr, ltoLicense });
+      })
+      .finally(() => {
+        if (active) setStoredLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [applicationUid, storedKey]);
 
   if (!passenger) {
     return (
@@ -194,6 +237,8 @@ export default function DriverApplicationScreen() {
     return (
       <ApplicationStatusView
         application={application}
+        storedDocuments={storedDocuments}
+        storedLoading={storedLoading}
         driverModeReady={hasDriverMode}
         loadError={loadError}
         paddingBottom={insets.bottom + spacing.xl}
@@ -213,15 +258,9 @@ export default function DriverApplicationScreen() {
             vehicleColor: application.vehicleColor ?? '',
           });
           setVehicleDetailErrors({});
-          // Previously uploaded images can be kept or replaced.
-          setDocuments({
-            orCr: application.documents.orCr
-              ? { kind: 'uploaded', document: application.documents.orCr }
-              : null,
-            ltoLicense: application.documents.ltoLicense
-              ? { kind: 'uploaded', document: application.documents.ltoLicense }
-              : null,
-          });
+          // Photos on file can be kept or retaken; missing ones must be taken again.
+          setDocuments({ ...storedDocuments });
+          setDocumentErrors({});
           setStep(0);
           setError('');
           setPrivacyAcknowledged(false);
@@ -320,7 +359,7 @@ export default function DriverApplicationScreen() {
   }
 
   async function handleSubmit() {
-    // Guard against repeated taps while documents upload.
+    // Guard against repeated taps while the application and photos are sent.
     if (!passenger || !vehicleType || !canSubmit) return;
     if (!privacyAcknowledged) {
       setPrivacyError("Please read the note about your data and tick \"I've read this\".");
@@ -342,10 +381,11 @@ export default function DriverApplicationScreen() {
       // The live application listener switches this screen to the Pending status view.
       setResubmitting(false);
     } catch (err) {
+      // The form keeps every photo and detail, so the applicant can simply try again.
       setError(
         err instanceof DriverApplicationServiceError
           ? err.message
-          : 'Unable to submit your application. Please try again.',
+          : 'Your application was not submitted. Your photos and details are kept; tap Submit again.',
       );
     } finally {
       setSubmitting(false);
@@ -516,7 +556,8 @@ export default function DriverApplicationScreen() {
           <>
             <Text style={styles.stepTitle}>Documents</Text>
             <Text style={styles.stepIntro}>
-              Take a clear photo or choose an image from your device. Both documents are required.
+              Take a photo of each document or choose one from your gallery. Both are required.
+              Photos only (no PDFs); they are compressed on your phone before sending.
             </Text>
 
             {DOCUMENT_TYPES.map((documentType) => (
@@ -524,7 +565,6 @@ export default function DriverApplicationScreen() {
                 key={documentType}
                 label={DOCUMENT_LABELS[documentType]}
                 description={DOCUMENT_DESCRIPTIONS[documentType]}
-                fileNamePrefix={documentType}
                 value={documents[documentType]}
                 error={documentErrors[documentType]}
                 onChange={(image) => {
@@ -578,6 +618,13 @@ export default function DriverApplicationScreen() {
             </ReviewSection>
 
             <ReviewSection title="Documents" onEdit={() => setStep(2)}>
+              {DOCUMENT_TYPES.map((documentType) => (
+                <CheckItem
+                  key={documentType}
+                  label={`${DOCUMENT_LABELS[documentType]}: ${documents[documentType] ? 'added' : 'missing'}`}
+                  done={documents[documentType] !== null}
+                />
+              ))}
               <View style={styles.thumbnails}>
                 {DOCUMENT_TYPES.map((documentType) => {
                   const image = documents[documentType];
@@ -585,7 +632,7 @@ export default function DriverApplicationScreen() {
                     <DocumentThumbnail
                       key={documentType}
                       label={DOCUMENT_LABELS[documentType]}
-                      uri={image ? documentUri(image) : null}
+                      uri={image ? image.uri : null}
                     />
                   );
                 })}
@@ -613,7 +660,7 @@ export default function DriverApplicationScreen() {
             <Button
               title={
                 submitting
-                  ? 'Uploading documents…'
+                  ? 'Submitting application…'
                   : resubmitting
                     ? 'Resubmit Application'
                     : 'Submit Application'
@@ -624,7 +671,7 @@ export default function DriverApplicationScreen() {
             />
             {submitting ? (
               <Text style={styles.uploadingNote}>
-                Please keep the app open while your documents upload.
+                Please keep the app open. Your details and photos are saved together, or not at all.
               </Text>
             ) : null}
           </>
@@ -636,6 +683,8 @@ export default function DriverApplicationScreen() {
 
 interface ApplicationStatusViewProps {
   application: DriverApplication;
+  storedDocuments: StoredDocuments;
+  storedLoading: boolean;
   driverModeReady: boolean;
   loadError: string;
   paddingBottom: number;
@@ -645,6 +694,8 @@ interface ApplicationStatusViewProps {
 
 function ApplicationStatusView({
   application,
+  storedDocuments,
+  storedLoading,
   driverModeReady,
   loadError,
   paddingBottom,
@@ -720,15 +771,20 @@ function ApplicationStatusView({
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Documents</Text>
-          <View style={styles.thumbnails}>
-            {DOCUMENT_TYPES.map((documentType) => (
-              <DocumentThumbnail
-                key={documentType}
-                label={DOCUMENT_LABELS[documentType]}
-                uri={application.documents[documentType]?.downloadUrl ?? null}
-              />
-            ))}
-          </View>
+          {DOCUMENT_TYPES.some((type) => application.documents[type]) ? (
+            <View style={styles.thumbnails}>
+              {DOCUMENT_TYPES.map((documentType) => (
+                <DocumentThumbnail
+                  key={documentType}
+                  label={DOCUMENT_LABELS[documentType]}
+                  uri={storedDocuments[documentType]?.uri ?? null}
+                  loading={storedLoading && application.documents[documentType] !== null}
+                />
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.remarks}>No documents on file</Text>
+          )}
         </View>
 
         {application.status === 'rejected' ? (
@@ -880,6 +936,10 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 10,
     backgroundColor: colors.white,
+  },
+  thumbnailLoading: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   thumbnailMissing: {
     alignItems: 'center',

@@ -12,18 +12,6 @@ const VEHICLE_BRAND_PATTERN = /^[A-Za-z0-9]([A-Za-z0-9 ./+-]{0,28}[A-Za-z0-9.])?
 const VEHICLE_MODEL_PATTERN = /^[A-Za-z0-9]([A-Za-z0-9 ./+-]{0,38}[A-Za-z0-9.])?$/;
 const VEHICLE_COLOR_PATTERN = /^[A-Za-z]([A-Za-z /-]{0,18}[A-Za-z])?$/;
 
-/** Image types accepted for driver application documents. */
-export const ACCEPTED_DOCUMENT_IMAGE_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/heic',
-  'image/heif',
-] as const;
-
-/** Must stay in sync with the limit in storage.rules. */
-export const MAX_DOCUMENT_IMAGE_BYTES = 10 * 1024 * 1024;
-
 /** Trim and collapse inner whitespace: "  juan   carlo " → "juan carlo". */
 export function normalizePersonName(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
@@ -109,22 +97,4 @@ export function validateVehicleColor(color: string): string | null {
     VEHICLE_COLOR_PATTERN,
     'letters, with spaces, / or - between them',
   );
-}
-
-/**
- * Validate a picked image using the metadata the picker provides. Missing metadata is
- * allowed (not every platform reports it); Storage rules enforce type and size again.
- */
-export function validateDocumentImage(image: {
-  mimeType?: string | null;
-  fileSize?: number | null;
-}): string | null {
-  const mimeType = image.mimeType?.toLowerCase();
-  if (mimeType && !(ACCEPTED_DOCUMENT_IMAGE_TYPES as readonly string[]).includes(mimeType)) {
-    return 'Unsupported file type. Please use a JPG, PNG, WEBP or HEIC image.';
-  }
-  if (image.fileSize && image.fileSize > MAX_DOCUMENT_IMAGE_BYTES) {
-    return 'This image is larger than 10 MB. Please take a new photo or choose a smaller image.';
-  }
-  return null;
 }
