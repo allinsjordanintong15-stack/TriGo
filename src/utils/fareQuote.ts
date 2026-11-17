@@ -1,6 +1,7 @@
-// Fare rules (docs/DECISIONS.md, fare model 2026-10-11). Type-only imports on purpose, so
-// plain Node tests (which cannot resolve the "@/..." aliases) can load this file.
+// Fare rules (docs/DECISIONS.md, fare model 2026-10-11). Type-only and relative imports on
+// purpose, so plain Node tests (which cannot resolve the "@/..." aliases) can load this file.
 
+import { perKmFare } from '../../shared/fares/index.ts';
 import type { BoundaryBarangayId } from '../constants/barangays';
 import type { FareBasis, FareSettings, VehicleType } from '../types';
 
@@ -39,15 +40,13 @@ export interface FareQuoteResult {
 
 const POBLACION: BoundaryBarangayId = 'poblacion';
 
-/** Admin per-km fare: base fare + rate x road distance, kept to the centavo. */
+/** Admin per-km fare: base fare + rate x road distance, kept to the centavo (shared/fares). */
 export function calculatePerKmFare(
   vehicleType: VehicleType,
   distanceKm: number,
   settings: FareSettings,
 ): number {
-  const config = settings[vehicleType];
-  const fare = config.baseFare + config.perKm * distanceKm;
-  return Math.round(fare * 100) / 100;
+  return perKmFare(settings[vehicleType], distanceKm);
 }
 
 /**

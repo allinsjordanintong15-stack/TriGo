@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 
 import { PageTabs, type PageTab } from '../components/PageTabs';
+import { UnsavedChangesProvider } from '../components/settings/UnsavedChanges';
 import { BarangayTariffsPage } from './BarangayTariffsPage';
 import { CommissionPage } from './CommissionPage';
 import { FareSettingsPage } from './FareSettingsPage';
@@ -22,8 +23,9 @@ export const DEFAULT_SETTINGS_TAB = '/settings/fares';
 
 /**
  * Settings (/settings/:tab). A tab's page mounts the first time it is opened and then stays
- * mounted (hidden) while other tabs are shown, so unsaved form values survive tab switches.
- * Nothing is loaded for a tab until it is opened. Leaving Settings unmounts them all.
+ * mounted (hidden) while other tabs are shown. Nothing is loaded for a tab until it is
+ * opened. Leaving Settings unmounts them all. A tab with unsaved changes asks before the
+ * URL changes (another tab, the sidebar, back/forward) and before the browser tab closes.
  */
 export function SettingsLayout() {
   const { tab } = useParams();
@@ -38,13 +40,15 @@ export function SettingsLayout() {
   if (!current) return <Navigate to={DEFAULT_SETTINGS_TAB} replace />;
 
   return (
-    <div className="stack">
-      <PageTabs label="Settings" tabs={SETTINGS_TABS} />
-      {SETTINGS_TABS.filter((t) => t.key === current.key || opened.includes(t.key)).map((t) => (
-        <div key={t.key} hidden={t.key !== current.key}>
-          {t.render()}
-        </div>
-      ))}
-    </div>
+    <UnsavedChangesProvider>
+      <div className="stack">
+        <PageTabs label="Settings" tabs={SETTINGS_TABS} />
+        {SETTINGS_TABS.filter((t) => t.key === current.key || opened.includes(t.key)).map((t) => (
+          <div key={t.key} hidden={t.key !== current.key}>
+            {t.render()}
+          </div>
+        ))}
+      </div>
+    </UnsavedChangesProvider>
   );
 }

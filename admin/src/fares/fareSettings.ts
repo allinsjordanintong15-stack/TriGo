@@ -30,6 +30,8 @@ export type LoadedFares = {
   /** Exactly what is saved in Firestore, or null when the document or its fares are missing. */
   saved: Fares | null;
   updatedAt: Date | null;
+  /** UID of the admin who saved last, or null. */
+  updatedBy: string | null;
 };
 
 function readVehicleFare(value: unknown): VehicleFare | null {
@@ -56,7 +58,8 @@ export async function loadFares(): Promise<LoadedFares> {
     motorcycle: readVehicleFare(rawFares.motorcycle) ?? APP_DEFAULT_FARES.motorcycle,
   };
   const updatedAt = data?.updatedAt?.toDate?.() ?? null;
-  return { fares, saved: readSavedFares(data?.fares), updatedAt };
+  const updatedBy = typeof data?.updatedBy === 'string' ? data.updatedBy : null;
+  return { fares, saved: readSavedFares(data?.fares), updatedAt, updatedBy };
 }
 
 export function faresEqual(a: Fares | null, b: Fares | null): boolean {
@@ -89,11 +92,6 @@ export async function saveFares(fares: Fares, expectedSaved: Fares | null, uid: 
       transaction.set(FARE_DOC, write);
     }
   });
-}
-
-/** Same formula and rounding as calculateEstimatedFare in src/services/fareService.ts. */
-export function calculateFare(fare: VehicleFare, distanceKm: number): number {
-  return Math.round((fare.baseFare + fare.perKm * distanceKm) * 100) / 100;
 }
 
 const AMOUNT_PATTERN = /^\d+(\.\d{1,2})?$/;

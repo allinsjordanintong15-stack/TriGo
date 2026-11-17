@@ -4,6 +4,8 @@ type ConfirmDialogProps = {
   title: string;
   children: ReactNode;
   confirmLabel: string;
+  /** Cancel button text (default "Cancel"). */
+  cancelLabel?: string;
   busy?: boolean;
   /** Confirm button text while busy. */
   busyLabel?: string;
@@ -17,6 +19,7 @@ export function ConfirmDialog({
   title,
   children,
   confirmLabel,
+  cancelLabel = 'Cancel',
   busy = false,
   busyLabel = 'Saving…',
   danger = false,
@@ -44,7 +47,7 @@ export function ConfirmDialog({
         <div className="dialog-body">{children}</div>
         <div className="dialog-actions">
           <button type="button" className="btn-outline" onClick={onCancel} disabled={busy}>
-            Cancel
+            {cancelLabel}
           </button>
           <button
             type="button"

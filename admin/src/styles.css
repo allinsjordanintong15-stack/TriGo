@@ -3627,3 +3627,323 @@ a.btn-outline {
 .quick-note:hover {
   background: var(--color-primary-light);
 }
+
+/* ─── Settings edit flow (components/settings) ─────────────────────────── */
+
+.settings-header .settings-helper {
+  margin: var(--space-xs) 0 0;
+  max-width: var(--text-max-width);
+  color: var(--color-text-secondary);
+}
+
+.settings-header .settings-meta {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* The one small info line under the header (e.g. the fare formula). */
+.settings-info {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+  font-size: 14px;
+  max-width: var(--text-max-width);
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.card .settings-section-head h3 {
+  margin: 0;
+}
+
+.settings-section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.settings-section-desc {
+  margin: calc(-1 * var(--space-sm)) 0 var(--space-md);
+}
+
+.vehicle-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-lg);
+}
+
+@media (max-width: 767px) {
+  .vehicle-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* A field: label, input with ₱ prefix inside, then one note line (error / "was …" / hint). */
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  /* Room for the gold "changed" border without shifting the input. */
+  padding-left: var(--space-sm);
+  margin-left: calc(-1 * var(--space-sm));
+  border-left: 3px solid transparent;
+}
+
+.settings-field.is-changed {
+  border-left-color: var(--color-accent);
+}
+
+.settings-field > label {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.input-affix {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+  overflow: hidden;
+}
+
+.input-affix:focus-within {
+  outline: 2px solid var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.input-affix.is-invalid {
+  border-color: var(--color-error);
+}
+
+.input-affix.is-invalid:focus-within {
+  outline-color: var(--color-error);
+}
+
+.input-affix input {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+  border: none;
+  outline: none;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  background: transparent;
+}
+
+.input-affix input:disabled {
+  color: var(--color-text-secondary);
+}
+
+.input-affix .affix {
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  padding: 0 0 0 12px;
+  user-select: none;
+}
+
+.input-affix .affix:last-child {
+  padding: 0 12px 0 0;
+}
+
+.input-affix .affix + input {
+  padding-left: 4px;
+}
+
+.settings-field-note {
+  min-height: 1.3em;
+  font-size: 13px;
+}
+
+.settings-field-note .hint {
+  min-height: 0;
+}
+
+.was-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+}
+
+.was-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-table th,
+.preview-table td {
+  text-align: left;
+  padding: var(--cell-padding-y) var(--cell-padding-x);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.preview-table thead th {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.preview-table tbody th {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.preview-table .num {
+  text-align: right;
+}
+
+.preview-table tbody tr:last-child > * {
+  border-bottom: none;
+}
+
+.preview-old {
+  color: var(--color-text-muted);
+}
+
+.preview-change strong {
+  color: var(--color-primary-dark);
+}
+
+.settings-link {
+  margin: 0;
+}
+
+.settings-link .btn-link {
+  font-weight: 600;
+}
+
+/* Sticky at the bottom of the content area while there are unsaved changes. */
+.save-bar {
+  position: sticky;
+  bottom: var(--space-md);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.save-bar-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  font-size: 15px;
+}
+
+.save-bar-status strong {
+  color: var(--color-text);
+}
+
+.save-bar .save-bar-error {
+  color: var(--color-error);
+  font-size: 14px;
+  min-height: 44px;
+}
+
+.save-bar-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-left: auto;
+}
+
+.save-bar-actions button {
+  min-height: 44px;
+}
+
+.review-table td,
+.review-table th {
+  padding: var(--space-sm);
+  vertical-align: top;
+}
+
+.review-table .review-old {
+  color: var(--color-text-secondary);
+}
+
+.review-table .review-new {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.review-table tr.warn td {
+  background: var(--color-gold-light);
+}
+
+.review-table tr.warn td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.review-warning {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-gold-dark);
+}
+
+.toast {
+  position: fixed;
+  right: var(--space-lg);
+  bottom: var(--space-lg);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  min-height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-dark);
+  color: var(--color-white);
+  font-size: 15px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+
+.toast-check {
+  font-weight: 700;
+  color: var(--color-accent);
+}

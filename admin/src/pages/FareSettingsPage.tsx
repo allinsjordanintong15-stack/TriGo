@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
-import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LoadingBlock } from '../components/LoadingBlock';
-import { PageHeader } from '../components/PageHeader';
 import {
-  calculateFare,
-  faresEqual,
+  ReviewChangesDialog,
+  SaveBar,
+  SettingsField,
+  SettingsHeader,
+  SettingsSection,
+  Toast,
+} from '../components/settings/SettingsParts';
+import { useUnsavedChanges } from '../components/settings/UnsavedChanges';
+import { VehicleIcon } from '../components/settings/VehicleIcon';
+import { PREVIEW_DISTANCES_KM, previewCell } from '../fares/farePreview';
+import {
   loadFares,
   parseAmount,
   saveFares,
@@ -15,20 +23,33 @@ import {
   VEHICLE_TYPES,
   type Fares,
   type LoadedFares,
+  type VehicleFare,
   type VehicleType,
 } from '../fares/fareSettings';
-import { amountInputValue, formatPeso, lastUpdated } from '../lib/format';
+import { amountInputValue, formatPeso } from '../lib/format';
+import { diffNumberFields, type NumberField } from '../settings/settingsDiff';
 
 type FareField = 'baseFare' | 'perKm';
 type FormValues = Record<VehicleType, Record<FareField, string>>;
-type FormErrors = Partial<Record<`${VehicleType}.${FareField}`, string>>;
+
+const FARE_FIELDS: FareField[] = ['baseFare', 'perKm'];
 
 const FIELD_LABELS: Record<FareField, string> = {
   baseFare: 'Base fare (₱)',
   perKm: 'Per-km rate (₱/km)',
 };
 
-const DEFAULT_EXAMPLE_KM = '5';
+/** Label in the review table and error links, e.g. "Tricycle base fare". */
+const SETTING_LABELS: Record<FareField, string> = {
+  baseFare: 'base fare',
+  perKm: 'per-km rate',
+};
+
+const EFFECT_NOTE = 'Applies to bookings made after saving; confirmed bookings keep their fare.';
+
+function fieldId(type: VehicleType, field: FareField): string {
+  return `fare-${type}-${field}`;
+}
 
 function toFormValues(fares: Fares): FormValues {
   const values = {} as FormValues;
@@ -41,20 +62,26 @@ function toFormValues(fares: Fares): FormValues {
   return values;
 }
 
-/** Parses every field; returns the complete fares object only when all fields are valid. */
-function parseForm(values: FormValues): { fares: Fares | null; errors: FormErrors } {
-  const errors: FormErrors = {};
-  const fares = {} as Fares;
-  for (const type of VEHICLE_TYPES) {
-    const base = parseAmount(values[type].baseFare, { allowZero: true });
-    const perKm = parseAmount(values[type].perKm, { allowZero: false });
-    if ('error' in base) errors[`${type}.baseFare`] = base.error;
-    if ('error' in perKm) errors[`${type}.perKm`] = perKm.error;
-    if ('value' in base && 'value' in perKm) {
-      fares[type] = { baseFare: base.value, perKm: perKm.value };
-    }
-  }
-  return { fares: Object.keys(errors).length === 0 ? fares : null, errors };
+/** One NumberField per input, in form order (Tricycle base, Tricycle per-km, Motorcycle …). */
+function toFields(values: FormValues, initial: Fares): NumberField[] {
+  return VEHICLE_TYPES.flatMap((type) =>
+    FARE_FIELDS.map((field) => ({
+      id: fieldId(type, field),
+      label: `${VEHICLE_LABELS[type]} ${SETTING_LABELS[field]}`,
+      text: values[type][field],
+      initialText: amountInputValue(initial[type][field]),
+      initial: initial[type][field],
+      parsed: parseAmount(values[type][field], { allowZero: field === 'baseFare' }),
+      format: (value: number) => (field === 'perKm' ? `${formatPeso(value)}/km` : formatPeso(value)),
+    })),
+  );
+}
+
+/** The edited rates for one vehicle, or null while either is invalid. */
+function draftFare(fields: NumberField[], type: VehicleType): VehicleFare | null {
+  const base = fields.find((f) => f.id === fieldId(type, 'baseFare'))!.parsed;
+  const perKm = fields.find((f) => f.id === fieldId(type, 'perKm'))!.parsed;
+  return 'value' in base && 'value' in perKm ? { baseFare: base.value, perKm: perKm.value } : null;
 }
 
 export function FareSettingsPage() {
@@ -62,11 +89,10 @@ export function FareSettingsPage() {
   const [loaded, setLoaded] = useState<LoadedFares | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [values, setValues] = useState<FormValues | null>(null);
-  const [exampleKm, setExampleKm] = useState(DEFAULT_EXAMPLE_KM);
-  const [confirming, setConfirming] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -83,20 +109,22 @@ export function FareSettingsPage() {
     void reload();
   }, [reload]);
 
-  const { fares: parsed, errors } = useMemo(
-    () => (values ? parseForm(values) : { fares: null, errors: {} as FormErrors }),
-    [values],
-  );
+  const fields = useMemo(() => (values && loaded ? toFields(values, loaded.fares) : []), [values, loaded]);
+  const notSavedYet = loaded !== null && loaded.saved === null;
+  const diff = useMemo(() => diffNumberFields(fields, { notSavedYet }), [fields, notSavedYet]);
+  const changeCount = diff.changedIds.length;
 
-  const exampleDistance = useMemo(() => {
-    const km = Number(exampleKm);
-    return exampleKm.trim() !== '' && Number.isFinite(km) && km >= 0 ? km : null;
-  }, [exampleKm]);
+  const discard = useCallback(() => {
+    if (loaded) setValues(toFormValues(loaded.fares));
+    setSaveError(null);
+  }, [loaded]);
+  useUnsavedChanges('fares', 'Fares', changeCount, discard);
+  const hideToast = useCallback(() => setToast(null), []);
 
   if (loadError) {
     return (
       <div className="stack page-narrow">
-        <PageHeader title="Fare settings" />
+        <SettingsHeader title="Fares" helper="Per-km fares for each vehicle type." updatedAt={null} updatedBy={null} />
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -112,33 +140,41 @@ export function FareSettingsPage() {
     );
   }
 
-  const current = loaded.fares;
-  const usingDefaults = loaded.saved === null;
-  // With nothing saved yet, saving the defaults unchanged is allowed (it creates the document).
-  const hasChanges = parsed !== null && (usingDefaults || !faresEqual(parsed, current));
+  const canReview = diff.errors.length === 0 && (changeCount > 0 || notSavedYet);
 
   function setField(type: VehicleType, field: FareField, text: string) {
-    setSaved(false);
     setSaveError(null);
     setValues((prev) => (prev ? { ...prev, [type]: { ...prev[type], [field]: text } } : prev));
   }
 
+  /** Shows a valid amount with 2 decimals once the admin leaves the field ("8" → "8.00"). */
+  function normalizeField(type: VehicleType, field: FareField) {
+    const result = parseAmount(values![type][field], { allowZero: field === 'baseFare' });
+    if ('value' in result) setField(type, field, amountInputValue(result.value));
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (parsed && hasChanges) {
+    if (canReview) {
       setSaveError(null);
-      setConfirming(true);
+      setReviewing(true);
     }
   }
 
-  async function handleConfirm() {
-    if (!parsed || !admin || !loaded) return;
+  async function handleSave() {
+    if (!admin || !loaded || !canReview) return;
+    const fares = {} as Fares;
+    for (const type of VEHICLE_TYPES) {
+      const fare = draftFare(fields, type);
+      if (!fare) return;
+      fares[type] = fare;
+    }
     setSaving(true);
     setSaveError(null);
     try {
-      await saveFares(parsed, loaded.saved, admin.uid);
-      setConfirming(false);
-      setSaved(true);
+      await saveFares(fares, loaded.saved, admin.uid);
+      setReviewing(false);
+      setToast('Fare settings saved.');
       await reload();
     } catch (error) {
       setSaveError(
@@ -151,169 +187,127 @@ export function FareSettingsPage() {
     }
   }
 
+  const changed = new Set(diff.changedIds);
+  const errorById = new Map(diff.errors.map((e) => [e.id, e.message]));
+  const drafts = Object.fromEntries(VEHICLE_TYPES.map((type) => [type, draftFare(fields, type)])) as Record<
+    VehicleType,
+    VehicleFare | null
+  >;
+
   return (
-    <div className="stack page-narrow">
-      <PageHeader
-        title="Fare settings"
-        subtitle="The price per kilometre for each vehicle type, used when no barangay tariff applies. Out-of-area trips use the same rates."
+    <form className="stack page-narrow settings-page" onSubmit={handleSubmit} noValidate>
+      <SettingsHeader
+        title="Fares"
+        helper="Base fare and per-km rate for each vehicle type."
+        updatedAt={loaded.updatedAt}
+        updatedBy={loaded.updatedBy}
+        notSavedYet={notSavedYet}
       />
 
-      <div className="card">
-        <div className="formula">
-          Fare = base fare + (per-km rate × distance in km), rounded to the nearest centavo
-        </div>
-        <p className="muted formula-note">
-          New fares apply to bookings made after saving; bookings already confirmed keep their fare.
-        </p>
-        <p className="muted small">
-          {usingDefaults
-            ? 'No fare settings are saved yet, so the app uses its built-in defaults shown below.'
-            : lastUpdated(loaded.updatedAt)}
-        </p>
+      <p className="settings-info">
+        Fare = base fare + per-km rate × distance (to the centavo). Used when no barangay tariff applies; out-of-area
+        trips use the same rate.
+      </p>
+
+      <div className="vehicle-cards">
+        {VEHICLE_TYPES.map((type) => (
+          <SettingsSection key={type} title={VEHICLE_LABELS[type]} icon={<VehicleIcon type={type} />}>
+            <div className="settings-fields">
+              {FARE_FIELDS.map((field) => {
+                const id = fieldId(type, field);
+                return (
+                  <SettingsField
+                    key={field}
+                    id={id}
+                    label={FIELD_LABELS[field]}
+                    value={values[type][field]}
+                    onChange={(text) => setField(type, field, text)}
+                    onBlur={() => normalizeField(type, field)}
+                    prefix="₱"
+                    suffix={field === 'perKm' ? '/km' : undefined}
+                    changed={changed.has(id)}
+                    was={formatPeso(loaded.fares[type][field])}
+                    error={errorById.get(id)}
+                    disabled={saving}
+                  />
+                );
+              })}
+            </div>
+          </SettingsSection>
+        ))}
       </div>
 
-      <form className="card" onSubmit={handleSubmit} noValidate>
-        <div className="fare-grid">
-          {VEHICLE_TYPES.map((type) => (
-            <fieldset key={type} className="fare-group">
-              <legend>{VEHICLE_LABELS[type]}</legend>
-              {(['baseFare', 'perKm'] as const).map((field) => {
-                const error = errors[`${type}.${field}`];
-                const id = `${type}-${field}`;
-                return (
-                  <label key={field} className="field" htmlFor={id}>
-                    <span>{FIELD_LABELS[field]}</span>
-                    <input
-                      id={id}
-                      inputMode="decimal"
-                      value={values[type][field]}
-                      onChange={(e) => setField(type, field, e.target.value)}
-                      aria-invalid={error ? true : undefined}
-                      disabled={saving}
-                    />
-                    <span className="hint">
-                      {error ? (
-                        <span className="field-error">{error}</span>
-                      ) : (
-                        `Current: ${formatPeso(current[type][field])}`
-                      )}
-                    </span>
-                  </label>
-                );
-              })}
-            </fieldset>
-          ))}
-        </div>
-
-        <div className="example">
-          <label className="field example-distance" htmlFor="example-km">
-            <span>Example distance (km)</span>
-            <input
-              id="example-km"
-              inputMode="decimal"
-              value={exampleKm}
-              onChange={(e) => setExampleKm(e.target.value)}
-            />
-          </label>
-          {exampleDistance === null ? (
-            <p className="muted small">Enter a distance to see an example fare.</p>
-          ) : (
-            <ul className="example-list">
-              {VEHICLE_TYPES.map((type) => {
-                const fare = parsed?.[type];
-                return (
-                  <li key={type}>
-                    <strong>{VEHICLE_LABELS[type]}:</strong>{' '}
-                    {fare ? (
-                      <>
-                        {formatPeso(fare.baseFare)} + {formatPeso(fare.perKm)} × {exampleDistance} km ={' '}
-                        <strong>{formatPeso(calculateFare(fare, exampleDistance))}</strong>
-                        {!faresEqual(parsed, current) && (
-                          <span className="muted">
-                            {' '}
-                            (now {formatPeso(calculateFare(current[type], exampleDistance))})
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="muted">fix the errors above</span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        {saved && (
-          <div className="alert-success" role="status">
-            Fare settings saved.
-          </div>
-        )}
-
-        <div className="form-actions">
-          <button
-            type="button"
-            className="btn-outline"
-            onClick={() => {
-              setSaved(false);
-              setValues(toFormValues(current));
-            }}
-            disabled={saving || !values || faresEqual(parsed, current)}
-          >
-            Reset
-          </button>
-          <button type="submit" className="btn-primary" disabled={saving || !hasChanges}>
-            Save changes…
-          </button>
-        </div>
-      </form>
-
-      {confirming && parsed && (
-        <ConfirmDialog
-          title="Save new fares?"
-          confirmLabel="Save fares"
-          busy={saving}
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setConfirming(false)}
-        >
-          <table className="change-table">
+      <SettingsSection title="Fare preview">
+        <div className="table-scroll">
+          <table className="preview-table">
             <thead>
               <tr>
-                <th>Setting</th>
-                <th>Old</th>
-                <th />
-                <th>New</th>
+                <th scope="col">Distance</th>
+                {VEHICLE_TYPES.map((type) => (
+                  <th key={type} scope="col" className="num">
+                    {VEHICLE_LABELS[type]}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {VEHICLE_TYPES.flatMap((type) =>
-                (['baseFare', 'perKm'] as const).map((field) => {
-                  const oldValue = current[type][field];
-                  const newValue = parsed[type][field];
-                  const changed = oldValue !== newValue;
-                  return (
-                    <tr key={`${type}-${field}`} className={changed ? 'changed' : 'unchanged'}>
-                      <td>
-                        {VEHICLE_LABELS[type]} {field === 'baseFare' ? 'base fare' : 'per-km rate'}
+              {PREVIEW_DISTANCES_KM.map((km) => (
+                <tr key={km}>
+                  <th scope="row">{km} km</th>
+                  {VEHICLE_TYPES.map((type) => {
+                    const cell = previewCell(loaded.fares[type], drafts[type], km);
+                    return (
+                      <td key={type} className="num">
+                        {cell.next === null ? (
+                          <span className="muted" title="Fix the highlighted field to see this fare">
+                            —
+                          </span>
+                        ) : cell.changed ? (
+                          <span className="preview-change">
+                            <span className="preview-old">{formatPeso(cell.current)}</span>
+                            <span aria-hidden="true"> → </span>
+                            <span className="visually-hidden"> becomes </span>
+                            <strong>{formatPeso(cell.next)}</strong>
+                          </span>
+                        ) : (
+                          formatPeso(cell.current)
+                        )}
                       </td>
-                      <td>{formatPeso(oldValue)}</td>
-                      <td aria-hidden="true">→</td>
-                      <td>{formatPeso(newValue)}</td>
-                    </tr>
-                  );
-                }),
-              )}
+                    );
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
-          {usingDefaults && <p className="muted small">Old = built-in default.</p>}
-          {saveError && (
-            <div className="alert-error" role="alert">
-              {saveError}
-            </div>
-          )}
-        </ConfirmDialog>
+        </div>
+      </SettingsSection>
+
+      <p className="settings-link">
+        <Link to="/settings/tariffs" className="btn-link">
+          Barangay tariffs override this for trips between Poblacion and a barangay →
+        </Link>
+      </p>
+
+      <SaveBar
+        changeCount={changeCount}
+        notSavedYet={notSavedYet}
+        errors={diff.errors}
+        busy={saving}
+        onDiscard={discard}
+      />
+
+      {reviewing && (
+        <ReviewChangesDialog
+          rows={diff.rows}
+          effectNote={EFFECT_NOTE}
+          saving={saving}
+          error={saveError}
+          onBack={() => setReviewing(false)}
+          onSave={() => void handleSave()}
+        />
       )}
-    </div>
+
+      {toast && <Toast message={toast} onDone={hideToast} />}
+    </form>
   );
 }
