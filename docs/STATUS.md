@@ -56,9 +56,10 @@ things stand.
   is shown there. Drivers' ratings show as the average (one decimal) or "New".
 - **Driver application:** personal and vehicle details, plus OR/CR and LTO license photos.
   Uploads work (2026-11-17, not deployed): photos only (no PDFs), compressed on the phone
-  (at most 1600 px, under 900 KB) and stored in Firestore with the application in one
-  commit. Admins see thumbnails and a zoom/rotate viewer on the application page. Needs a
-  new EAS development build (expo-image-manipulator).
+  (at most 1600 px and 700 KB) and stored in Firestore as base64 text with the application
+  in one commit (not Firestore Bytes: their decoding crashes the Firestore client on
+  Hermes; the app never reads the photos back). Admins see thumbnails and a zoom/rotate
+  viewer on the application page. Needs a new EAS development build (expo-image-manipulator).
 - **Notifications tab = inbox ("Messages from TriGo"):** the passenger's warnings, newest
   first, unread highlighted; a warning opens with its reason, date, related trip and an
   "I understand" button. The Home bell shows the number of unread warnings. Built to take
@@ -228,7 +229,7 @@ things stand.
   - Profile photos cannot work in production; the code is parked on the branch
     `feature/profile-photo`.
   - Driver application documents no longer need Storage: they are compressed photos in
-    Firestore (photos only, no PDFs; each under 900 KB). Older applications that point to
+    Firestore (photos only, no PDFs; each at most 700 KB, stored as base64 text). Older applications that point to
     Storage files show "No documents on file".
 - **OpenRouteService dependency.**
   - Routing and reverse geocoding call the ORS public API with a client-side key (free

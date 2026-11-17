@@ -12,16 +12,17 @@ import { TextInputField } from '@/components/ui/TextInputField';
 import { colors, spacing, typography } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useDriverApplication } from '@/hooks/useDriverApplication';
-import { applicationDocumentStore, StoredDocumentImage } from '@/services/applicationDocumentService';
 import {
   ApplicationDocumentImage,
   DOCUMENT_LABELS,
   DriverApplicationServiceError,
   splitFullName,
+  storedDocumentsFromApplication,
   submitDriverApplication,
 } from '@/services/driverApplicationService';
 import {
   DriverApplication,
+  DriverApplicationDocument,
   DriverApplicationDocumentType,
   DriverApplicationStatus,
   VehicleType,
@@ -40,17 +41,16 @@ import {
   VEHICLE_MODEL_MAX_LENGTH,
 } from '@/validations/driverApplication';
 import { router } from 'expo-router';
-import { ReactNode, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ReactNode, useState } from 'react';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatDateTime } from '@/utils/dateTime';
 
 const STEPS = ['Personal', 'Vehicle', 'Documents', 'Review'] as const;
 type Step = 0 | 1 | 2 | 3;
 type DocumentState = Record<DriverApplicationDocumentType, ApplicationDocumentImage | null>;
-type StoredDocuments = Record<DriverApplicationDocumentType, StoredDocumentImage | null>;
-
-const NO_STORED_DOCUMENTS: StoredDocuments = { orCr: null, ltoLicense: null };
+/** Shown for a photo on file that is kept on resubmit (never downloaded to the phone). */
+const KEPT_PHOTO_NOTE = 'Previously submitted photo — kept';
 
 const STATUS_LABELS: Record<DriverApplicationStatus, string> = {
   pending: 'Pending Verification',
@@ -127,14 +127,21 @@ function CheckItem({ label, done }: { label: string; done: boolean }) {
   );
 }
 
-function DocumentThumbnail({ label, uri, loading }: { label: string; uri: string | null; loading?: boolean }) {
+/**
+ * A document photo: the image when it is on this phone (just taken), else `note` for a photo
+ * on file (known from the application's reference only; never downloaded), else missing.
+ */
+function DocumentThumbnail({ label, uri, note }: { label: string; uri: string | null; note?: string | null }) {
   return (
     <View style={styles.thumbnailItem}>
       {uri ? (
         <Image source={{ uri }} style={styles.thumbnail} resizeMode="cover" />
-      ) : loading ? (
-        <View style={[styles.thumbnail, styles.thumbnailLoading]}>
-          <ActivityIndicator color={colors.primary} />
+      ) : note ? (
+        <View style={[styles.thumbnail, styles.thumbnailOnFile]}>
+          <Ionicons name="document-text-outline" size={22} color={colors.primary} />
+          <Text style={styles.thumbnailNote} numberOfLines={3}>
+            {note}
+          </Text>
         </View>
       ) : (
         <View style={[styles.thumbnail, styles.thumbnailMissing]}>
@@ -146,6 +153,14 @@ function DocumentThumbnail({ label, uri, loading }: { label: string; uri: string
       </Text>
     </View>
   );
+}
+
+/** Status view: a photo on file, from the application's reference (size and upload time). */
+function onFileNote(reference: DriverApplicationDocument | null) {
+  if (!reference) return null;
+  const size = `${Math.max(1, Math.round(reference.sizeBytes / 1024))} KB`;
+  return reference.uploadedAt ? `On file · ${size}
+${formatDateTime(reference.uploadedAt)}` : `On file · ${size}`;
 }
 
 export default function DriverApplicationScreen() {
@@ -174,44 +189,6 @@ export default function DriverApplicationScreen() {
   // "I've read this" under the privacy notice: unticked for every submit and resubmit.
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
   const [privacyError, setPrivacyError] = useState('');
-  // Photos on file (shown on the status view, kept on resubmit unless retaken).
-  const [storedDocuments, setStoredDocuments] = useState<StoredDocuments>(NO_STORED_DOCUMENTS);
-  const [storedLoading, setStoredLoading] = useState(false);
-
-  const applicationUid = application?.uid ?? null;
-  // Which photos the application references, and when they were stored.
-  const storedKey = application
-    ? DOCUMENT_TYPES.map((type) => {
-        const reference = application.documents[type];
-        return reference ? `${type}@${reference.uploadedAt?.getTime() ?? 0}` : '';
-      }).join(',')
-    : '';
-
-  useEffect(() => {
-    const types = DOCUMENT_TYPES.filter((type) => storedKey.includes(`${type}@`));
-    if (!applicationUid || types.length === 0) {
-      setStoredDocuments(NO_STORED_DOCUMENTS);
-      return;
-    }
-    let active = true;
-    setStoredLoading(true);
-    Promise.all(
-      DOCUMENT_TYPES.map((type) =>
-        types.includes(type)
-          ? applicationDocumentStore.load(applicationUid, type).catch(() => null)
-          : Promise.resolve(null),
-      ),
-    )
-      .then(([orCr, ltoLicense]) => {
-        if (active) setStoredDocuments({ orCr, ltoLicense });
-      })
-      .finally(() => {
-        if (active) setStoredLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [applicationUid, storedKey]);
 
   if (!passenger) {
     return (
@@ -237,8 +214,6 @@ export default function DriverApplicationScreen() {
     return (
       <ApplicationStatusView
         application={application}
-        storedDocuments={storedDocuments}
-        storedLoading={storedLoading}
         driverModeReady={hasDriverMode}
         loadError={loadError}
         paddingBottom={insets.bottom + spacing.xl}
@@ -258,8 +233,9 @@ export default function DriverApplicationScreen() {
             vehicleColor: application.vehicleColor ?? '',
           });
           setVehicleDetailErrors({});
-          // Photos on file can be kept or retaken; missing ones must be taken again.
-          setDocuments({ ...storedDocuments });
+          // Photos on file (from the application's references) can be kept or retaken;
+          // missing ones must be taken again.
+          setDocuments(storedDocumentsFromApplication(application));
           setDocumentErrors({});
           setStep(0);
           setError('');
@@ -632,7 +608,8 @@ export default function DriverApplicationScreen() {
                     <DocumentThumbnail
                       key={documentType}
                       label={DOCUMENT_LABELS[documentType]}
-                      uri={image ? image.uri : null}
+                      uri={image?.kind === 'prepared' ? image.uri : null}
+                      note={image?.kind === 'stored' ? KEPT_PHOTO_NOTE : null}
                     />
                   );
                 })}
@@ -683,8 +660,6 @@ export default function DriverApplicationScreen() {
 
 interface ApplicationStatusViewProps {
   application: DriverApplication;
-  storedDocuments: StoredDocuments;
-  storedLoading: boolean;
   driverModeReady: boolean;
   loadError: string;
   paddingBottom: number;
@@ -694,8 +669,6 @@ interface ApplicationStatusViewProps {
 
 function ApplicationStatusView({
   application,
-  storedDocuments,
-  storedLoading,
   driverModeReady,
   loadError,
   paddingBottom,
@@ -777,8 +750,8 @@ function ApplicationStatusView({
                 <DocumentThumbnail
                   key={documentType}
                   label={DOCUMENT_LABELS[documentType]}
-                  uri={storedDocuments[documentType]?.uri ?? null}
-                  loading={storedLoading && application.documents[documentType] !== null}
+                  uri={null}
+                  note={onFileNote(application.documents[documentType])}
                 />
               ))}
             </View>
@@ -937,9 +910,19 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: colors.white,
   },
-  thumbnailLoading: {
+  thumbnailOnFile: {
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  thumbnailNote: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   thumbnailMissing: {
     alignItems: 'center',

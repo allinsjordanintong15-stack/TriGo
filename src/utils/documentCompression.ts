@@ -2,11 +2,8 @@
 // relative imports only, so plain Node tests can load it (tests/drivers/documentCompression.test.ts).
 // The service (src/services/applicationDocumentService.ts) supplies the real JPEG encoder.
 
-import {
-  DOCUMENT_COMPRESSION_STEPS,
-  DOCUMENT_IMAGE_MAX_BYTES,
-  DOCUMENT_IMAGE_TARGET_BYTES,
-} from '../constants/applicationDocuments.ts';
+import { DOCUMENT_COMPRESSION_STEPS } from '../constants/applicationDocuments.ts';
+import { DOCUMENT_IMAGE_MAX_BYTES, DOCUMENT_IMAGE_TARGET_BYTES } from '../../shared/documents/index.ts';
 
 export interface CompressionStep {
   longSide: number;
@@ -42,7 +39,7 @@ export function fitLongSide(original: Dimensions, longSide: number): Dimensions 
 
 /**
  * Tries the steps in order and stops at the first result of at most the target size.
- * When none reaches the target, the smallest result is used if it is under the hard limit;
+ * When none reaches the target, the smallest result is used if it is within the hard limit;
  * otherwise the photo is too large (never uploaded).
  */
 export async function compressWithSteps<T extends EncodedImage>(
@@ -58,22 +55,17 @@ export async function compressWithSteps<T extends EncodedImage>(
 
   for (const step of steps) {
     const image = await encode(step, fitLongSide(original, step.longSide));
-    if (image.sizeBytes <= limits.targetBytes && image.sizeBytes < limits.maxBytes) {
+    if (image.sizeBytes <= limits.targetBytes && image.sizeBytes <= limits.maxBytes) {
       return { ok: true, image, step };
     }
     if (!smallest || image.sizeBytes < smallest.image.sizeBytes) smallest = { image, step };
   }
 
-  if (smallest && smallest.image.sizeBytes < limits.maxBytes) {
+  if (smallest && smallest.image.sizeBytes <= limits.maxBytes) {
     return { ok: true, image: smallest.image, step: smallest.step };
   }
   return { ok: false, reason: 'too-large', smallestBytes: smallest?.image.sizeBytes ?? 0 };
 }
 
-/** Number of bytes a base64 string decodes to. */
-export function base64ByteLength(base64: string): number {
-  const clean = base64.replace(/[\r\n\s]/g, '');
-  if (clean.length === 0) return 0;
-  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
-  return Math.floor((clean.length * 3) / 4) - padding;
-}
+// Base64 helpers live in shared/documents (also used by the admin website).
+export { base64ByteLength, base64ToBytes, isStoredBase64 } from '../../shared/documents/index.ts';

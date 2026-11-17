@@ -33,3 +33,5 @@ if (usingEmulators) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   connectFirestoreEmulator(db, '127.0.0.1', 8080);
 }
+// Logged once at startup so the console shows which backend this build talks to.
+console.info(`[Firestore target] ${usingEmulators ? 'emulator' : 'production'} (${firebaseConfig.projectId})`);

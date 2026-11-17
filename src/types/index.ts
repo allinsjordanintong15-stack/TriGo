@@ -1,6 +1,7 @@
 import type { BoundaryBarangayId } from '@/constants/barangays';
 import type { ApplicationDocumentType } from '@/constants/applicationDocuments';
 import type { AdminSuspension } from '@/utils/adminSuspension';
+import type { Timestamp } from 'firebase/firestore';
 
 export type UserRole = 'passenger' | 'driver' | 'admin';
 
@@ -146,13 +147,15 @@ export type DriverApplicationStatus = 'pending' | 'approved' | 'rejected';
 export type DriverApplicationDocumentType = ApplicationDocumentType;
 
 /**
- * The application's small reference to a document photo. The photo itself (compressed JPEG
- * bytes) is at driverApplications/{uid}/documents/{docType}; see
+ * The application's small reference to a document photo. The photo itself (a base64 JPEG)
+ * is at driverApplications/{uid}/documents/{docType} and is never read by the app; see
  * src/services/applicationDocumentService.ts.
  */
 export interface DriverApplicationDocument {
   sizeBytes: number;
   uploadedAt: Date | null;
+  /** The stored time exactly as written (a kept photo's reference must repeat it). */
+  uploadedAtTimestamp: Timestamp | null;
 }
 
 export interface DriverApplicationDocuments {

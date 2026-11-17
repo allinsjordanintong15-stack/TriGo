@@ -1520,9 +1520,14 @@ service cloud.firestore {
       allow delete: if false;
 
       // ─── Application document photos ─────────────────────────────────────
-      // driverApplications/{uid}/documents/{docType} {uid, docType, mimeType, data, sizeBytes,
-      // width, height, uploadedAt}: one compressed JPEG per required document, stored as
-      // Firestore bytes (Cloud Storage needs the Blaze plan; see docs/DECISIONS.md).
+      // driverApplications/{uid}/documents/{docType} {uid, docType, mimeType, dataBase64,
+      // sizeBytes, width, height, uploadedAt}: one compressed JPEG per required document,
+      // stored as a base64 STRING, never Firestore bytes: the React Native SDK's bytes
+      // decoding crashes on Hermes (Cloud Storage needs the Blaze plan; docs/DECISIONS.md).
+      // sizeBytes is the decoded JPEG size (at most 700 000) and must match the text length
+      // (4 characters per 3 bytes, minus up to 2 padding bytes; the padding itself is not
+      // checked, so 2 bytes of slack; readers check the size exactly). The app never reads
+      // these documents.
       // The applicant writes a photo only in the commit that submits or resubmits the
       // application, and only while there is no application yet or it was rejected, so
       // photos never change while pending or after approval, and no photo exists without an
@@ -1543,14 +1548,20 @@ service cloud.firestore {
           && isPassenger()
           && docType in ['orCr', 'ltoLicense']
           && request.resource.data.keys().hasOnly([
-            'uid', 'docType', 'mimeType', 'data', 'sizeBytes', 'width', 'height', 'uploadedAt'
+            'uid', 'docType', 'mimeType', 'dataBase64', 'sizeBytes', 'width', 'height', 'uploadedAt'
           ])
           && request.resource.data.uid == uid
           && request.resource.data.docType == docType
           && request.resource.data.mimeType == 'image/jpeg'
-          && request.resource.data.data is bytes
-          && request.resource.data.data.size() < 900000
-          && request.resource.data.sizeBytes == request.resource.data.data.size()
+          && request.resource.data.dataBase64 is string
+          && request.resource.data.dataBase64.size() >= 4
+          && request.resource.data.dataBase64.size() <= 950000
+          && request.resource.data.dataBase64.size() % 4 == 0
+          && request.resource.data.sizeBytes is int
+          && request.resource.data.sizeBytes >= 1
+          && request.resource.data.sizeBytes <= 700000
+          && request.resource.data.sizeBytes * 4 <= request.resource.data.dataBase64.size() * 3
+          && request.resource.data.sizeBytes * 4 >= request.resource.data.dataBase64.size() * 3 - 8
           && request.resource.data.width is int
           && request.resource.data.width >= 1
           && request.resource.data.width <= 1600

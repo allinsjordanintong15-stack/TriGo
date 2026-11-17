@@ -1,26 +1,29 @@
-// Driver application document photos: preparing (compressing) them on the device, writing
-// them in the submit transaction, and reading them back. The only place that knows where the
-// photos live. Today: Firestore bytes at driverApplications/{uid}/documents/{docType}
-// (Cloud Storage needs the Blaze plan; docs/DECISIONS.md 2026-11-17). Moving to Cloud
-// Storage later means a second ApplicationDocumentStore, not changes to the screens.
+// Driver application document photos: preparing (compressing) them on the device and
+// writing them in the submit transaction. The only place in the app that knows where the
+// photos live: driverApplications/{uid}/documents/{docType}, as a base64 STRING
+// (`dataBase64`), never Firestore Bytes (shared/documents; docs/DECISIONS.md 2026-11-17).
+//
+// The app NEVER reads or listens to the photo documents. Firebase's React Native SDK decoded
+// received photo bytes with String.fromCharCode.apply and crashed the whole Firestore client
+// on Hermes; reading nearly 1 MB per photo on a phone is wasteful anyway. A photo on file is
+// known only from the application's small reference {sizeBytes, uploadedAt}.
 
 import {
   ApplicationDocumentType,
+  DOCUMENT_IMAGE_MAX_BYTES,
   DOCUMENT_IMAGE_MAX_SIDE,
   DOCUMENT_IMAGE_MIME_TYPE,
 } from '@/constants/applicationDocuments';
 import { COLLECTIONS, firestore } from '@/firebase';
-import { base64ByteLength, compressWithSteps, type CompressionStep, type Dimensions } from '@/utils/documentCompression';
-import { ImageManipulator, SaveFormat, type ImageRef } from 'expo-image-manipulator';
 import {
-  Bytes,
-  doc,
-  getDoc,
-  serverTimestamp,
-  Timestamp,
-  type FieldValue,
-  type Transaction,
-} from 'firebase/firestore';
+  base64ByteLength,
+  compressWithSteps,
+  isStoredBase64,
+  type CompressionStep,
+  type Dimensions,
+} from '@/utils/documentCompression';
+import { ImageManipulator, SaveFormat, type ImageRef } from 'expo-image-manipulator';
+import { doc, serverTimestamp, Timestamp, type FieldValue, type Transaction } from 'firebase/firestore';
 
 export type ApplicationDocumentErrorReason = 'too-large' | 'not-a-photo' | 'unreadable';
 
@@ -39,22 +42,22 @@ export interface PreparedDocumentImage {
   kind: 'prepared';
   /** The compressed JPEG on the device (for previews). */
   uri: string;
-  /** The same JPEG, base64-encoded (the bytes that are written). */
+  /** The same JPEG, base64-encoded (the text that is stored). */
   base64: string;
+  /** Decoded JPEG size. */
   sizeBytes: number;
   width: number;
   height: number;
 }
 
-/** A photo already on file from an earlier submission (kept on resubmit unless retaken). */
+/**
+ * A photo already on file from an earlier submission, known only from the application's
+ * reference (the photo itself is never read on the phone). Kept on resubmit unless retaken.
+ */
 export interface StoredDocumentImage {
   kind: 'stored';
-  /** data: URI for previews. */
-  uri: string;
   sizeBytes: number;
-  width: number;
-  height: number;
-  /** The stored time as written; a kept photo's reference must repeat it exactly. */
+  /** The stored time exactly as written; a kept photo's reference must repeat it. */
   uploadedAt: Timestamp;
 }
 
@@ -78,12 +81,18 @@ export interface ApplicationDocumentStore {
     docType: ApplicationDocumentType,
     image: ApplicationDocumentImage,
   ): ApplicationDocumentReference;
-  /** The applicant's photo on file, or null when there is none. */
-  load(uid: string, docType: ApplicationDocumentType): Promise<StoredDocumentImage | null>;
 }
 
 function documentRef(uid: string, docType: ApplicationDocumentType) {
   return doc(firestore, COLLECTIONS.driverApplications, uid, 'documents', docType);
+}
+
+/** Thrown before anything is sent when a prepared photo's text is not what the rules accept. */
+export class InvalidDocumentDataError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidDocumentDataError';
+  }
 }
 
 const firestoreDocumentStore: ApplicationDocumentStore = {
@@ -91,34 +100,27 @@ const firestoreDocumentStore: ApplicationDocumentStore = {
     if (image.kind === 'stored') {
       return { sizeBytes: image.sizeBytes, uploadedAt: image.uploadedAt };
     }
+    const dataBase64 = image.base64.replace(/\s/g, '');
+    const sizeBytes = base64ByteLength(dataBase64);
+    if (!isStoredBase64(dataBase64) || sizeBytes < 1) {
+      throw new InvalidDocumentDataError(`Invalid base64 for ${docType} (length ${dataBase64.length}).`);
+    }
+    if (sizeBytes > DOCUMENT_IMAGE_MAX_BYTES) {
+      throw new InvalidDocumentDataError(`${docType} is too large: ${sizeBytes} bytes.`);
+    }
     const uploadedAt = serverTimestamp();
     transaction.set(documentRef(uid, docType), {
       uid,
       docType,
       mimeType: DOCUMENT_IMAGE_MIME_TYPE,
-      data: Bytes.fromBase64String(image.base64),
-      sizeBytes: image.sizeBytes,
+      dataBase64,
+      // The decoded JPEG size; the rules check it against the text length.
+      sizeBytes,
       width: image.width,
       height: image.height,
       uploadedAt,
     });
-    return { sizeBytes: image.sizeBytes, uploadedAt };
-  },
-
-  async load(uid, docType) {
-    const snapshot = await getDoc(documentRef(uid, docType));
-    const data = snapshot.data();
-    if (!snapshot.exists() || !data || !(data.data instanceof Bytes) || !(data.uploadedAt instanceof Timestamp)) {
-      return null;
-    }
-    return {
-      kind: 'stored',
-      uri: `data:${DOCUMENT_IMAGE_MIME_TYPE};base64,${data.data.toBase64()}`,
-      sizeBytes: typeof data.sizeBytes === 'number' ? data.sizeBytes : 0,
-      width: typeof data.width === 'number' ? data.width : 0,
-      height: typeof data.height === 'number' ? data.height : 0,
-      uploadedAt: data.uploadedAt,
-    };
+    return { sizeBytes, uploadedAt };
   },
 };
 
@@ -138,7 +140,7 @@ const TOO_LARGE_MESSAGE =
 
 /**
  * Compresses a picked photo: longest side 1600 px at JPEG quality 0.7, then lower quality
- * (down to 0.5), then 1280 px, stopping at 700 KB; never more than 900 KB.
+ * (down to 0.5), then 1280 px, stopping at 600 KB; never more than 700 KB.
  */
 export async function prepareDocumentImage(photo: PickedPhoto): Promise<PreparedDocumentImage> {
   const isPhoto =

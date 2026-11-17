@@ -1,7 +1,13 @@
 // Driver application document photos (docs/DECISIONS.md, 2026-11-17): compressed JPEGs
-// stored as Firestore bytes at driverApplications/{uid}/documents/{docType}. No imports on
-// purpose, so plain Node tests can load this file. The limits must stay in sync with
+// stored as a base64 string at driverApplications/{uid}/documents/{docType}. Relative
+// imports only, so plain Node tests can load this file. The limits must stay in sync with
 // firestore.rules (match /driverApplications/{uid}/documents/{docType}).
+
+export {
+  DOCUMENT_BASE64_MAX_LENGTH,
+  DOCUMENT_IMAGE_MAX_BYTES,
+  DOCUMENT_IMAGE_TARGET_BYTES,
+} from '../../shared/documents/index.ts';
 
 /** The required documents, in the order the app and the admin website show them. */
 export const APPLICATION_DOCUMENT_TYPES = ['orCr', 'ltoLicense'] as const;
@@ -15,12 +21,6 @@ export const APPLICATION_DOCUMENT_LABELS: Record<ApplicationDocumentType, string
 
 /** Every stored photo is a JPEG (the app re-encodes whatever the camera or gallery gives). */
 export const DOCUMENT_IMAGE_MIME_TYPE = 'image/jpeg';
-
-/** Rules: data.size() < 900000. A photo must be strictly smaller than this. */
-export const DOCUMENT_IMAGE_MAX_BYTES = 900_000;
-
-/** Compression stops at the first step whose result is at most this size. */
-export const DOCUMENT_IMAGE_TARGET_BYTES = 700_000;
 
 /** Rules: width and height at most 1600. */
 export const DOCUMENT_IMAGE_MAX_SIDE = 1600;

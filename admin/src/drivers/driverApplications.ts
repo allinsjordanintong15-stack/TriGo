@@ -1,5 +1,4 @@
 import {
-  Bytes,
   collection,
   doc,
   getDoc,
@@ -12,6 +11,7 @@ import {
   type Timestamp,
 } from 'firebase/firestore';
 
+import { base64ToBytes, readStoredPhoto } from '../../../shared/documents/index.ts';
 import { db } from '../firebase/config';
 import { normalizeVehicleDetails, readVehicleText, type VehicleDetails } from './driverRecords';
 
@@ -208,6 +208,15 @@ export type DocumentImage = {
 };
 
 /**
+ * A stored photo (base64 text, ~933 KB at most) as a JPEG Blob. Decoded with the shared
+ * loop decoder, not one huge atob/apply call (shared/documents).
+ */
+export function documentImageBlob(dataBase64: string): Blob {
+  const bytes = base64ToBytes(dataBase64);
+  return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' });
+}
+
+/**
  * Reads the applicant's document photos (driverApplications/{uid}/documents/{docType}).
  * Detail page only: the Applications list never loads photo bytes. The caller revokes the
  * URLs (URL.revokeObjectURL) when it no longer shows them.
@@ -220,15 +229,15 @@ export async function loadApplicationDocumentImages(
   );
   const images = snapshots.map((snapshot): DocumentImage | null => {
     const data = snapshot.data();
-    if (!data || !(data.data instanceof Bytes)) return null;
-    const bytes = data.data.toUint8Array();
-    const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' });
+    const photo = readStoredPhoto(data);
+    // Any other shape (e.g. the earlier Firestore Bytes `data`) is "Not on file".
+    if (!photo) return null;
     return {
-      url: URL.createObjectURL(blob),
-      width: typeof data.width === 'number' ? data.width : 0,
-      height: typeof data.height === 'number' ? data.height : 0,
-      sizeBytes: bytes.byteLength,
-      uploadedAt: toDate(data.uploadedAt),
+      url: URL.createObjectURL(documentImageBlob(photo.dataBase64)),
+      width: photo.width,
+      height: photo.height,
+      sizeBytes: photo.sizeBytes,
+      uploadedAt: toDate(data?.uploadedAt),
     };
   });
   return { orCr: images[0], ltoLicense: images[1] };

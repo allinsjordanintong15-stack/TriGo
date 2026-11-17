@@ -25,7 +25,6 @@ import { readFileSync } from 'node:fs';
 
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import {
-  Bytes,
   doc,
   serverTimestamp,
   setDoc,
@@ -871,8 +870,10 @@ const APPLICANT = 'vehicleApplicant';
 const APPLICANT_EMAIL = `${APPLICANT}@example.com`;
 const APPLICANT_MOBILE = '+639171234567';
 
-// The largest photo the rules allow (899 999 bytes), as the app writes it.
-const PHOTO_BYTES = 899_999;
+// The largest photo the rules allow (700 000 bytes, 933 336 base64 characters), as the app
+// writes it.
+const PHOTO_BYTES = 700_000;
+const PHOTO_BASE64 = Buffer.alloc(PHOTO_BYTES, 0xab).toString('base64');
 const PHOTO_TIME = Timestamp.fromMillis(Date.UTC(2026, 10, 1));
 
 function documentPhoto(uid: string, type: string, uploadedAt: unknown = serverTimestamp()): DocumentData {
@@ -880,7 +881,7 @@ function documentPhoto(uid: string, type: string, uploadedAt: unknown = serverTi
     uid,
     docType: type,
     mimeType: 'image/jpeg',
-    data: Bytes.fromUint8Array(new Uint8Array(PHOTO_BYTES)),
+    dataBase64: PHOTO_BASE64,
     sizeBytes: PHOTO_BYTES,
     width: 1600,
     height: 1200,

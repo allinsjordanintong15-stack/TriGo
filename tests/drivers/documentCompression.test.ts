@@ -7,12 +7,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  DOCUMENT_BASE64_MAX_LENGTH,
   DOCUMENT_COMPRESSION_STEPS,
   DOCUMENT_IMAGE_MAX_BYTES,
   DOCUMENT_IMAGE_TARGET_BYTES,
 } from '../../src/constants/applicationDocuments.ts';
 import {
   base64ByteLength,
+  base64ToBytes,
   compressWithSteps,
   fitLongSide,
   type CompressionStep,
@@ -39,8 +41,17 @@ describe('document compression steps', () => {
       { longSide: 1600, quality: 0.5 },
       { longSide: 1280, quality: 0.5 },
     ]);
-    assert.equal(DOCUMENT_IMAGE_TARGET_BYTES, 700_000);
-    assert.equal(DOCUMENT_IMAGE_MAX_BYTES, 900_000);
+    assert.equal(DOCUMENT_IMAGE_TARGET_BYTES, 600_000);
+    assert.equal(DOCUMENT_IMAGE_MAX_BYTES, 700_000);
+    assert.equal(DOCUMENT_BASE64_MAX_LENGTH, 950_000);
+  });
+
+  it('the largest photo fits the base64 limit and the 1 MiB document limit with headroom', () => {
+    const largest = Buffer.alloc(DOCUMENT_IMAGE_MAX_BYTES).toString('base64');
+    assert.equal(largest.length, 933_336);
+    assert.ok(largest.length <= DOCUMENT_BASE64_MAX_LENGTH);
+    // The rest of the photo document (uid, docType, mimeType, sizes, time) is under 1 KB.
+    assert.ok(largest.length + 1_024 < 1_048_576 - 50_000);
   });
 });
 
@@ -62,8 +73,8 @@ describe('fitLongSide', () => {
 });
 
 describe('compressWithSteps', () => {
-  it('stops at the first step at or under 700 KB', async () => {
-    const { encode, calls } = fakeEncoder([650_000]);
+  it('stops at the first step at or under 600 KB', async () => {
+    const { encode, calls } = fakeEncoder([550_000]);
     const outcome = await compressWithSteps(encode, PHONE_PHOTO);
     assert.equal(outcome.ok, true);
     assert.deepEqual(outcome.ok && outcome.step, { longSide: 1600, quality: 0.7 });
@@ -71,14 +82,14 @@ describe('compressWithSteps', () => {
     assert.deepEqual(calls[0].size, { width: 1600, height: 1200 });
   });
 
-  it('accepts exactly 700 KB', async () => {
-    const { encode, calls } = fakeEncoder([700_000]);
+  it('accepts exactly 600 KB', async () => {
+    const { encode, calls } = fakeEncoder([600_000]);
     assert.equal((await compressWithSteps(encode, PHONE_PHOTO)).ok, true);
     assert.equal(calls.length, 1);
   });
 
   it('steps the quality down before the size', async () => {
-    const { encode, calls } = fakeEncoder([900_000, 760_000, 690_000]);
+    const { encode, calls } = fakeEncoder([800_000, 660_000, 590_000]);
     const outcome = await compressWithSteps(encode, PHONE_PHOTO);
     assert.deepEqual(outcome.ok && outcome.step, { longSide: 1600, quality: 0.5 });
     assert.deepEqual(
@@ -88,24 +99,24 @@ describe('compressWithSteps', () => {
   });
 
   it('drops the longest side to 1280 px last', async () => {
-    const { encode, calls } = fakeEncoder([1_200_000, 1_000_000, 850_000, 600_000]);
+    const { encode, calls } = fakeEncoder([1_200_000, 1_000_000, 750_000, 500_000]);
     const outcome = await compressWithSteps(encode, PHONE_PHOTO);
     assert.deepEqual(outcome.ok && outcome.step, { longSide: 1280, quality: 0.5 });
     assert.deepEqual(calls[3].size, { width: 1280, height: 960 });
   });
 
-  it('uses the smallest result when none reaches 700 KB but it is under 900 KB', async () => {
-    const { encode } = fakeEncoder([1_200_000, 1_000_000, 899_999, 880_000]);
+  it('uses the smallest result when none reaches 600 KB but it is at most 700 KB', async () => {
+    const { encode } = fakeEncoder([1_200_000, 1_000_000, 700_001, 700_000]);
     const outcome = await compressWithSteps(encode, PHONE_PHOTO);
     assert.equal(outcome.ok, true);
-    assert.equal(outcome.ok && outcome.image.sizeBytes, 880_000);
+    assert.equal(outcome.ok && outcome.image.sizeBytes, 700_000);
     assert.deepEqual(outcome.ok && outcome.step, { longSide: 1280, quality: 0.5 });
   });
 
-  it('never returns a photo of 900 KB or more', async () => {
-    const { encode, calls } = fakeEncoder([2_000_000, 1_500_000, 1_100_000, 900_000]);
+  it('never returns a photo over 700 KB', async () => {
+    const { encode, calls } = fakeEncoder([2_000_000, 1_500_000, 1_100_000, 700_001]);
     const outcome = await compressWithSteps(encode, PHONE_PHOTO);
-    assert.deepEqual(outcome, { ok: false, reason: 'too-large', smallestBytes: 900_000 });
+    assert.deepEqual(outcome, { ok: false, reason: 'too-large', smallestBytes: 700_001 });
     assert.equal(calls.length, 4);
   });
 
@@ -129,5 +140,58 @@ describe('base64ByteLength', () => {
 
   it('ignores line breaks', () => {
     assert.equal(base64ByteLength('YWJj\nZGVm'), 6);
+  });
+});
+
+describe('base64ToBytes', () => {
+  it('decodes what Node encodes, for every padding length', () => {
+    for (const text of ['', 'a', 'ab', 'abc', 'abcd']) {
+      const encoded = Buffer.from(text).toString('base64');
+      assert.deepEqual(Buffer.from(base64ToBytes(encoded)), Buffer.from(text));
+    }
+  });
+
+  it('decodes a 700 KB photo exactly, and its length matches base64ByteLength', () => {
+    const photo = Buffer.alloc(DOCUMENT_IMAGE_MAX_BYTES);
+    for (let i = 0; i < photo.length; i++) photo[i] = (i * 7919) & 0xff;
+    const encoded = photo.toString('base64');
+    const bytes = base64ToBytes(encoded);
+    assert.equal(bytes.length, base64ByteLength(encoded));
+    assert.ok(Buffer.from(bytes).equals(photo));
+  });
+
+  it('ignores line breaks', () => {
+    assert.deepEqual(Buffer.from(base64ToBytes('YWJj\nZGVm')), Buffer.from('abcdef'));
+  });
+
+  it('rejects text that is not base64', () => {
+    assert.throws(() => base64ToBytes('YWJ'));
+    assert.throws(() => base64ToBytes('YW=j'));
+    assert.throws(() => base64ToBytes('YW-_'));
+    assert.throws(() => base64ToBytes('data:image/jpeg;base64,YWJj'));
+  });
+
+  // The phone bug (2026-11-17): Firestore's React Native Bytes.fromBase64String spreads every
+  // byte into one Function.prototype.apply call, which Hermes rejects for a photo this size.
+  // Node allows far more arguments, so simulate the engine limit here.
+  it('never passes one argument per byte to a function call (Hermes argument limit)', () => {
+    const LIMIT = 65_536;
+    const realApply = Function.prototype.apply;
+    const guardedApply = function (this: (...args: unknown[]) => unknown, thisArg: unknown, args?: ArrayLike<unknown>) {
+      if (args && args.length > LIMIT) throw new RangeError('Maximum call stack size exceeded');
+      return Reflect.apply(this, thisArg, args ? Array.from(args) : []);
+    };
+    const encoded = Buffer.alloc(300_000, 0xab).toString('base64');
+    Function.prototype.apply = guardedApply as typeof realApply;
+    try {
+      assert.equal(base64ToBytes(encoded).length, 300_000);
+      // The guard really does catch the pattern the SDK uses.
+      assert.throws(
+        () => String.fromCharCode.apply(null, Array.from(Buffer.alloc(300_000))),
+        RangeError,
+      );
+    } finally {
+      Function.prototype.apply = realApply;
+    }
   });
 });

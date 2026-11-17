@@ -3,6 +3,12 @@ import { Firestore, getFirestore } from 'firebase/firestore';
 
 export const firestore: Firestore = getFirestore(firebaseApp);
 
+// The app has no emulator mode: it always uses the project in .env
+// (EXPO_PUBLIC_FIREBASE_PROJECT_ID). Logged once when this module first loads, so Metro
+// shows which backend a dev build talks to. Emulator testing is the rules tests and the
+// admin website's `npm run dev:emulator`.
+console.info(`[Firestore target] production (${firebaseApp.options.projectId ?? 'no project id'})`);
+
 export const COLLECTIONS = {
   users: 'users',
   contacts: 'contacts',

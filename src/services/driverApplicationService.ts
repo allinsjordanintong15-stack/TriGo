@@ -8,6 +8,7 @@ import {
   ApplicationDocumentImage,
   ApplicationDocumentReference,
   applicationDocumentStore,
+  StoredDocumentImage,
 } from '@/services/applicationDocumentService';
 import {
   DriverApplication,
@@ -17,6 +18,7 @@ import {
   User,
   VehicleType,
 } from '@/types';
+import { SUBMIT_MESSAGES, submitErrorMessage } from '@/utils/driverApplicationErrors';
 import { validateMobileNumber } from '@/validations/auth';
 import {
   normalizePersonName,
@@ -94,13 +96,34 @@ function toDate(value: unknown): Date | null {
 
 /**
  * The reference {sizeBytes, uploadedAt} to a photo on file. Null when missing, null, or in
- * the older Cloud Storage shape (never uploaded in production): "No documents on file".
+ * any other shape: "No documents on file".
  */
 function toApplicationDocument(value: unknown): DriverApplicationDocument | null {
   if (!value || typeof value !== 'object') return null;
   const data = value as Record<string, unknown>;
   if (typeof data.sizeBytes !== 'number') return null;
-  return { sizeBytes: data.sizeBytes, uploadedAt: toDate(data.uploadedAt) };
+  return {
+    sizeBytes: data.sizeBytes,
+    uploadedAt: toDate(data.uploadedAt),
+    uploadedAtTimestamp: data.uploadedAt instanceof Timestamp ? data.uploadedAt : null,
+  };
+}
+
+/**
+ * The photos on file, from the application's references only (the photo documents are never
+ * read on the phone). Kept on resubmit unless retaken; a reference without its exact stored
+ * time cannot be kept, so that photo must be taken again.
+ */
+export function storedDocumentsFromApplication(
+  application: DriverApplication | null,
+): Record<DriverApplicationDocumentType, StoredDocumentImage | null> {
+  const stored = (type: DriverApplicationDocumentType): StoredDocumentImage | null => {
+    const reference = application?.documents[type];
+    return reference?.uploadedAtTimestamp
+      ? { kind: 'stored', sizeBytes: reference.sizeBytes, uploadedAt: reference.uploadedAtTimestamp }
+      : null;
+  };
+  return { orCr: stored('orCr'), ltoLicense: stored('ltoLicense') };
 }
 
 export function docToDriverApplication(uid: string, data: DocumentData): DriverApplication {
@@ -176,22 +199,6 @@ function validateInput(user: User, email: string, input: DriverApplicationInput)
   );
 }
 
-/** Turns a Firestore error from the submit into a message the applicant can act on. */
-function submitErrorMessage(error: unknown): string {
-  const code = (error as { code?: string }).code ?? '';
-  const keep = 'Your photos and details are kept; tap Submit again.';
-  if (code === 'unavailable' || code === 'deadline-exceeded' || code === 'cancelled') {
-    return `No connection, so nothing was sent. Check your internet connection. ${keep}`;
-  }
-  if (code === 'permission-denied') {
-    return 'Your application could not be saved. It may already have been submitted or reviewed; go back to see its status.';
-  }
-  if (code === 'invalid-argument' || code === 'resource-exhausted') {
-    return 'Your photos could not be saved. Please retake them and try again.';
-  }
-  return `Your application was not submitted. ${keep}`;
-}
-
 /**
  * Submit a new application or resubmit a rejected one, with its document photos, in ONE
  * transaction: the photos and the application all save, or nothing does. Tied to the
@@ -219,7 +226,7 @@ export async function submitDriverApplication(
     throw new DriverApplicationServiceError(
       existingStatus === 'approved'
         ? 'Your driver application has already been approved.'
-        : 'You already have a driver application waiting for verification.',
+        : SUBMIT_MESSAGES.pending,
     );
   }
 
@@ -280,11 +287,21 @@ export async function submitDriverApplication(
       // Controlled resubmission after rejection; admin remarks and review details stay.
       transaction.update(applicationRef, { ...submittedFields, documents });
     });
+    console.info('[submitDriverApplication] committed', { uid: user.uid });
   } catch (error) {
     if (error instanceof DriverApplicationServiceError) {
       throw error;
     }
 
-    throw new DriverApplicationServiceError(submitErrorMessage(error));
+    // The original error, for Metro / device logs; the applicant sees the message below.
+    const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+    console.error('[submitDriverApplication] failed', { code, message, error });
+
+    let statusNow: DriverApplicationStatus | null = null;
+    if (code === 'permission-denied') {
+      const latest = await getDoc(applicationRef).catch(() => null);
+      statusNow = latest?.exists() ? (latest.data().status as DriverApplicationStatus) : null;
+    }
+    throw new DriverApplicationServiceError(submitErrorMessage(error, statusNow));
   }
 }

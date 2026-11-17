@@ -124,6 +124,13 @@ export function DocumentImageField({ label, description, value, onChange, error 
           <ActivityIndicator color={colors.primary} />
           <Text style={styles.placeholderText}>Preparing photo…</Text>
         </View>
+      ) : value?.kind === 'stored' ? (
+        // On file from an earlier submission: known from the application's reference only
+        // (the photo is never downloaded to the phone). Kept unless retaken.
+        <View style={styles.placeholder} accessibilityLabel={`${label}: previously submitted photo, kept`}>
+          <Ionicons name="checkmark-circle" size={32} color={colors.primary} />
+          <Text style={styles.placeholderText}>Previously submitted photo — kept</Text>
+        </View>
       ) : value ? (
         <Pressable
           accessibilityRole="imagebutton"
@@ -135,8 +142,7 @@ export function DocumentImageField({ label, description, value, onChange, error 
           <View style={styles.previewBadge}>
             <Ionicons name="checkmark-circle" size={16} color={colors.white} />
             <Text style={styles.previewBadgeText}>
-              {value.kind === 'stored' ? 'Previously submitted' : `Ready · ${formatKilobytes(value.sizeBytes)}`} · Tap
-              to view
+              Ready · {formatKilobytes(value.sizeBytes)} · Tap to view
             </Text>
           </View>
         </Pressable>
@@ -223,7 +229,7 @@ export function DocumentImageField({ label, description, value, onChange, error 
             { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg },
           ]}
         >
-          {value ? (
+          {value?.kind === 'prepared' ? (
             <Image source={{ uri: value.uri }} style={styles.viewerImage} resizeMode="contain" />
           ) : null}
           <Button title="Close" variant="secondary" onPress={() => setViewing(false)} />

@@ -1,13 +1,15 @@
 /// <reference types="node" />
 
 // Firestore rules tests for driver application document photos at
-// driverApplications/{uid}/documents/{docType}: compressed JPEG bytes written only in the
+// driverApplications/{uid}/documents/{docType}: a compressed JPEG as a base64 string
+// (`dataBase64`, never Firestore Bytes) written only in the
 // commit that submits or resubmits the application (all or nothing), only while there is no
 // application yet or it was rejected; read by the applicant and admins only; deleted by the
 // applicant under the same condition, or by admins (account deletion: privacy.test.ts).
 // Run with `npm run test:rules` (starts the Firestore emulator under a demo project).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
+import strictAssert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, describe, it } from 'node:test';
 
@@ -33,6 +35,8 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 
+import { base64ByteLength } from '../../shared/documents/index.ts';
+
 const PROJECT_ID = 'demo-trigo-rules';
 
 setLogLevel('error');
@@ -42,8 +46,15 @@ const APPLICANT = 'applicant1';
 const OTHER_PASSENGER = 'passenger2';
 const DRIVER = 'driver1';
 
-/** Rules: data.size() < 900000. */
-const MAX_OK_BYTES = 899_999;
+/** Rules: sizeBytes <= 700000 (933 336 base64 characters; text at most 950 000). */
+const MAX_OK_BYTES = 700_000;
+
+/** `size` bytes of JPEG-like data as base64, exactly as the image manipulator returns it. */
+function base64Of(size: number): string {
+  const jpeg = Buffer.alloc(size);
+  for (let i = 0; i < size; i++) jpeg[i] = (i * 31 + size) & 0xff;
+  return jpeg.toString('base64');
+}
 const KEPT_TIME = Timestamp.fromMillis(Date.UTC(2026, 10, 1));
 
 let testEnv: RulesTestEnvironment;
@@ -71,7 +82,7 @@ function photo(type: string, overrides: DocumentData = {}, size = 400_000): Docu
     uid: APPLICANT,
     docType: type,
     mimeType: 'image/jpeg',
-    data: Bytes.fromUint8Array(new Uint8Array(size)),
+    dataBase64: base64Of(size),
     sizeBytes: size,
     width: 1600,
     height: 1200,
@@ -218,18 +229,60 @@ describe('application documents: upload with the first submit', () => {
     assert(await exists(LICENSE_PATH));
   });
 
-  it('accepts the largest allowed photo (899 999 bytes), both in one commit', async () => {
+  it('accepts the largest allowed photo (700 000 bytes), both in one commit', async () => {
     await assertSucceeds(
       submitWith(bothPhotos(photo('orCr', {}, MAX_OK_BYTES), photo('ltoLicense', {}, MAX_OK_BYTES))),
     );
   });
 
-  it('refuses a photo of 900 000 bytes or more', async () => {
-    await assertFails(submitWith(bothPhotos(photo('orCr', {}, 900_000))));
+  // The app's own write path (applicationDocumentService.addToSubmit): the base64 text from
+  // the image manipulator stored as is, sizeBytes = its decoded length. 179 KB: the photo
+  // from the phone bug; 1 byte and 2 bytes: each padding length.
+  it('accepts photos written the way the app writes them (base64 string, decoded size)', async () => {
+    const appPhoto = (type: string, size: number) => {
+      const dataBase64 = base64Of(size);
+      return photo(type, { dataBase64, sizeBytes: base64ByteLength(dataBase64) });
+    };
+    await assertSucceeds(submitWith(bothPhotos(appPhoto('orCr', 179_123), appPhoto('ltoLicense', 699_998))));
+    let stored: DocumentData | undefined;
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      stored = (await getDoc(doc(context.firestore() as unknown as Firestore, ORCR_PATH))).data();
+    });
+    strictAssert.equal(typeof stored?.dataBase64, 'string');
+    strictAssert.equal(stored?.dataBase64, base64Of(179_123));
+    strictAssert.equal(stored?.sizeBytes, 179_123);
   });
 
-  it('refuses a size that does not match the bytes', async () => {
+  for (const size of [1, 2, 3]) {
+    it(`accepts a ${size}-byte photo (each base64 padding length)`, async () => {
+      await assertSucceeds(submitWith(bothPhotos(photo('orCr', {}, size), photo('ltoLicense', {}, size))));
+    });
+  }
+
+  it('refuses a photo over 700 000 bytes, or text over 950 000 characters', async () => {
+    await assertFails(submitWith(bothPhotos(photo('orCr', {}, 700_001))));
+    // Text over 950 000 characters (also too large a photo once decoded).
+    const longText = 'A'.repeat(950_004);
+    await assertFails(submitWith(bothPhotos(photo('orCr', { dataBase64: longText, sizeBytes: 700_000 }))));
+  });
+
+  it('refuses a size that does not match the text', async () => {
     await assertFails(submitWith(bothPhotos(photo('orCr', { sizeBytes: 1000 }))));
+    // 400 000 bytes = 533 336 characters. The rules cannot see the padding, so they allow
+    // 400 000 to 400 002; the app writes the exact size and readers check it exactly.
+    await assertFails(submitWith(bothPhotos(photo('orCr', { sizeBytes: 400_003 }))));
+    await assertFails(submitWith(bothPhotos(photo('orCr', { sizeBytes: 399_999 }))));
+    await assertFails(submitWith(bothPhotos(photo('orCr', { sizeBytes: '400000' }))));
+    await assertFails(submitWith(bothPhotos(photo('orCr', { dataBase64: base64Of(400_000).slice(1) }))));
+    await assertFails(submitWith(bothPhotos(photo('orCr', { dataBase64: '', sizeBytes: 0 }))));
+  });
+
+  it('refuses Firestore Bytes (the earlier shape), as `data` or as `dataBase64`', async () => {
+    const bytes = Bytes.fromUint8Array(new Uint8Array(400_000));
+    await assertFails(submitWith(bothPhotos(photo('orCr', { dataBase64: bytes }))));
+    const { dataBase64: _text, ...withoutText } = photo('orCr');
+    await assertFails(submitWith(bothPhotos({ ...withoutText, data: bytes })));
+    await assertFails(submitWith(bothPhotos(photo('orCr', { data: bytes }))));
   });
 
   it('refuses a document type that is not on the list', async () => {
@@ -243,10 +296,6 @@ describe('application documents: upload with the first submit', () => {
     for (const mimeType of ['image/png', 'application/pdf', 'image/heic', '']) {
       await assertFails(submitWith(bothPhotos(photo('orCr', { mimeType }))));
     }
-  });
-
-  it('refuses base64 text instead of bytes', async () => {
-    await assertFails(submitWith(bothPhotos(photo('orCr', { data: 'AAAA' }))));
   });
 
   it('refuses extra fields, a client-chosen time, a wrong uid and sizes over 1600 px', async () => {
@@ -352,7 +401,7 @@ describe('application documents: reading', () => {
 
   it('lets an admin read and list them', async () => {
     const snapshot = await assertSucceeds(getDoc(doc(adminDb(), ORCR_PATH)));
-    assert(snapshot.data()?.data instanceof Bytes);
+    assert(typeof snapshot.data()?.dataBase64 === 'string');
     await assertSucceeds(getDocs(collection(adminDb(), 'driverApplications', APPLICANT, 'documents')));
   });
 

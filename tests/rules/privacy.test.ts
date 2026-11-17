@@ -18,7 +18,6 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import {
-  Bytes,
   deleteDoc,
   doc,
   getDoc,
@@ -128,7 +127,7 @@ function documentPhoto(uid: string, type: string): DocumentData {
     uid,
     docType: type,
     mimeType: 'image/jpeg',
-    data: Bytes.fromUint8Array(new Uint8Array(DOC_SIZE)),
+    dataBase64: Buffer.alloc(DOC_SIZE, 0xab).toString('base64'),
     sizeBytes: DOC_SIZE,
     width: 1600,
     height: 1200,
