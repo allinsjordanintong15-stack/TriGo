@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { LoadingBlock } from '../components/LoadingBlock';
 import {
+  LastUpdated,
+  NOT_SAVED_YET_TEXT,
   ReviewChangesDialog,
   SaveBar,
   SettingsField,
@@ -12,6 +14,7 @@ import {
   Toast,
 } from '../components/settings/SettingsParts';
 import { useUnsavedChanges } from '../components/settings/UnsavedChanges';
+import { useSaveFlow } from '../components/settings/useSaveFlow';
 import { VehicleIcon } from '../components/settings/VehicleIcon';
 import { PREVIEW_DISTANCES_KM, previewCell } from '../fares/farePreview';
 import {
@@ -27,7 +30,7 @@ import {
   type VehicleType,
 } from '../fares/fareSettings';
 import { amountInputValue, formatPeso } from '../lib/format';
-import { diffNumberFields, type NumberField } from '../settings/settingsDiff';
+import { diffFields, type SettingField } from '../settings/settingsDiff';
 
 type FareField = 'baseFare' | 'perKm';
 type FormValues = Record<VehicleType, Record<FareField, string>>;
@@ -47,6 +50,8 @@ const SETTING_LABELS: Record<FareField, string> = {
 
 const EFFECT_NOTE = 'Applies to bookings made after saving; confirmed bookings keep their fare.';
 
+const isStale = (error: unknown) => error instanceof StaleFaresError;
+
 function fieldId(type: VehicleType, field: FareField): string {
   return `fare-${type}-${field}`;
 }
@@ -62,8 +67,8 @@ function toFormValues(fares: Fares): FormValues {
   return values;
 }
 
-/** One NumberField per input, in form order (Tricycle base, Tricycle per-km, Motorcycle …). */
-function toFields(values: FormValues, initial: Fares): NumberField[] {
+/** One field per input, in form order (Tricycle base, Tricycle per-km, Motorcycle …). */
+function toFields(values: FormValues, initial: Fares): SettingField[] {
   return VEHICLE_TYPES.flatMap((type) =>
     FARE_FIELDS.map((field) => ({
       id: fieldId(type, field),
@@ -72,16 +77,16 @@ function toFields(values: FormValues, initial: Fares): NumberField[] {
       initialText: amountInputValue(initial[type][field]),
       initial: initial[type][field],
       parsed: parseAmount(values[type][field], { allowZero: field === 'baseFare' }),
-      format: (value: number) => (field === 'perKm' ? `${formatPeso(value)}/km` : formatPeso(value)),
+      format: (value) => (field === 'perKm' ? `${formatPeso(value as number)}/km` : formatPeso(value as number)),
     })),
   );
 }
 
 /** The edited rates for one vehicle, or null while either is invalid. */
-function draftFare(fields: NumberField[], type: VehicleType): VehicleFare | null {
+function draftFare(fields: SettingField[], type: VehicleType): VehicleFare | null {
   const base = fields.find((f) => f.id === fieldId(type, 'baseFare'))!.parsed;
   const perKm = fields.find((f) => f.id === fieldId(type, 'perKm'))!.parsed;
-  return 'value' in base && 'value' in perKm ? { baseFare: base.value, perKm: perKm.value } : null;
+  return 'value' in base && 'value' in perKm ? { baseFare: base.value as number, perKm: perKm.value as number } : null;
 }
 
 export function FareSettingsPage() {
@@ -89,10 +94,11 @@ export function FareSettingsPage() {
   const [loaded, setLoaded] = useState<LoadedFares | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [values, setValues] = useState<FormValues | null>(null);
-  const [reviewing, setReviewing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const flow = useSaveFlow({
+    successMessage: 'Fare settings saved.',
+    failMessage: 'Could not save fare settings. Check your connection and try again.',
+    isStale,
+  });
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -111,20 +117,20 @@ export function FareSettingsPage() {
 
   const fields = useMemo(() => (values && loaded ? toFields(values, loaded.fares) : []), [values, loaded]);
   const notSavedYet = loaded !== null && loaded.saved === null;
-  const diff = useMemo(() => diffNumberFields(fields, { notSavedYet }), [fields, notSavedYet]);
+  const diff = useMemo(() => diffFields(fields, { notSavedYet }), [fields, notSavedYet]);
   const changeCount = diff.changedIds.length;
 
+  const { clearSaveError } = flow;
   const discard = useCallback(() => {
     if (loaded) setValues(toFormValues(loaded.fares));
-    setSaveError(null);
-  }, [loaded]);
+    clearSaveError();
+  }, [loaded, clearSaveError]);
   useUnsavedChanges('fares', 'Fares', changeCount, discard);
-  const hideToast = useCallback(() => setToast(null), []);
 
   if (loadError) {
     return (
       <div className="stack page-narrow">
-        <SettingsHeader title="Fares" helper="Per-km fares for each vehicle type." updatedAt={null} updatedBy={null} />
+        <SettingsHeader title="Fares" helper="Base fare and per-km rate for each vehicle type." />
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -143,7 +149,7 @@ export function FareSettingsPage() {
   const canReview = diff.errors.length === 0 && (changeCount > 0 || notSavedYet);
 
   function setField(type: VehicleType, field: FareField, text: string) {
-    setSaveError(null);
+    flow.clearSaveError();
     setValues((prev) => (prev ? { ...prev, [type]: { ...prev[type], [field]: text } } : prev));
   }
 
@@ -155,10 +161,7 @@ export function FareSettingsPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (canReview) {
-      setSaveError(null);
-      setReviewing(true);
-    }
+    if (canReview) flow.openReview();
   }
 
   async function handleSave() {
@@ -169,22 +172,7 @@ export function FareSettingsPage() {
       if (!fare) return;
       fares[type] = fare;
     }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await saveFares(fares, loaded.saved, admin.uid);
-      setReviewing(false);
-      setToast('Fare settings saved.');
-      await reload();
-    } catch (error) {
-      setSaveError(
-        error instanceof StaleFaresError
-          ? error.message
-          : 'Could not save fare settings. Check your connection and try again.',
-      );
-    } finally {
-      setSaving(false);
-    }
+    await flow.save(() => saveFares(fares, loaded.saved, admin.uid), reload);
   }
 
   const changed = new Set(diff.changedIds);
@@ -199,9 +187,7 @@ export function FareSettingsPage() {
       <SettingsHeader
         title="Fares"
         helper="Base fare and per-km rate for each vehicle type."
-        updatedAt={loaded.updatedAt}
-        updatedBy={loaded.updatedBy}
-        notSavedYet={notSavedYet}
+        meta={notSavedYet ? `${NOT_SAVED_YET_TEXT}.` : <LastUpdated updatedAt={loaded.updatedAt} updatedBy={loaded.updatedBy} />}
       />
 
       <p className="settings-info">
@@ -228,7 +214,7 @@ export function FareSettingsPage() {
                     changed={changed.has(id)}
                     was={formatPeso(loaded.fares[type][field])}
                     error={errorById.get(id)}
-                    disabled={saving}
+                    disabled={flow.saving}
                   />
                 );
               })}
@@ -292,22 +278,22 @@ export function FareSettingsPage() {
         changeCount={changeCount}
         notSavedYet={notSavedYet}
         errors={diff.errors}
-        busy={saving}
+        busy={flow.saving}
         onDiscard={discard}
       />
 
-      {reviewing && (
+      {flow.reviewing && (
         <ReviewChangesDialog
           rows={diff.rows}
           effectNote={EFFECT_NOTE}
-          saving={saving}
-          error={saveError}
-          onBack={() => setReviewing(false)}
+          saving={flow.saving}
+          error={flow.saveError}
+          onBack={flow.closeReview}
           onSave={() => void handleSave()}
         />
       )}
 
-      {toast && <Toast message={toast} onDone={hideToast} />}
+      {flow.toast && <Toast message={flow.toast} onDone={flow.hideToast} />}
     </form>
   );
 }

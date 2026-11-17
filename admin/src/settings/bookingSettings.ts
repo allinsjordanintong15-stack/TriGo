@@ -24,6 +24,8 @@ export type LoadedBookingSettings = {
   /** Exactly what is saved in Firestore, or null when the document or its booking is missing. */
   saved: BookingSettings | null;
   updatedAt: Date | null;
+  /** UID of the admin who saved last, or null. */
+  updatedBy: string | null;
 };
 
 function readSaved(value: unknown): BookingSettings | null {
@@ -51,6 +53,7 @@ export async function loadBookingSettings(): Promise<LoadedBookingSettings> {
     settings: { requestExpiryMinutes: appMinutes(saved) },
     saved,
     updatedAt: data?.updatedAt?.toDate?.() ?? null,
+    updatedBy: typeof data?.updatedBy === 'string' ? data.updatedBy : null,
   };
 }
 

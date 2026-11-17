@@ -9,18 +9,42 @@ import { describe, it } from 'node:test';
 
 import {
   changeWarning,
-  diffNumberFields,
+  diffFields,
   isFieldChanged,
+  switchField,
   unsavedChangesLabel,
-  type NumberField,
+  type SettingField,
 } from '../../admin/src/settings/settingsDiff.ts';
 
-const peso = (value: number) => `₱${value.toFixed(2)}`;
+const peso = (value: number | string | boolean) => `₱${(value as number).toFixed(2)}`;
 
-function field(id: string, initial: number, text: string): NumberField {
+/** An amount field; `initial` null = nothing saved for it (initial text ''). */
+function field(id: string, initial: number | null, text: string): SettingField {
   const trimmed = text.trim();
   const parsed = /^\d+(\.\d{1,2})?$/.test(trimmed) ? { value: Number(trimmed) } : { error: 'Invalid.' };
-  return { id, label: id, text, initialText: initial.toFixed(2), initial, parsed, format: peso };
+  return {
+    id,
+    label: id,
+    text,
+    initialText: initial === null ? '' : initial.toFixed(2),
+    initial,
+    parsed,
+    format: peso,
+  };
+}
+
+/** A text field whose parse trims and collapses spaces. */
+function textField(id: string, initial: string | null, text: string): SettingField {
+  const value = text.trim().replace(/\s+/g, ' ');
+  return {
+    id,
+    label: id,
+    text,
+    initialText: initial ?? '',
+    initial,
+    parsed: value ? { value } : { error: 'Required.' },
+    format: (v) => String(v),
+  };
 }
 
 describe('changeWarning', () => {
@@ -58,20 +82,24 @@ describe('isFieldChanged', () => {
     assert.equal(isFieldChanged(field('a', 8, '8')), false);
     assert.equal(isFieldChanged(field('a', 8, ' 8.0 ')), false);
     assert.equal(isFieldChanged(field('a', 8, '8.5')), true);
+    assert.equal(isFieldChanged(textField('n', 'TriGo Trinidad', ' TriGo   Trinidad ')), false);
   });
 
   it('counts invalid text as a change unless it is the initial text', () => {
     assert.equal(isFieldChanged(field('a', 8, '')), true);
     assert.equal(isFieldChanged(field('a', 8, 'abc')), true);
+    assert.equal(isFieldChanged(field('a', null, '')), false);
+    assert.equal(isFieldChanged(field('a', null, '  ')), false);
+  });
+
+  it('counts any valid value as a change when nothing was saved for it', () => {
+    assert.equal(isFieldChanged(field('a', null, '40')), true);
   });
 });
 
-describe('diffNumberFields', () => {
+describe('diffFields', () => {
   it('lists only changed fields, with old/new text and warnings', () => {
-    const diff = diffNumberFields(
-      [field('base', 15, '15.00'), field('perKm', 8, '20'), field('other', 10, '0')],
-      { notSavedYet: false },
-    );
+    const diff = diffFields([field('base', 15, '15.00'), field('perKm', 8, '20'), field('other', 10, '0')]);
     assert.deepEqual(diff.changedIds, ['perKm', 'other']);
     assert.deepEqual(diff.errors, []);
     assert.deepEqual(diff.rows, [
@@ -81,7 +109,7 @@ describe('diffNumberFields', () => {
   });
 
   it('reports invalid fields as errors (in form order) and leaves them out of the rows', () => {
-    const diff = diffNumberFields([field('a', 1, 'x'), field('b', 2, '3'), field('c', 3, '')], { notSavedYet: false });
+    const diff = diffFields([field('a', 1, 'x'), field('b', 2, '3'), field('c', 3, '')]);
     assert.deepEqual(diff.changedIds, ['a', 'b', 'c']);
     assert.deepEqual(
       diff.errors.map((e) => e.id),
@@ -94,17 +122,58 @@ describe('diffNumberFields', () => {
   });
 
   it('has nothing to review when nothing changed', () => {
-    const diff = diffNumberFields([field('a', 1, '1.00'), field('b', 2, '2')], { notSavedYet: false });
+    const diff = diffFields([field('a', 1, '1.00'), field('b', 2, '2')]);
     assert.deepEqual(diff, { changedIds: [], errors: [], rows: [] });
   });
 
   it('lists every field as a default, without warnings, when nothing is saved yet', () => {
-    const diff = diffNumberFields([field('a', 15, '15.00'), field('b', 8, '0')], { notSavedYet: true });
+    const diff = diffFields([field('a', 15, '15.00'), field('b', 8, '0')], { notSavedYet: true });
     assert.deepEqual(diff.changedIds, ['b']);
     assert.deepEqual(diff.rows, [
       { id: 'a', label: 'a', oldText: '₱15.00 (default)', newText: '₱15.00', warning: null },
       { id: 'b', label: 'b', oldText: '₱8.00 (default)', newText: '₱0.00', warning: null },
     ]);
+  });
+
+  it('shows first-time values as "Not set" with no warning', () => {
+    const diff = diffFields([field('tricycle', null, '500'), field('motorcycle', null, '0')]);
+    assert.deepEqual(diff.rows, [
+      { id: 'tricycle', label: 'tricycle', oldText: 'Not set', newText: '₱500.00', warning: null },
+      { id: 'motorcycle', label: 'motorcycle', oldText: 'Not set', newText: '₱0.00', warning: null },
+    ]);
+  });
+
+  it('a half-filled new row: the blank cell is an error but not a change', () => {
+    const diff = diffFields([field('tricycle', null, '40'), field('motorcycle', null, '')]);
+    assert.deepEqual(diff.changedIds, ['tricycle']);
+    assert.deepEqual(
+      diff.errors.map((e) => e.id),
+      ['motorcycle'],
+    );
+  });
+
+  it('compares text values and never warns on them', () => {
+    const diff = diffFields([textField('name', 'TriGo', 'TriGo Trinidad')]);
+    assert.deepEqual(diff.rows, [{ id: 'name', label: 'name', oldText: 'TriGo', newText: 'TriGo Trinidad', warning: null }]);
+  });
+});
+
+describe('switchField', () => {
+  const labels: [string, string] = ['Active', 'Inactive'];
+
+  it('is unchanged while it matches the saved value', () => {
+    const diff = diffFields([switchField({ id: 's', label: 'Status', initial: true }, true, labels)]);
+    assert.deepEqual(diff.changedIds, []);
+  });
+
+  it('shows on/off labels in the review', () => {
+    const diff = diffFields([switchField({ id: 's', label: 'Status', initial: true }, false, labels)]);
+    assert.deepEqual(diff.rows, [{ id: 's', label: 'Status', oldText: 'Active', newText: 'Inactive', warning: null }]);
+  });
+
+  it('counts as a change on a row that was never saved', () => {
+    const diff = diffFields([switchField({ id: 's', label: 'Status', initial: null }, false, labels)]);
+    assert.deepEqual(diff.rows, [{ id: 's', label: 'Status', oldText: 'Not set', newText: 'Inactive', warning: null }]);
   });
 });
 

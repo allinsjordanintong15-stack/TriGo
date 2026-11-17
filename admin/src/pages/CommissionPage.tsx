@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import { useAuth } from '../auth/AuthContext';
+import { commissionExample } from '../commission/commissionExample';
 import {
-  calculateCommission,
-  commissionEqual,
   GRACE_PERIOD_RANGE,
   loadCommission,
   parseDays,
@@ -14,32 +13,61 @@ import {
   type CommissionSettings,
   type LoadedCommission,
 } from '../commission/commissionSettings';
-import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LoadingBlock } from '../components/LoadingBlock';
-import { Notice } from '../components/Notice';
-import { PageHeader } from '../components/PageHeader';
-import { parseAmount } from '../fares/fareSettings';
-import { formatPeso, lastUpdated } from '../lib/format';
+import {
+  LastUpdated,
+  ReviewChangesDialog,
+  SaveBar,
+  SettingsField,
+  SettingsHeader,
+  SettingsSection,
+  Toast,
+} from '../components/settings/SettingsParts';
+import { useUnsavedChanges } from '../components/settings/UnsavedChanges';
+import { useSaveFlow } from '../components/settings/useSaveFlow';
+import { formatPeso } from '../lib/format';
+import { diffFields, type SettingField } from '../settings/settingsDiff';
 
 type Field = keyof CommissionSettings;
 type FormValues = Record<Field, string>;
-type FormErrors = Partial<Record<Field, string>>;
 
-const DEFAULT_EXAMPLE_FARE = '80.00';
-
-const FIELDS: { field: Field; label: string; hint: string }[] = [
-  { field: 'percentage', label: 'Commission (%)', hint: 'Percentage of the final fare, more than 0 and up to 100.' },
+const FIELDS: { field: Field; label: string; reviewLabel: string; suffix: string; hint: string }[] = [
+  {
+    field: 'percentage',
+    label: 'Commission',
+    reviewLabel: 'Commission percentage',
+    suffix: '%',
+    hint: 'Of the final fare. More than 0, up to 100.',
+  },
   {
     field: 'paymentPeriodDays',
-    label: 'Payment period (days)',
-    hint: `Commission for the period is due at its end. ${PAYMENT_PERIOD_RANGE.min}–${PAYMENT_PERIOD_RANGE.max} days.`,
+    label: 'Payment period',
+    reviewLabel: 'Payment period',
+    suffix: 'days',
+    hint: `The period's total is due at its end. ${PAYMENT_PERIOD_RANGE.min}–${PAYMENT_PERIOD_RANGE.max} days.`,
   },
   {
     field: 'gracePeriodDays',
-    label: 'Grace period (days)',
+    label: 'Grace period',
+    reviewLabel: 'Grace period',
+    suffix: 'days',
     hint: `Days after the due date before an unpaid driver is suspended. ${GRACE_PERIOD_RANGE.min}–${GRACE_PERIOD_RANGE.max} days.`,
   },
 ];
+
+const EFFECT_NOTE =
+  'The percentage applies to trips completed after saving. Payment and grace periods apply from the next payment period; periods already open keep their dates.';
+
+const isStale = (error: unknown) => error instanceof StaleCommissionError;
+
+function fieldId(field: Field): string {
+  return `commission-${field}`;
+}
+
+function formatValue(field: Field, value: number): string {
+  if (field === 'percentage') return `${value}%`;
+  return `${value} day${value === 1 ? '' : 's'}`;
+}
 
 function toFormValues(settings: CommissionSettings | null): FormValues {
   return {
@@ -49,32 +77,33 @@ function toFormValues(settings: CommissionSettings | null): FormValues {
   };
 }
 
-function parseForm(values: FormValues): { settings: CommissionSettings | null; errors: FormErrors } {
-  const percentage = parsePercentage(values.percentage);
-  const payment = parseDays(values.paymentPeriodDays, PAYMENT_PERIOD_RANGE);
-  const grace = parseDays(values.gracePeriodDays, GRACE_PERIOD_RANGE);
-  const errors: FormErrors = {};
-  if ('error' in percentage) errors.percentage = percentage.error;
-  if ('error' in payment) errors.paymentPeriodDays = payment.error;
-  if ('error' in grace) errors.gracePeriodDays = grace.error;
-  if ('value' in percentage && 'value' in payment && 'value' in grace) {
-    return {
-      settings: { percentage: percentage.value, paymentPeriodDays: payment.value, gracePeriodDays: grace.value },
-      errors,
-    };
+function parseField(field: Field, text: string) {
+  if (field === 'percentage') return parsePercentage(text);
+  return parseDays(text, field === 'paymentPeriodDays' ? PAYMENT_PERIOD_RANGE : GRACE_PERIOD_RANGE);
+}
+
+function toFields(values: FormValues, saved: CommissionSettings | null): SettingField[] {
+  const initialValues = toFormValues(saved);
+  return FIELDS.map(({ field, reviewLabel }) => ({
+    id: fieldId(field),
+    label: reviewLabel,
+    text: values[field],
+    initialText: initialValues[field],
+    initial: saved ? saved[field] : null,
+    parsed: parseField(field, values[field]),
+    format: (value) => formatValue(field, value as number),
+  }));
+}
+
+/** The settings typed in, or null while any field is invalid. */
+function draftSettings(fields: SettingField[]): CommissionSettings | null {
+  const result = {} as CommissionSettings;
+  for (const [i, { field }] of FIELDS.entries()) {
+    const parsed = fields[i].parsed;
+    if (!('value' in parsed)) return null;
+    result[field] = parsed.value as number;
   }
-  return { settings: null, errors };
-}
-
-function formatValue(field: Field, settings: CommissionSettings | null): string {
-  if (!settings) return 'Not set';
-  const value = settings[field];
-  if (field === 'percentage') return `${value}%`;
-  return `${value} day${value === 1 ? '' : 's'}`;
-}
-
-function fieldLabel(field: Field): string {
-  return FIELDS.find((f) => f.field === field)!.label;
+  return result;
 }
 
 export function CommissionPage() {
@@ -82,11 +111,11 @@ export function CommissionPage() {
   const [loaded, setLoaded] = useState<LoadedCommission | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [values, setValues] = useState<FormValues | null>(null);
-  const [exampleFare, setExampleFare] = useState(DEFAULT_EXAMPLE_FARE);
-  const [confirming, setConfirming] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState(false);
+  const flow = useSaveFlow({
+    successMessage: 'Commission settings saved.',
+    failMessage: 'Could not save commission settings. Check your connection and try again.',
+    isStale,
+  });
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -103,20 +132,21 @@ export function CommissionPage() {
     void reload();
   }, [reload]);
 
-  const { settings: parsed, errors } = useMemo(
-    () => (values ? parseForm(values) : { settings: null, errors: {} as FormErrors }),
-    [values],
-  );
+  const fields = useMemo(() => (values && loaded ? toFields(values, loaded.saved) : []), [values, loaded]);
+  const diff = useMemo(() => diffFields(fields), [fields]);
+  const changeCount = diff.changedIds.length;
 
-  const exampleAmount = useMemo(() => {
-    const result = parseAmount(exampleFare, { allowZero: false });
-    return 'value' in result ? result.value : null;
-  }, [exampleFare]);
+  const { clearSaveError } = flow;
+  const discard = useCallback(() => {
+    if (loaded) setValues(toFormValues(loaded.saved));
+    clearSaveError();
+  }, [loaded, clearSaveError]);
+  useUnsavedChanges('commission', 'Commission', changeCount, discard);
 
   if (loadError) {
     return (
       <div className="stack page-narrow">
-        <PageHeader title="Commission" />
+        <SettingsHeader title="Commission" helper="What drivers pay TriGo on each completed trip, and when." />
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -132,183 +162,102 @@ export function CommissionPage() {
     );
   }
 
-  const current = loaded.saved;
-  const hasChanges = parsed !== null && !commissionEqual(parsed, current);
-  // With nothing saved yet, hold back "Required." errors until the admin starts typing.
-  const touched = current !== null || Object.values(values).some((v) => v.trim() !== '');
-  const initialValues = toFormValues(current);
-  const isPristine = FIELDS.every(({ field }) => values[field] === initialValues[field]);
+  const saved = loaded.saved;
+  const draft = draftSettings(fields);
+  const canReview = diff.errors.length === 0 && changeCount > 0 && draft !== null;
+  // With nothing saved yet, hold back "Required." until the admin starts typing.
+  const showErrors = saved !== null || changeCount > 0;
+  const changed = new Set(diff.changedIds);
+  const errorById = new Map(diff.errors.map((e) => [e.id, e.message]));
 
   function setField(field: Field, text: string) {
-    setSavedMessage(false);
-    setSaveError(null);
+    flow.clearSaveError();
     setValues((prev) => (prev ? { ...prev, [field]: text } : prev));
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (hasChanges) {
-      setSaveError(null);
-      setConfirming(true);
-    }
+    if (canReview) flow.openReview();
   }
 
-  async function handleConfirm() {
-    if (!parsed || !admin || !loaded) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await saveCommission(parsed, loaded.saved, admin.uid);
-      setConfirming(false);
-      setSavedMessage(true);
-      await reload();
-    } catch (error) {
-      setSaveError(
-        error instanceof StaleCommissionError
-          ? error.message
-          : 'Could not save commission settings. Check your connection and try again.',
-      );
-    } finally {
-      setSaving(false);
-    }
+  async function handleSave() {
+    if (!admin || !loaded || !canReview || !draft) return;
+    await flow.save(() => saveCommission(draft, loaded.saved, admin.uid), reload);
   }
-
-  const examplePercentage = parsed?.percentage ?? null;
 
   return (
-    <div className="stack page-narrow">
-      <PageHeader
+    <form className="stack page-narrow settings-page" onSubmit={handleSubmit} noValidate>
+      <SettingsHeader
         title="Commission"
-        subtitle="A percentage of every completed trip's final fare, paid by drivers each period."
+        helper="What drivers pay TriGo on each completed trip, and when."
+        meta={
+          saved ? (
+            <LastUpdated updatedAt={loaded.updatedAt} updatedBy={loaded.updatedBy} />
+          ) : (
+            'Not saved yet — no commission is charged until you save.'
+          )
+        }
       />
-      <Notice>Drivers who still owe after the grace period can't accept new trips until paid.</Notice>
 
-      <div className="card">
-        <div className="formula">Commission = final fare × percentage ÷ 100</div>
-        <p className="muted small">
-          {current
-            ? lastUpdated(loaded.updatedAt)
-            : 'No commission settings are saved yet.'}
-        </p>
-      </div>
+      <p className="settings-info">
+        Commission = final fare × percentage, to the centavo. Drivers who still owe after the grace period can&apos;t
+        accept new trips until paid.
+      </p>
 
-      <form className="card" onSubmit={handleSubmit} noValidate>
-        <div className="fare-grid">
-          {FIELDS.map(({ field, label, hint }) => {
-            const error = touched ? errors[field] : undefined;
-            const id = `commission-${field}`;
+      <SettingsSection>
+        <div className="settings-grid-3">
+          {FIELDS.map(({ field, label, suffix, hint }) => {
+            const id = fieldId(field);
             return (
-              <label key={field} className="field" htmlFor={id}>
-                <span>{label}</span>
-                <input
-                  id={id}
-                  inputMode={field === 'percentage' ? 'decimal' : 'numeric'}
-                  value={values[field]}
-                  onChange={(e) => setField(field, e.target.value)}
-                  aria-invalid={error ? true : undefined}
-                  disabled={saving}
-                />
-                <span className="hint">
-                  {error ? <span className="field-error">{error}</span> : `${hint} Current: ${formatValue(field, current)}`}
-                </span>
-              </label>
+              <SettingsField
+                key={field}
+                id={id}
+                label={label}
+                value={values[field]}
+                onChange={(text) => setField(field, text)}
+                inputMode={field === 'percentage' ? 'decimal' : 'numeric'}
+                suffix={suffix}
+                changed={changed.has(id)}
+                was={saved ? formatValue(field, saved[field]) : 'not set'}
+                error={showErrors ? errorById.get(id) : undefined}
+                hint={hint}
+                disabled={flow.saving}
+              />
             );
           })}
         </div>
 
-        <div className="example">
-          <label className="field example-distance" htmlFor="example-fare">
-            <span>Example fare (₱)</span>
-            <input
-              id="example-fare"
-              inputMode="decimal"
-              value={exampleFare}
-              onChange={(e) => setExampleFare(e.target.value)}
-            />
-          </label>
-          <p className="example-line">
-            {exampleAmount === null ? (
-              <span className="muted">Enter a fare with at most 2 decimals to see an example.</span>
-            ) : examplePercentage === null ? (
-              <span className="muted">Enter a valid percentage to see an example.</span>
-            ) : (
-              <>
-                Fare {formatPeso(exampleAmount)} → commission{' '}
-                <strong>{formatPeso(calculateCommission(exampleAmount, examplePercentage))}</strong> at{' '}
-                {examplePercentage}%
-                {current && current.percentage !== examplePercentage && (
-                  <span className="muted">
-                    {' '}
-                    (now {formatPeso(calculateCommission(exampleAmount, current.percentage))} at {current.percentage}%)
-                  </span>
-                )}
-              </>
-            )}
-          </p>
-        </div>
-
-        {savedMessage && (
-          <div className="alert-success" role="status">
-            Commission settings saved.
-          </div>
-        )}
-
-        <div className="form-actions">
-          <button
-            type="button"
-            className="btn-outline"
-            onClick={() => {
-              setSavedMessage(false);
-              setValues(initialValues);
-            }}
-            disabled={saving || isPristine}
-          >
-            Reset
-          </button>
-          <button type="submit" className="btn-primary" disabled={saving || !hasChanges}>
-            Save changes…
-          </button>
-        </div>
-      </form>
-
-      {confirming && parsed && (
-        <ConfirmDialog
-          title="Save commission settings?"
-          confirmLabel="Save settings"
-          busy={saving}
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setConfirming(false)}
-        >
-          <table className="change-table">
-            <thead>
-              <tr>
-                <th>Setting</th>
-                <th>Old</th>
-                <th />
-                <th>New</th>
-              </tr>
-            </thead>
-            <tbody>
-              {FIELDS.map(({ field }) => {
-                const changed = !current || current[field] !== parsed[field];
-                return (
-                  <tr key={field} className={changed ? 'changed' : 'unchanged'}>
-                    <td>{fieldLabel(field)}</td>
-                    <td>{formatValue(field, current)}</td>
-                    <td aria-hidden="true">→</td>
-                    <td>{formatValue(field, parsed)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {saveError && (
-            <div className="alert-error" role="alert">
-              {saveError}
-            </div>
+        <div className="settings-example" aria-live="polite">
+          <span className="settings-example-label">Example</span>
+          {draft ? (
+            <>
+              <p>{commissionExample(draft, formatPeso)}</p>
+              {saved && changeCount > 0 && (
+                <p className="muted small">Now: {commissionExample(saved, formatPeso)}</p>
+              )}
+            </>
+          ) : (
+            <p className="muted">
+              {saved ? 'Fix the highlighted field to see the example.' : 'Enter all three values to see an example.'}
+            </p>
           )}
-        </ConfirmDialog>
+        </div>
+      </SettingsSection>
+
+      <SaveBar changeCount={changeCount} errors={showErrors ? diff.errors : []} busy={flow.saving} onDiscard={discard} />
+
+      {flow.reviewing && (
+        <ReviewChangesDialog
+          rows={diff.rows}
+          effectNote={EFFECT_NOTE}
+          saving={flow.saving}
+          error={flow.saveError}
+          onBack={flow.closeReview}
+          onSave={() => void handleSave()}
+        />
       )}
-    </div>
+
+      {flow.toast && <Toast message={flow.toast} onDone={flow.hideToast} />}
+    </form>
   );
 }

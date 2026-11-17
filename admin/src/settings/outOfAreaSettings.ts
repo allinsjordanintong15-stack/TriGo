@@ -29,6 +29,8 @@ export type LoadedOutOfArea = {
   /** Exactly what is saved in Firestore, or null when the document or its outOfArea is missing. */
   saved: OutOfAreaSettings | null;
   updatedAt: Date | null;
+  /** UID of the admin who saved last, or null. */
+  updatedBy: string | null;
 };
 
 function readSaved(value: unknown): OutOfAreaSettings | null {
@@ -56,6 +58,7 @@ export async function loadOutOfArea(): Promise<LoadedOutOfArea> {
     settings: { ...APP_DEFAULT_OUT_OF_AREA, ...raw },
     saved: readSaved(data?.outOfArea),
     updatedAt: data?.updatedAt?.toDate?.() ?? null,
+    updatedBy: typeof data?.updatedBy === 'string' ? data.updatedBy : null,
   };
 }
 

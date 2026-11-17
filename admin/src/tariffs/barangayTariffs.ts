@@ -26,15 +26,30 @@ function readTariff(data: Record<string, unknown> | undefined): BarangayTariff |
   return null;
 }
 
-export async function loadTariffs(): Promise<SavedTariffs> {
+export type LoadedTariffs = {
+  saved: SavedTariffs;
+  /** The most recent save of any row, and who made it (null when no row is saved). */
+  updatedAt: Date | null;
+  updatedBy: string | null;
+};
+
+export async function loadTariffs(): Promise<LoadedTariffs> {
   const saved = Object.fromEntries(BARANGAYS.map((b) => [b.id, null])) as SavedTariffs;
+  let updatedAt: Date | null = null;
+  let updatedBy: string | null = null;
   const snapshot = await getDocs(collection(db, COLLECTION));
   for (const document of snapshot.docs) {
     if (KNOWN_IDS.has(document.id)) {
-      saved[document.id as BarangayId] = readTariff(document.data());
+      const data = document.data();
+      saved[document.id as BarangayId] = readTariff(data);
+      const at: Date | null = data.updatedAt?.toDate?.() ?? null;
+      if (at && (!updatedAt || at > updatedAt)) {
+        updatedAt = at;
+        updatedBy = typeof data.updatedBy === 'string' ? data.updatedBy : null;
+      }
     }
   }
-  return saved;
+  return { saved, updatedAt, updatedBy };
 }
 
 export function tariffsEqual(a: BarangayTariff | null, b: BarangayTariff | null): boolean {

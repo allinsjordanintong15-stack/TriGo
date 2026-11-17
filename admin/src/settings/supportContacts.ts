@@ -17,6 +17,7 @@ export type SupportContactInput = {
 export type SupportContact = SupportContactInput & {
   id: string;
   updatedAt: Date | null;
+  updatedBy: string | null;
 };
 
 export const LABEL_MAX_LENGTH = 60;
@@ -39,6 +40,7 @@ export async function loadSupportContacts(): Promise<SupportContact[]> {
         active: data.active === true,
         sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : 0,
         updatedAt: data.updatedAt?.toDate?.() ?? null,
+        updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
       };
     })
     .sort(compareContacts);

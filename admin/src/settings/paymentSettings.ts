@@ -18,6 +18,8 @@ export type LoadedPaymentSettings = {
   /** Saved settings, or null when none are saved yet. */
   saved: PaymentSettings | null;
   updatedAt: Date | null;
+  /** UID of the admin who saved last, or null. */
+  updatedBy: string | null;
 };
 
 /** Same limit as firestore.rules. */
@@ -32,7 +34,11 @@ function readSaved(data: Record<string, unknown> | undefined): PaymentSettings |
 
 export async function loadPaymentSettings(): Promise<LoadedPaymentSettings> {
   const data = (await getDoc(PAYMENT_DOC)).data();
-  return { saved: readSaved(data), updatedAt: data?.updatedAt?.toDate?.() ?? null };
+  return {
+    saved: readSaved(data),
+    updatedAt: data?.updatedAt?.toDate?.() ?? null,
+    updatedBy: typeof data?.updatedBy === 'string' ? data.updatedBy : null,
+  };
 }
 
 export function paymentSettingsEqual(a: PaymentSettings | null, b: PaymentSettings | null): boolean {

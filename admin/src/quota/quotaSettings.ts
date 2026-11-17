@@ -24,6 +24,8 @@ export type LoadedQuota = {
   /** Exactly what is saved, or null when nothing is (the default applies). */
   saved: number | null;
   updatedAt: Date | null;
+  /** UID of the admin who saved last, or null. */
+  updatedBy: string | null;
 };
 
 /** Live quota settings, so the page always shows the limit drivers see. */
@@ -40,6 +42,7 @@ export function subscribeToQuota(
         limit: saved ?? DEFAULT_DAILY_LIMIT,
         saved,
         updatedAt: data?.updatedAt?.toDate?.() ?? null,
+        updatedBy: typeof data?.updatedBy === 'string' ? data.updatedBy : null,
       });
     },
     (error) => onError(error),

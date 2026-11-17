@@ -4,11 +4,22 @@ import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
-import { PageHeader } from '../components/PageHeader';
-import { lastUpdated } from '../lib/format';
+import { CardLockNote, CardLockProvider, useCardLock } from '../components/settings/CardLock';
+import {
+  LastUpdated,
+  NOT_SAVED_YET_TEXT,
+  ReviewChangesDialog,
+  SaveBar,
+  SettingsField,
+  SettingsHeader,
+  SettingsSection,
+  SettingsSwitch,
+  Toast,
+} from '../components/settings/SettingsParts';
+import { useUnsavedChanges } from '../components/settings/UnsavedChanges';
+import { useSaveFlow } from '../components/settings/useSaveFlow';
 import {
   BOOKING_EXPIRY_RANGE,
-  bookingSettingsEqual,
   loadBookingSettings,
   saveBookingSettings,
   StaleBookingSettingsError,
@@ -17,7 +28,6 @@ import {
 import {
   EXPIRY_RANGE,
   loadOutOfArea,
-  outOfAreaEqual,
   parseWholeNumber,
   RADIUS_RANGE,
   saveOutOfArea,
@@ -31,12 +41,12 @@ import {
   loadPaymentSettings,
   parseGcashName,
   parseGcashNumber,
-  paymentSettingsEqual,
   savePaymentSettings,
   StalePaymentSettingsError,
   type LoadedPaymentSettings,
   type PaymentSettings,
 } from '../settings/paymentSettings';
+import { diffFields, NOT_SET_TEXT, switchField, type ChangeRow, type SettingField } from '../settings/settingsDiff';
 import {
   deleteSupportContact,
   LABEL_MAX_LENGTH,
@@ -50,32 +60,56 @@ import {
   type SupportContactInput,
 } from '../settings/supportContacts';
 
+// System tab: four independent cards, each saved to its own place with its own save bar and
+// review. Only one card can be edited at a time (CardLock).
+
 export function SystemSettingsPage() {
   return (
-    <div className="stack page-narrow">
-      <PageHeader
-        title="System settings"
-        subtitle="Booking requests, out-of-area trips, TriGo's GCash account and support contacts."
-      />
-      <BookingSettingsCard />
-      <OutOfAreaSettingsCard />
-      <PaymentAccountCard />
-      <SupportContactsCard />
-    </div>
+    <CardLockProvider>
+      <div className="stack page-narrow settings-page">
+        <SettingsHeader
+          title="System"
+          helper="Booking requests, out-of-area trips, TriGo's GCash account and support contacts. Each card saves on its own."
+        />
+        <BookingSettingsCard />
+        <OutOfAreaSettingsCard />
+        <PaymentAccountCard />
+        <SupportContactsCard />
+      </div>
+    </CardLockProvider>
   );
 }
 
-// ─── Standard booking requests ─────────────────────────────────────────────
+function minutes(value: number): string {
+  return `${value} min`;
+}
+
+function LoadErrorCard({ title, message }: { title: string; message: string }) {
+  return (
+    <SettingsSection title={title}>
+      <div className="alert-error" role="alert">
+        {message}
+      </div>
+    </SettingsSection>
+  );
+}
+
+// ─── Booking requests ──────────────────────────────────────────────────────
+
+const BOOKING_LABEL = 'Booking requests';
+const BOOKING_EXPIRY_ID = 'booking-expiry';
+const isStaleBooking = (error: unknown) => error instanceof StaleBookingSettingsError;
 
 function BookingSettingsCard() {
   const { admin } = useAuth();
   const [loaded, setLoaded] = useState<LoadedBookingSettings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [value, setValue] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState(false);
+  const flow = useSaveFlow({
+    successMessage: 'Booking settings saved.',
+    failMessage: 'Could not save booking settings. Check your connection and try again.',
+    isStale: isStaleBooking,
+  });
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -92,23 +126,37 @@ function BookingSettingsCard() {
     void reload();
   }, [reload]);
 
-  const result = useMemo(
-    () => (value === null ? null : parseWholeNumber(value, BOOKING_EXPIRY_RANGE, 'minutes')),
-    [value],
-  );
-
-  if (loadError) {
-    return (
-      <div className="card">
-        <h3>Booking requests</h3>
-        <div className="alert-error" role="alert">
-          {loadError}
-        </div>
-      </div>
+  const notSavedYet = loaded !== null && loaded.saved === null;
+  const diff = useMemo(() => {
+    if (!loaded || value === null) return { changedIds: [], errors: [], rows: [] };
+    const initial = loaded.settings.requestExpiryMinutes;
+    return diffFields(
+      [
+        {
+          id: BOOKING_EXPIRY_ID,
+          label: 'Booking request expiry',
+          text: value,
+          initialText: String(initial),
+          initial,
+          parsed: parseWholeNumber(value, BOOKING_EXPIRY_RANGE, 'minutes'),
+          format: (v) => minutes(v as number),
+        },
+      ],
+      { notSavedYet },
     );
-  }
+  }, [loaded, value, notSavedYet]);
+  const changeCount = diff.changedIds.length;
 
-  if (!loaded || value === null || result === null) {
+  const { clearSaveError } = flow;
+  const discard = useCallback(() => {
+    if (loaded) setValue(String(loaded.settings.requestExpiryMinutes));
+    clearSaveError();
+  }, [loaded, clearSaveError]);
+  useUnsavedChanges('system-booking', BOOKING_LABEL, changeCount, discard);
+  const lockedBy = useCardLock('booking', BOOKING_LABEL, changeCount > 0);
+
+  if (loadError) return <LoadErrorCard title={BOOKING_LABEL} message={loadError} />;
+  if (!loaded || value === null) {
     return (
       <div className="card">
         <LoadingBlock label="Loading booking settings…" lines={2} />
@@ -116,389 +164,77 @@ function BookingSettingsCard() {
     );
   }
 
-  const current = loaded.settings;
-  const usingDefaults = loaded.saved === null;
-  const parsed = 'value' in result ? { requestExpiryMinutes: result.value } : null;
-  const error = 'error' in result ? result.error : null;
-  // With nothing saved yet, saving the default unchanged is allowed (it stores it).
-  const hasChanges = parsed !== null && (usingDefaults || !bookingSettingsEqual(parsed, current));
-  const isPristine = bookingSettingsEqual(parsed, current);
-
-  function handleChange(next: string) {
-    setSavedMessage(false);
-    setSaveError(null);
-    setValue(next);
-  }
+  const parsed = parseWholeNumber(value, BOOKING_EXPIRY_RANGE, 'minutes');
+  const canReview = 'value' in parsed && (changeCount > 0 || notSavedYet);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (hasChanges) {
-      setSaveError(null);
-      setConfirming(true);
-    }
+    if (canReview && !lockedBy) flow.openReview();
   }
 
-  async function handleConfirm() {
-    if (!parsed || !admin || !loaded) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await saveBookingSettings(parsed, loaded.saved, admin.uid);
-      setConfirming(false);
-      setSavedMessage(true);
-      await reload();
-    } catch (err) {
-      setSaveError(
-        err instanceof StaleBookingSettingsError
-          ? err.message
-          : 'Could not save booking settings. Check your connection and try again.',
-      );
-    } finally {
-      setSaving(false);
-    }
+  async function handleSave() {
+    if (!admin || !loaded || !('value' in parsed)) return;
+    const settings = { requestExpiryMinutes: parsed.value };
+    await flow.save(() => saveBookingSettings(settings, loaded.saved, admin.uid), reload);
   }
 
   return (
-    <>
-      <form className="card" onSubmit={handleSubmit} noValidate>
-        <h3>Booking requests</h3>
-        <p className="muted">
-          Standard bookings inside Trinidad. A booking no driver accepts in time expires: drivers stop seeing it and
-          the passenger can try again or cancel.
-        </p>
-        <p className="muted small">
-          {usingDefaults
-            ? 'No booking settings are saved yet, so the app uses its built-in default shown below.'
-            : lastUpdated(loaded.updatedAt)}{' '}
-          The app picks up changes the next time it loads its settings. Bookings already sent keep their expiry.
-        </p>
-
-        <label className="field" htmlFor="booking-expiry">
-          <span>Booking request expiry (minutes)</span>
-          <input
-            id="booking-expiry"
-            inputMode="numeric"
-            value={value}
-            onChange={(e) => handleChange(e.target.value)}
-            aria-invalid={error ? true : undefined}
-            disabled={saving}
+    <form onSubmit={handleSubmit} noValidate>
+      <SettingsSection
+        title={BOOKING_LABEL}
+        meta={notSavedYet ? `${NOT_SAVED_YET_TEXT}.` : <LastUpdated updatedAt={loaded.updatedAt} updatedBy={loaded.updatedBy} />}
+        description="Standard bookings inside Trinidad. A booking no driver accepts in time expires; the passenger can try again or cancel."
+      >
+        <CardLockNote lockedBy={lockedBy} />
+        <fieldset className="settings-fieldset" disabled={lockedBy !== null || flow.saving}>
+          <div className="settings-grid-3">
+            <SettingsField
+              id={BOOKING_EXPIRY_ID}
+              label="Request expiry"
+              value={value}
+              onChange={(next) => {
+                flow.clearSaveError();
+                setValue(next);
+              }}
+              inputMode="numeric"
+              suffix="min"
+              changed={changeCount > 0}
+              was={minutes(loaded.settings.requestExpiryMinutes)}
+              error={'error' in parsed ? parsed.error : undefined}
+              hint={`How long drivers see a booking. ${BOOKING_EXPIRY_RANGE.min}–${BOOKING_EXPIRY_RANGE.max} minutes.`}
+            />
+          </div>
+          <SaveBar
+            changeCount={changeCount}
+            notSavedYet={notSavedYet}
+            errors={diff.errors}
+            busy={flow.saving}
+            onDiscard={discard}
           />
-          <span className="hint">
-            {error ? (
-              <span className="field-error">{error}</span>
-            ) : (
-              `How long a booking stays open for drivers. ${BOOKING_EXPIRY_RANGE.min}–${BOOKING_EXPIRY_RANGE.max} minutes. Current: ${current.requestExpiryMinutes} min`
-            )}
-          </span>
-        </label>
+        </fieldset>
+      </SettingsSection>
 
-        {savedMessage && (
-          <div className="alert-success" role="status">
-            Booking settings saved.
-          </div>
-        )}
-
-        <div className="form-actions">
-          <button
-            type="button"
-            className="btn-outline"
-            onClick={() => {
-              setSavedMessage(false);
-              setValue(String(current.requestExpiryMinutes));
-            }}
-            disabled={saving || isPristine}
-          >
-            Reset
-          </button>
-          <button type="submit" className="btn-primary" disabled={saving || !hasChanges}>
-            Save changes…
-          </button>
-        </div>
-      </form>
-
-      {confirming && parsed && (
-        <ConfirmDialog
-          title="Save booking settings?"
-          confirmLabel="Save settings"
-          busy={saving}
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setConfirming(false)}
-        >
-          <table className="change-table">
-            <thead>
-              <tr>
-                <th>Setting</th>
-                <th>Old</th>
-                <th />
-                <th>New</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className={current.requestExpiryMinutes !== parsed.requestExpiryMinutes ? 'changed' : 'unchanged'}>
-                <td>Booking request expiry</td>
-                <td>{current.requestExpiryMinutes} min</td>
-                <td aria-hidden="true">→</td>
-                <td>{parsed.requestExpiryMinutes} min</td>
-              </tr>
-            </tbody>
-          </table>
-          {usingDefaults && <p className="muted small">Old = built-in default.</p>}
-          {saveError && (
-            <div className="alert-error" role="alert">
-              {saveError}
-            </div>
-          )}
-        </ConfirmDialog>
+      {flow.reviewing && (
+        <ReviewChangesDialog
+          rows={diff.rows}
+          effectNote="The app picks up the change the next time it loads its settings. Bookings already sent keep their expiry."
+          saving={flow.saving}
+          error={flow.saveError}
+          onBack={flow.closeReview}
+          onSave={() => void handleSave()}
+        />
       )}
-    </>
+      {flow.toast && <Toast message={flow.toast} onDone={flow.hideToast} />}
+    </form>
   );
 }
 
-// ─── TriGo GCash account ───────────────────────────────────────────────────
+// ─── Out-of-area trips ─────────────────────────────────────────────────────
 
-type PaymentValues = { gcashName: string; gcashNumber: string };
-type PaymentErrors = Partial<Record<keyof PaymentValues, string>>;
-
-function toPaymentValues(saved: PaymentSettings | null): PaymentValues {
-  return {
-    gcashName: saved?.gcashName ?? '',
-    gcashNumber: saved ? formatGcashNumber(saved.gcashNumber) : '',
-  };
-}
-
-function parsePayment(values: PaymentValues): { settings: PaymentSettings | null; errors: PaymentErrors } {
-  const name = parseGcashName(values.gcashName);
-  const number = parseGcashNumber(values.gcashNumber);
-  const errors: PaymentErrors = {};
-  if ('error' in name) errors.gcashName = name.error;
-  if ('error' in number) errors.gcashNumber = number.error;
-  if ('value' in name && 'value' in number) {
-    return { settings: { gcashName: name.value, gcashNumber: number.value }, errors };
-  }
-  return { settings: null, errors };
-}
-
-function PaymentAccountCard() {
-  const { admin } = useAuth();
-  const [loaded, setLoaded] = useState<LoadedPaymentSettings | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [values, setValues] = useState<PaymentValues>(() => toPaymentValues(null));
-  const [touched, setTouched] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState(false);
-
-  const reload = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const result = await loadPaymentSettings();
-      setLoaded(result);
-      setValues(toPaymentValues(result.saved));
-      setTouched(false);
-    } catch {
-      setLoadError('Could not load the GCash account. Check your connection and reload the page.');
-    }
-  }, []);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  const { settings: parsed, errors } = useMemo(() => parsePayment(values), [values]);
-
-  if (loadError) {
-    return (
-      <div className="card">
-        <h3>TriGo GCash account</h3>
-        <div className="alert-error" role="alert">
-          {loadError}
-        </div>
-      </div>
-    );
-  }
-
-  if (!loaded) {
-    return (
-      <div className="card">
-        <LoadingBlock label="Loading the GCash account…" lines={4} />
-      </div>
-    );
-  }
-
-  const saved = loaded.saved;
-  const hasChanges = parsed !== null && !paymentSettingsEqual(parsed, saved);
-  const isPristine = values.gcashName === toPaymentValues(saved).gcashName
-    && values.gcashNumber === toPaymentValues(saved).gcashNumber;
-
-  function setField(field: keyof PaymentValues, value: string) {
-    setSavedMessage(false);
-    setSaveError(null);
-    setValues((prev) => ({ ...prev, [field]: value }));
-  }
-
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setTouched(true);
-    if (hasChanges) {
-      setSaveError(null);
-      setConfirming(true);
-    }
-  }
-
-  async function handleConfirm() {
-    if (!parsed || !admin || !loaded) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await savePaymentSettings(parsed, loaded.saved, admin.uid);
-      setConfirming(false);
-      await reload();
-      setSavedMessage(true);
-    } catch (error) {
-      setSaveError(
-        error instanceof StalePaymentSettingsError
-          ? error.message
-          : 'Could not save the GCash account. Check your connection and try again.',
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const rows = parsed
-    ? [
-        { label: 'Account name', old: saved?.gcashName ?? '(not set)', next: parsed.gcashName },
-        {
-          label: 'GCash number',
-          old: saved ? formatGcashNumber(saved.gcashNumber) : '(not set)',
-          next: formatGcashNumber(parsed.gcashNumber),
-        },
-      ]
-    : [];
-
-  return (
-    <>
-      <form className="card" onSubmit={handleSubmit} noValidate>
-        <h3>TriGo GCash account</h3>
-        <p className="muted">Drivers pay commission to this account. You check each payment in GCash.</p>
-        <p className="muted small">
-          {saved
-            ? lastUpdated(loaded.updatedAt)
-            : 'No GCash account is saved yet, so drivers have no payment instructions.'}{' '}
-          Only admins and drivers can see it.
-        </p>
-
-        <div className="fare-grid">
-          <label className="field" htmlFor="gcash-name">
-            <span>Account name</span>
-            <input
-              id="gcash-name"
-              value={values.gcashName}
-              onChange={(e) => setField('gcashName', e.target.value)}
-              onBlur={() => setTouched(true)}
-              aria-invalid={touched && errors.gcashName ? true : undefined}
-              disabled={saving}
-            />
-            <span className="hint">
-              {touched && errors.gcashName ? (
-                <span className="field-error">{errors.gcashName}</span>
-              ) : (
-                `The name GCash shows when sending, so drivers can check it is TriGo. At most ${GCASH_NAME_MAX_LENGTH} characters.`
-              )}
-            </span>
-          </label>
-
-          <label className="field" htmlFor="gcash-number">
-            <span>GCash number</span>
-            <input
-              id="gcash-number"
-              inputMode="tel"
-              value={values.gcashNumber}
-              onChange={(e) => setField('gcashNumber', e.target.value)}
-              onBlur={() => setTouched(true)}
-              aria-invalid={touched && errors.gcashNumber ? true : undefined}
-              disabled={saving}
-            />
-            <span className="hint">
-              {touched && errors.gcashNumber ? (
-                <span className="field-error">{errors.gcashNumber}</span>
-              ) : (
-                'Mobile number of the GCash account, e.g. 0917 123 4567.'
-              )}
-            </span>
-          </label>
-        </div>
-
-        {savedMessage && (
-          <div className="alert-success" role="status">
-            GCash account saved.
-          </div>
-        )}
-
-        <div className="form-actions">
-          <button
-            type="button"
-            className="btn-outline"
-            onClick={() => {
-              setSavedMessage(false);
-              setTouched(false);
-              setValues(toPaymentValues(saved));
-            }}
-            disabled={saving || isPristine}
-          >
-            Reset
-          </button>
-          <button type="submit" className="btn-primary" disabled={saving || isPristine}>
-            Save changes…
-          </button>
-        </div>
-      </form>
-
-      {confirming && parsed && (
-        <ConfirmDialog
-          title="Save the GCash account?"
-          confirmLabel="Save account"
-          busy={saving}
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setConfirming(false)}
-        >
-          <table className="change-table">
-            <thead>
-              <tr>
-                <th>Setting</th>
-                <th>Old</th>
-                <th />
-                <th>New</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.label} className={row.old !== row.next ? 'changed' : 'unchanged'}>
-                  <td>{row.label}</td>
-                  <td>{row.old}</td>
-                  <td aria-hidden="true">→</td>
-                  <td>{row.next}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="small">Drivers see the new account the next time they open their payment instructions.</p>
-          {saveError && (
-            <div className="alert-error" role="alert">
-              {saveError}
-            </div>
-          )}
-        </ConfirmDialog>
-      )}
-    </>
-  );
-}
-
-// ─── Out-of-area settings ──────────────────────────────────────────────────
+const OUT_OF_AREA_LABEL = 'Out-of-area trips';
+const isStaleOutOfArea = (error: unknown) => error instanceof StaleOutOfAreaError;
 
 type OutOfAreaValues = { enabled: boolean; requestExpiryMinutes: string; driverSearchRadiusKm: string };
-type OutOfAreaErrors = Partial<Record<'requestExpiryMinutes' | 'driverSearchRadiusKm', string>>;
 
 function toOutOfAreaValues(settings: OutOfAreaSettings): OutOfAreaValues {
   return {
@@ -508,36 +244,43 @@ function toOutOfAreaValues(settings: OutOfAreaSettings): OutOfAreaValues {
   };
 }
 
-function parseOutOfArea(values: OutOfAreaValues): { settings: OutOfAreaSettings | null; errors: OutOfAreaErrors } {
-  const expiry = parseWholeNumber(values.requestExpiryMinutes, EXPIRY_RANGE, 'minutes');
-  const radius = parseWholeNumber(values.driverSearchRadiusKm, RADIUS_RANGE, 'km');
-  const errors: OutOfAreaErrors = {};
-  if ('error' in expiry) errors.requestExpiryMinutes = expiry.error;
-  if ('error' in radius) errors.driverSearchRadiusKm = radius.error;
-  if ('value' in expiry && 'value' in radius) {
-    return {
-      settings: { enabled: values.enabled, requestExpiryMinutes: expiry.value, driverSearchRadiusKm: radius.value },
-      errors,
-    };
-  }
-  return { settings: null, errors };
+function outOfAreaFields(values: OutOfAreaValues, initial: OutOfAreaSettings): SettingField[] {
+  return [
+    switchField({ id: 'out-of-area-enabled', label: 'Out-of-area requests', initial: initial.enabled }, values.enabled, [
+      'Accepted',
+      'Turned off',
+    ]),
+    {
+      id: 'out-of-area-expiry',
+      label: 'Request expiry',
+      text: values.requestExpiryMinutes,
+      initialText: String(initial.requestExpiryMinutes),
+      initial: initial.requestExpiryMinutes,
+      parsed: parseWholeNumber(values.requestExpiryMinutes, EXPIRY_RANGE, 'minutes'),
+      format: (v) => minutes(v as number),
+    },
+    {
+      id: 'out-of-area-radius',
+      label: 'Driver search radius',
+      text: values.driverSearchRadiusKm,
+      initialText: String(initial.driverSearchRadiusKm),
+      initial: initial.driverSearchRadiusKm,
+      parsed: parseWholeNumber(values.driverSearchRadiusKm, RADIUS_RANGE, 'km'),
+      format: (v) => `${v} km`,
+    },
+  ];
 }
-
-const OUT_OF_AREA_ROWS: { field: keyof OutOfAreaSettings; label: string; format: (s: OutOfAreaSettings) => string }[] = [
-  { field: 'enabled', label: 'Out-of-area requests', format: (s) => (s.enabled ? 'Accepted' : 'Turned off') },
-  { field: 'requestExpiryMinutes', label: 'Request expiry', format: (s) => `${s.requestExpiryMinutes} min` },
-  { field: 'driverSearchRadiusKm', label: 'Driver search radius', format: (s) => `${s.driverSearchRadiusKm} km` },
-];
 
 function OutOfAreaSettingsCard() {
   const { admin } = useAuth();
   const [loaded, setLoaded] = useState<LoadedOutOfArea | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [values, setValues] = useState<OutOfAreaValues | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState(false);
+  const flow = useSaveFlow({
+    successMessage: 'Out-of-area settings saved.',
+    failMessage: 'Could not save out-of-area settings. Check your connection and try again.',
+    isStale: isStaleOutOfArea,
+  });
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -554,22 +297,20 @@ function OutOfAreaSettingsCard() {
     void reload();
   }, [reload]);
 
-  const { settings: parsed, errors } = useMemo(
-    () => (values ? parseOutOfArea(values) : { settings: null, errors: {} as OutOfAreaErrors }),
-    [values],
-  );
+  const notSavedYet = loaded !== null && loaded.saved === null;
+  const fields = useMemo(() => (loaded && values ? outOfAreaFields(values, loaded.settings) : []), [loaded, values]);
+  const diff = useMemo(() => diffFields(fields, { notSavedYet }), [fields, notSavedYet]);
+  const changeCount = diff.changedIds.length;
 
-  if (loadError) {
-    return (
-      <div className="card">
-        <h3>Out-of-area trips</h3>
-        <div className="alert-error" role="alert">
-          {loadError}
-        </div>
-      </div>
-    );
-  }
+  const { clearSaveError } = flow;
+  const discard = useCallback(() => {
+    if (loaded) setValues(toOutOfAreaValues(loaded.settings));
+    clearSaveError();
+  }, [loaded, clearSaveError]);
+  useUnsavedChanges('system-out-of-area', OUT_OF_AREA_LABEL, changeCount, discard);
+  const lockedBy = useCardLock('out-of-area', OUT_OF_AREA_LABEL, changeCount > 0);
 
+  if (loadError) return <LoadErrorCard title={OUT_OF_AREA_LABEL} message={loadError} />;
   if (!loaded || !values) {
     return (
       <div className="card">
@@ -579,213 +320,335 @@ function OutOfAreaSettingsCard() {
   }
 
   const current = loaded.settings;
-  const usingDefaults = loaded.saved === null;
-  // With nothing saved yet, saving the defaults unchanged is allowed (it stores them).
-  const hasChanges = parsed !== null && (usingDefaults || !outOfAreaEqual(parsed, current));
-  const isPristine = outOfAreaEqual(parsed, current);
+  const changed = new Set(diff.changedIds);
+  const errorById = new Map(diff.errors.map((e) => [e.id, e.message]));
+  const canReview = diff.errors.length === 0 && (changeCount > 0 || notSavedYet);
 
   function setField<K extends keyof OutOfAreaValues>(field: K, value: OutOfAreaValues[K]) {
-    setSavedMessage(false);
-    setSaveError(null);
+    flow.clearSaveError();
     setValues((prev) => (prev ? { ...prev, [field]: value } : prev));
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (hasChanges) {
-      setSaveError(null);
-      setConfirming(true);
-    }
+    if (canReview && !lockedBy) flow.openReview();
   }
 
-  async function handleConfirm() {
-    if (!parsed || !admin || !loaded) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await saveOutOfArea(parsed, loaded.saved, admin.uid);
-      setConfirming(false);
-      setSavedMessage(true);
-      await reload();
-    } catch (error) {
-      setSaveError(
-        error instanceof StaleOutOfAreaError
-          ? error.message
-          : 'Could not save out-of-area settings. Check your connection and try again.',
-      );
-    } finally {
-      setSaving(false);
-    }
+  async function handleSave() {
+    if (!admin || !loaded || !values || !canReview) return;
+    const settings: OutOfAreaSettings = {
+      enabled: values.enabled,
+      requestExpiryMinutes: Number(values.requestExpiryMinutes.trim()),
+      driverSearchRadiusKm: Number(values.driverSearchRadiusKm.trim()),
+    };
+    await flow.save(() => saveOutOfArea(settings, loaded.saved, admin.uid), reload);
   }
 
   return (
-    <>
-      <form className="card" onSubmit={handleSubmit} noValidate>
-        <h3>Out-of-area trips</h3>
-        <p className="muted">
-          Trips with a pickup or destination outside Trinidad. The fare is the per-km fare from Fare settings.
-        </p>
-        <p className="muted small">
-          {usingDefaults
-            ? 'No out-of-area settings are saved yet, so the app uses its built-in defaults shown below.'
-            : lastUpdated(loaded.updatedAt)}{' '}
-          The app picks up changes the next time it loads its settings. Requests already sent keep their expiry.
-        </p>
-
-        <label className="field" htmlFor="out-of-area-enabled">
-          <span>Accept out-of-area requests</span>
-          <span className="switch">
-            <input
-              id="out-of-area-enabled"
-              type="checkbox"
-              role="switch"
-              checked={values.enabled}
-              onChange={(e) => setField('enabled', e.target.checked)}
-              disabled={saving}
-            />
-            <span className="switch-track" aria-hidden="true" />
-          </span>
-          <span className="hint">
-            {values.enabled
-              ? 'Passengers can send out-of-area requests.'
-              : 'Passengers see "Out-of-area requests are not available at this time."'}
-          </span>
-        </label>
-
-        <div className="fare-grid">
-          <label className="field" htmlFor="out-of-area-expiry">
-            <span>Request expiry (minutes)</span>
-            <input
+    <form onSubmit={handleSubmit} noValidate>
+      <SettingsSection
+        title={OUT_OF_AREA_LABEL}
+        meta={notSavedYet ? `${NOT_SAVED_YET_TEXT}.` : <LastUpdated updatedAt={loaded.updatedAt} updatedBy={loaded.updatedBy} />}
+        description="Trips with a pickup or destination outside Trinidad. The fare is the per-km fare from the Fares tab."
+      >
+        <CardLockNote lockedBy={lockedBy} />
+        <fieldset className="settings-fieldset" disabled={lockedBy !== null || flow.saving}>
+          <SettingsSwitch
+            id="out-of-area-enabled"
+            label="Accept out-of-area requests"
+            checked={values.enabled}
+            onChange={(checked) => setField('enabled', checked)}
+            changed={changed.has('out-of-area-enabled')}
+            was={current.enabled ? 'on' : 'off'}
+            hint={
+              values.enabled
+                ? 'Passengers can send out-of-area requests.'
+                : 'Passengers see "Out-of-area requests are not available at this time."'
+            }
+          />
+          <div className="settings-grid-3">
+            <SettingsField
               id="out-of-area-expiry"
-              inputMode="numeric"
+              label="Request expiry"
               value={values.requestExpiryMinutes}
-              onChange={(e) => setField('requestExpiryMinutes', e.target.value)}
-              aria-invalid={errors.requestExpiryMinutes ? true : undefined}
-              disabled={saving}
-            />
-            <span className="hint">
-              {errors.requestExpiryMinutes ? (
-                <span className="field-error">{errors.requestExpiryMinutes}</span>
-              ) : (
-                `How long a request stays open for drivers. ${EXPIRY_RANGE.min}–${EXPIRY_RANGE.max} minutes. Current: ${current.requestExpiryMinutes} min`
-              )}
-            </span>
-          </label>
-
-          <label className="field" htmlFor="out-of-area-radius">
-            <span>Driver search radius (km)</span>
-            <input
-              id="out-of-area-radius"
+              onChange={(text) => setField('requestExpiryMinutes', text)}
               inputMode="numeric"
-              value={values.driverSearchRadiusKm}
-              onChange={(e) => setField('driverSearchRadiusKm', e.target.value)}
-              aria-invalid={errors.driverSearchRadiusKm ? true : undefined}
-              disabled={saving}
+              suffix="min"
+              changed={changed.has('out-of-area-expiry')}
+              was={minutes(current.requestExpiryMinutes)}
+              error={errorById.get('out-of-area-expiry')}
+              hint={`How long drivers see a request. ${EXPIRY_RANGE.min}–${EXPIRY_RANGE.max} minutes.`}
             />
-            <span className="hint">
-              {errors.driverSearchRadiusKm ? (
-                <span className="field-error">{errors.driverSearchRadiusKm}</span>
-              ) : (
-                `Drivers this close to the pickup see the request. ${RADIUS_RANGE.min}–${RADIUS_RANGE.max} km. Current: ${current.driverSearchRadiusKm} km`
-              )}
-            </span>
-          </label>
-        </div>
-
-        {savedMessage && (
-          <div className="alert-success" role="status">
-            Out-of-area settings saved.
+            <SettingsField
+              id="out-of-area-radius"
+              label="Driver search radius"
+              value={values.driverSearchRadiusKm}
+              onChange={(text) => setField('driverSearchRadiusKm', text)}
+              inputMode="numeric"
+              suffix="km"
+              changed={changed.has('out-of-area-radius')}
+              was={`${current.driverSearchRadiusKm} km`}
+              error={errorById.get('out-of-area-radius')}
+              hint={`Drivers this close to the pickup see it. ${RADIUS_RANGE.min}–${RADIUS_RANGE.max} km.`}
+            />
           </div>
-        )}
+          <SaveBar
+            changeCount={changeCount}
+            notSavedYet={notSavedYet}
+            errors={diff.errors}
+            busy={flow.saving}
+            onDiscard={discard}
+          />
+        </fieldset>
+      </SettingsSection>
 
-        <div className="form-actions">
-          <button
-            type="button"
-            className="btn-outline"
-            onClick={() => {
-              setSavedMessage(false);
-              setValues(toOutOfAreaValues(current));
-            }}
-            disabled={saving || isPristine}
-          >
-            Reset
-          </button>
-          <button type="submit" className="btn-primary" disabled={saving || !hasChanges}>
-            Save changes…
-          </button>
-        </div>
-      </form>
-
-      {confirming && parsed && (
-        <ConfirmDialog
-          title="Save out-of-area settings?"
-          confirmLabel="Save settings"
-          busy={saving}
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setConfirming(false)}
-        >
-          <table className="change-table">
-            <thead>
-              <tr>
-                <th>Setting</th>
-                <th>Old</th>
-                <th />
-                <th>New</th>
-              </tr>
-            </thead>
-            <tbody>
-              {OUT_OF_AREA_ROWS.map(({ field, label, format }) => (
-                <tr key={field} className={current[field] !== parsed[field] ? 'changed' : 'unchanged'}>
-                  <td>{label}</td>
-                  <td>{format(current)}</td>
-                  <td aria-hidden="true">→</td>
-                  <td>{format(parsed)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {usingDefaults && <p className="muted small">Old = built-in default.</p>}
-          {saveError && (
-            <div className="alert-error" role="alert">
-              {saveError}
-            </div>
-          )}
-        </ConfirmDialog>
+      {flow.reviewing && (
+        <ReviewChangesDialog
+          rows={diff.rows}
+          effectNote="The app picks up changes the next time it loads its settings. Requests already sent keep their expiry."
+          saving={flow.saving}
+          error={flow.saveError}
+          onBack={flow.closeReview}
+          onSave={() => void handleSave()}
+        />
       )}
-    </>
+      {flow.toast && <Toast message={flow.toast} onDone={flow.hideToast} />}
+    </form>
+  );
+}
+
+// ─── TriGo GCash account ───────────────────────────────────────────────────
+
+const PAYMENT_LABEL = 'TriGo GCash account';
+const isStalePayment = (error: unknown) => error instanceof StalePaymentSettingsError;
+
+type PaymentValues = { gcashName: string; gcashNumber: string };
+
+function toPaymentValues(saved: PaymentSettings | null): PaymentValues {
+  return {
+    gcashName: saved?.gcashName ?? '',
+    gcashNumber: saved ? formatGcashNumber(saved.gcashNumber) : '',
+  };
+}
+
+function paymentFields(values: PaymentValues, saved: PaymentSettings | null): SettingField[] {
+  const initial = toPaymentValues(saved);
+  return [
+    {
+      id: 'gcash-name',
+      label: 'Account name',
+      text: values.gcashName,
+      initialText: initial.gcashName,
+      initial: saved ? saved.gcashName : null,
+      parsed: parseGcashName(values.gcashName),
+      format: (v) => String(v),
+    },
+    {
+      id: 'gcash-number',
+      label: 'GCash number',
+      text: values.gcashNumber,
+      initialText: initial.gcashNumber,
+      initial: saved ? saved.gcashNumber : null,
+      parsed: parseGcashNumber(values.gcashNumber),
+      format: (v) => formatGcashNumber(String(v)),
+    },
+  ];
+}
+
+function PaymentAccountCard() {
+  const { admin } = useAuth();
+  const [loaded, setLoaded] = useState<LoadedPaymentSettings | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [values, setValues] = useState<PaymentValues>(() => toPaymentValues(null));
+  const flow = useSaveFlow({
+    successMessage: 'GCash account saved.',
+    failMessage: 'Could not save the GCash account. Check your connection and try again.',
+    isStale: isStalePayment,
+  });
+
+  const reload = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const result = await loadPaymentSettings();
+      setLoaded(result);
+      setValues(toPaymentValues(result.saved));
+    } catch {
+      setLoadError('Could not load the GCash account. Check your connection and reload the page.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const fields = useMemo(() => (loaded ? paymentFields(values, loaded.saved) : []), [loaded, values]);
+  const diff = useMemo(() => diffFields(fields), [fields]);
+  const changeCount = diff.changedIds.length;
+
+  const { clearSaveError } = flow;
+  const discard = useCallback(() => {
+    if (loaded) setValues(toPaymentValues(loaded.saved));
+    clearSaveError();
+  }, [loaded, clearSaveError]);
+  useUnsavedChanges('system-payment', PAYMENT_LABEL, changeCount, discard);
+  const lockedBy = useCardLock('payment', PAYMENT_LABEL, changeCount > 0);
+
+  if (loadError) return <LoadErrorCard title={PAYMENT_LABEL} message={loadError} />;
+  if (!loaded) {
+    return (
+      <div className="card">
+        <LoadingBlock label="Loading the GCash account…" lines={4} />
+      </div>
+    );
+  }
+
+  const saved = loaded.saved;
+  const changed = new Set(diff.changedIds);
+  // With nothing saved yet, hold back "Required." until the admin starts typing.
+  const showErrors = saved !== null || changeCount > 0;
+  const errorById = new Map(diff.errors.map((e) => [e.id, e.message]));
+  const canReview = diff.errors.length === 0 && changeCount > 0;
+
+  function setField(field: keyof PaymentValues, text: string) {
+    flow.clearSaveError();
+    setValues((prev) => ({ ...prev, [field]: text }));
+  }
+
+  /** "09171234567" → "0917 123 4567" once the admin leaves the field. */
+  function normalizeNumber() {
+    const result = parseGcashNumber(values.gcashNumber);
+    if ('value' in result) setField('gcashNumber', formatGcashNumber(result.value));
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (canReview && !lockedBy) flow.openReview();
+  }
+
+  async function handleSave() {
+    if (!admin || !loaded || !canReview) return;
+    const name = parseGcashName(values.gcashName);
+    const number = parseGcashNumber(values.gcashNumber);
+    if (!('value' in name) || !('value' in number)) return;
+    const settings = { gcashName: name.value, gcashNumber: number.value };
+    await flow.save(() => savePaymentSettings(settings, loaded.saved, admin.uid), reload);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} noValidate>
+      <SettingsSection
+        title={PAYMENT_LABEL}
+        meta={
+          saved ? (
+            <LastUpdated updatedAt={loaded.updatedAt} updatedBy={loaded.updatedBy} />
+          ) : (
+            'Not saved yet — drivers have no payment instructions.'
+          )
+        }
+        description="Drivers pay commission to this account; you check each payment in GCash. Only admins and drivers see it."
+      >
+        <CardLockNote lockedBy={lockedBy} />
+        <fieldset className="settings-fieldset" disabled={lockedBy !== null || flow.saving}>
+          <div className="settings-grid-2">
+            <SettingsField
+              id="gcash-name"
+              label="Account name"
+              value={values.gcashName}
+              onChange={(text) => setField('gcashName', text)}
+              inputMode="text"
+              maxLength={GCASH_NAME_MAX_LENGTH + 10}
+              changed={changed.has('gcash-name')}
+              was={saved ? saved.gcashName : 'not set'}
+              error={showErrors ? errorById.get('gcash-name') : undefined}
+              hint={`The name GCash shows when sending. At most ${GCASH_NAME_MAX_LENGTH} characters.`}
+            />
+            <SettingsField
+              id="gcash-number"
+              label="GCash number"
+              value={values.gcashNumber}
+              onChange={(text) => setField('gcashNumber', text)}
+              onBlur={normalizeNumber}
+              type="tel"
+              inputMode="tel"
+              changed={changed.has('gcash-number')}
+              was={saved ? formatGcashNumber(saved.gcashNumber) : 'not set'}
+              error={showErrors ? errorById.get('gcash-number') : undefined}
+              hint="Mobile number of the account, e.g. 0917 123 4567."
+            />
+          </div>
+          <SaveBar changeCount={changeCount} errors={diff.errors} busy={flow.saving} onDiscard={discard} />
+        </fieldset>
+      </SettingsSection>
+
+      {flow.reviewing && (
+        <ReviewChangesDialog
+          rows={diff.rows}
+          effectNote="Drivers see the new account the next time they open their payment instructions."
+          saving={flow.saving}
+          error={flow.saveError}
+          onBack={flow.closeReview}
+          onSave={() => void handleSave()}
+        />
+      )}
+      {flow.toast && <Toast message={flow.toast} onDone={flow.hideToast} />}
+    </form>
   );
 }
 
 // ─── Support contacts ──────────────────────────────────────────────────────
 
+const CONTACTS_LABEL = 'Support contacts';
+
 type ContactValues = { label: string; phone: string; active: boolean; sortOrder: string };
-type ContactErrors = Partial<Record<'label' | 'phone' | 'sortOrder', string>>;
 
-const EMPTY_CONTACT: ContactValues = { label: '', phone: '', active: true, sortOrder: '1' };
+const NEW_CONTACT: SupportContactInput = { label: '', phone: '', active: true, sortOrder: 1 };
 
-function toContactValues(contact: SupportContact): ContactValues {
+function toContactValues(contact: SupportContactInput): ContactValues {
   return { label: contact.label, phone: contact.phone, active: contact.active, sortOrder: String(contact.sortOrder) };
 }
 
-function parseContact(values: ContactValues): { contact: SupportContactInput | null; errors: ContactErrors } {
-  const label = parseLabel(values.label);
-  const phone = parsePhone(values.phone);
-  const sortOrder = parseSortOrder(values.sortOrder);
-  const errors: ContactErrors = {};
-  if ('error' in label) errors.label = label.error;
-  if ('error' in phone) errors.phone = phone.error;
-  if ('error' in sortOrder) errors.sortOrder = sortOrder.error;
-  if ('value' in label && 'value' in phone && 'value' in sortOrder) {
-    return {
-      contact: { label: label.value, phone: phone.value, active: values.active, sortOrder: sortOrder.value },
-      errors,
-    };
-  }
-  return { contact: null, errors };
+/**
+ * The form's fields. A new contact starts from NEW_CONTACT: its empty label and phone have no
+ * initial value, while order 1 and "shown" only count as changes when edited.
+ */
+function contactFields(values: ContactValues, start: SupportContactInput, isNew: boolean): SettingField[] {
+  return [
+    {
+      id: 'contact-label',
+      label: 'Label',
+      text: values.label,
+      initialText: start.label,
+      initial: isNew ? null : start.label,
+      parsed: parseLabel(values.label),
+      format: (v) => String(v),
+    },
+    {
+      id: 'contact-phone',
+      label: 'Phone number',
+      text: values.phone,
+      initialText: start.phone,
+      initial: isNew ? null : start.phone,
+      parsed: parsePhone(values.phone),
+      format: (v) => String(v),
+    },
+    {
+      id: 'contact-order',
+      label: 'Order',
+      text: values.sortOrder,
+      initialText: String(start.sortOrder),
+      initial: start.sortOrder,
+      parsed: parseSortOrder(values.sortOrder),
+      format: (v) => String(v),
+    },
+    switchField({ id: 'contact-active', label: 'Shown in the app', initial: start.active }, values.active, [
+      'Shown',
+      'Hidden',
+    ]),
+  ];
 }
 
 /** `null` id = adding a new contact. */
-type Editing = { id: string | null; values: ContactValues; submitted: boolean };
+type Editing = { id: string | null; start: SupportContactInput; values: ContactValues };
 
 function SupportContactsCard() {
   const { admin } = useAuth();
@@ -793,9 +656,14 @@ function SupportContactsCard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleting, setDeleting] = useState<SupportContact | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletedToast, setDeletedToast] = useState<string | null>(null);
+  const flow = useSaveFlow({
+    successMessage: 'Contact saved.',
+    failMessage: 'Could not save the contact. Check your connection and try again.',
+    isStale: () => false,
+  });
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -810,158 +678,180 @@ function SupportContactsCard() {
     void reload();
   }, [reload]);
 
-  const parsed = useMemo(() => (editing ? parseContact(editing.values) : null), [editing]);
+  const isNew = editing !== null && editing.id === null;
+  const fields = useMemo(
+    () => (editing ? contactFields(editing.values, editing.start, editing.id === null) : []),
+    [editing],
+  );
+  const diff = useMemo(() => diffFields(fields), [fields]);
+  const changeCount = diff.changedIds.length;
+
+  const { clearSaveError } = flow;
+  const closeForm = useCallback(() => {
+    setEditing(null);
+    clearSaveError();
+  }, [clearSaveError]);
+  useUnsavedChanges('system-contacts', CONTACTS_LABEL, changeCount, closeForm);
+  // An open form holds the lock even before anything is typed.
+  const lockedBy = useCardLock('contacts', CONTACTS_LABEL, editing !== null);
+  const hideDeletedToast = useCallback(() => setDeletedToast(null), []);
 
   function startEditing(contact: SupportContact | null) {
-    setMessage(null);
-    setActionError(null);
-    setEditing({ id: contact?.id ?? null, values: contact ? toContactValues(contact) : EMPTY_CONTACT, submitted: false });
+    flow.clearSaveError();
+    const start = contact
+      ? { label: contact.label, phone: contact.phone, active: contact.active, sortOrder: contact.sortOrder }
+      : NEW_CONTACT;
+    setEditing({ id: contact?.id ?? null, start, values: toContactValues(start) });
   }
 
   function setField<K extends keyof ContactValues>(field: K, value: ContactValues[K]) {
+    flow.clearSaveError();
     setEditing((prev) => (prev ? { ...prev, values: { ...prev.values, [field]: value } } : prev));
   }
 
-  async function handleSave(event: FormEvent) {
+  const canReview = editing !== null && diff.errors.length === 0 && changeCount > 0;
+
+  function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!editing || !admin) return;
-    setEditing({ ...editing, submitted: true });
-    if (!parsed?.contact) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      await saveSupportContact(editing.id, parsed.contact, admin.uid);
-      setMessage(editing.id ? 'Contact updated.' : 'Contact added.');
-      setEditing(null);
-      await reload();
-    } catch {
-      setActionError('Could not save the contact. Check your connection and try again.');
-    } finally {
-      setBusy(false);
-    }
+    if (canReview) flow.openReview();
+  }
+
+  async function handleSave() {
+    if (!editing || !admin || !canReview) return;
+    const label = parseLabel(editing.values.label);
+    const phone = parsePhone(editing.values.phone);
+    const sortOrder = parseSortOrder(editing.values.sortOrder);
+    if (!('value' in label) || !('value' in phone) || !('value' in sortOrder)) return;
+    const contact = { label: label.value, phone: phone.value, active: editing.values.active, sortOrder: sortOrder.value };
+    const { id } = editing;
+    await flow.save(
+      () => saveSupportContact(id, contact, admin.uid),
+      async () => {
+        setEditing(null);
+        await reload();
+      },
+    );
   }
 
   async function handleDelete() {
     if (!deleting) return;
-    setBusy(true);
-    setActionError(null);
+    setDeleteBusy(true);
+    setDeleteError(null);
     try {
       await deleteSupportContact(deleting.id);
-      setMessage(`Deleted "${deleting.label}".`);
+      setDeletedToast(`Deleted "${deleting.label}".`);
       if (editing?.id === deleting.id) setEditing(null);
       setDeleting(null);
       await reload();
     } catch {
-      setActionError('Could not delete the contact. Check your connection and try again.');
+      setDeleteError('Could not delete the contact. Check your connection and try again.');
     } finally {
-      setBusy(false);
+      setDeleteBusy(false);
     }
   }
 
+  // A new contact lists every value (Old = "Not set"); an edit lists only what changed.
+  const reviewRows: ChangeRow[] =
+    isNew && editing
+      ? fields.flatMap((field) =>
+          'value' in field.parsed
+            ? [{ id: field.id, label: field.label, oldText: NOT_SET_TEXT, newText: field.format(field.parsed.value), warning: null }]
+            : [],
+        )
+      : diff.rows;
+  const changed = new Set(diff.changedIds);
+  const errorById = new Map(diff.errors.map((e) => [e.id, e.message]));
+  // A new contact's empty fields stay quiet until something is typed.
+  const showErrors = !isNew || changeCount > 0;
   const activeCount = contacts?.filter((c) => c.active).length ?? 0;
-  const errors = editing?.submitted ? (parsed?.errors ?? {}) : {};
+  const latest = contacts?.reduce<SupportContact | null>(
+    (best, c) => (c.updatedAt && (!best?.updatedAt || c.updatedAt > best.updatedAt) ? c : best),
+    null,
+  );
+  const busy = flow.saving || deleteBusy;
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h3>Support contacts</h3>
-        <button type="button" className="btn-primary" onClick={() => startEditing(null)} disabled={busy || !contacts}>
+    <SettingsSection
+      title={CONTACTS_LABEL}
+      meta={latest ? <LastUpdated updatedAt={latest.updatedAt} updatedBy={latest.updatedBy} /> : undefined}
+      description="Active contacts appear on the app's Help screen and to drivers, lowest order first."
+      actions={
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => startEditing(null)}
+          disabled={busy || !contacts || editing !== null || lockedBy !== null}
+        >
           Add contact
         </button>
-      </div>
-      <p className="muted">Active contacts appear on the app&apos;s Help screen, lowest order first.</p>
-
-      {message && (
-        <div className="alert-success" role="status">
-          {message}
-        </div>
-      )}
-      {actionError && !deleting && (
-        <div className="alert-error" role="alert">
-          {actionError}
-        </div>
-      )}
+      }
+    >
+      <CardLockNote lockedBy={lockedBy} />
 
       {editing && (
-        <form className="contact-form" onSubmit={(e) => void handleSave(e)} noValidate>
-          <h3>{editing.id ? 'Edit contact' : 'New contact'}</h3>
-          <div className="fare-grid">
-            <label className="field" htmlFor="contact-label">
-              <span>Label</span>
-              <input
-                id="contact-label"
-                value={editing.values.label}
-                onChange={(e) => setField('label', e.target.value)}
-                maxLength={LABEL_MAX_LENGTH + 10}
-                placeholder="e.g. TriGo Hotline (8 AM–5 PM)"
-                aria-invalid={errors.label ? true : undefined}
-                disabled={busy}
-              />
-              <span className="hint">
-                {errors.label ? (
-                  <span className="field-error">{errors.label}</span>
-                ) : (
-                  `Up to ${LABEL_MAX_LENGTH} characters.`
-                )}
-              </span>
-            </label>
-            <label className="field" htmlFor="contact-phone">
-              <span>Phone number</span>
-              <input
-                id="contact-phone"
-                type="tel"
-                value={editing.values.phone}
-                onChange={(e) => setField('phone', e.target.value)}
-                placeholder="e.g. 0917 123 4567"
-                aria-invalid={errors.phone ? true : undefined}
-                disabled={busy}
-              />
-              <span className="hint">
-                {errors.phone ? <span className="field-error">{errors.phone}</span> : 'Mobile or landline.'}
-              </span>
-            </label>
-            <label className="field" htmlFor="contact-order">
-              <span>Order</span>
-              <input
-                id="contact-order"
-                inputMode="numeric"
-                value={editing.values.sortOrder}
-                onChange={(e) => setField('sortOrder', e.target.value)}
-                aria-invalid={errors.sortOrder ? true : undefined}
-                disabled={busy}
-              />
-              <span className="hint">
-                {errors.sortOrder ? (
-                  <span className="field-error">{errors.sortOrder}</span>
-                ) : (
-                  `${SORT_ORDER_RANGE.min}–${SORT_ORDER_RANGE.max}, lowest first.`
-                )}
-              </span>
-            </label>
-            <label className="field" htmlFor="contact-active">
-              <span>Shown in the app</span>
-              <span className="switch">
-                <input
-                  id="contact-active"
-                  type="checkbox"
-                  role="switch"
-                  checked={editing.values.active}
-                  onChange={(e) => setField('active', e.target.checked)}
-                  disabled={busy}
-                />
-                <span className="switch-track" aria-hidden="true" />
-              </span>
-              <span className="hint">{editing.values.active ? 'Active' : 'Hidden'}</span>
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="button" className="btn-outline" onClick={() => setEditing(null)} disabled={busy}>
+        <form className="contact-form" onSubmit={handleSubmit} noValidate>
+          <div className="contact-form-head">
+            <h4>{isNew ? 'New contact' : 'Edit contact'}</h4>
+            <button type="button" className="btn-link" onClick={closeForm} disabled={busy}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={busy}>
-              {busy ? 'Saving…' : editing.id ? 'Save contact' : 'Add contact'}
-            </button>
           </div>
+          <fieldset className="settings-fieldset" disabled={busy}>
+            <div className="settings-grid-2">
+              <SettingsField
+                id="contact-label"
+                label="Label"
+                value={editing.values.label}
+                onChange={(text) => setField('label', text)}
+                inputMode="text"
+                maxLength={LABEL_MAX_LENGTH + 10}
+                placeholder="e.g. TriGo Hotline (8 AM–5 PM)"
+                changed={!isNew && changed.has('contact-label')}
+                was={editing.start.label}
+                error={showErrors ? errorById.get('contact-label') : undefined}
+                hint={`Up to ${LABEL_MAX_LENGTH} characters.`}
+              />
+              <SettingsField
+                id="contact-phone"
+                label="Phone number"
+                value={editing.values.phone}
+                onChange={(text) => setField('phone', text)}
+                type="tel"
+                inputMode="tel"
+                placeholder="e.g. 0917 123 4567"
+                changed={!isNew && changed.has('contact-phone')}
+                was={editing.start.phone}
+                error={showErrors ? errorById.get('contact-phone') : undefined}
+                hint="Mobile or landline."
+              />
+              <SettingsField
+                id="contact-order"
+                label="Order"
+                value={editing.values.sortOrder}
+                onChange={(text) => setField('sortOrder', text)}
+                inputMode="numeric"
+                changed={!isNew && changed.has('contact-order')}
+                was={String(editing.start.sortOrder)}
+                error={errorById.get('contact-order')}
+                hint={`${SORT_ORDER_RANGE.min}–${SORT_ORDER_RANGE.max}, lowest first.`}
+              />
+              <SettingsSwitch
+                id="contact-active"
+                label="Shown in the app"
+                checked={editing.values.active}
+                onChange={(checked) => setField('active', checked)}
+                changed={!isNew && changed.has('contact-active')}
+                was={editing.start.active ? 'shown' : 'hidden'}
+                hint={editing.values.active ? 'Shown' : 'Hidden'}
+              />
+            </div>
+            <SaveBar
+              changeCount={changeCount}
+              errors={showErrors ? diff.errors : []}
+              busy={flow.saving}
+              onDiscard={closeForm}
+            />
+          </fieldset>
         </form>
       )}
 
@@ -982,7 +872,9 @@ function SupportContactsCard() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th scope="col" className="num">Order</th>
+                  <th scope="col" className="num">
+                    Order
+                  </th>
                   <th scope="col">Label</th>
                   <th scope="col">Phone</th>
                   <th scope="col">Status</th>
@@ -993,13 +885,13 @@ function SupportContactsCard() {
               </thead>
               <tbody>
                 {contacts.map((contact) => (
-                  <tr key={contact.id}>
+                  <tr key={contact.id} className={editing?.id === contact.id ? 'row-editing' : undefined}>
                     <td className="num">{contact.sortOrder}</td>
                     <td className="cell-strong">{contact.label}</td>
                     <td className="mono">{contact.phone}</td>
                     <td>
                       <span className={`status-badge ${contact.active ? 'status-approved' : 'status-rejected'}`}>
-                        {contact.active ? 'Active' : 'Hidden'}
+                        {contact.active ? 'Shown' : 'Hidden'}
                       </span>
                     </td>
                     <td className="cell-action">
@@ -1008,7 +900,7 @@ function SupportContactsCard() {
                           type="button"
                           className="btn-link"
                           onClick={() => startEditing(contact)}
-                          disabled={busy}
+                          disabled={busy || editing !== null || lockedBy !== null}
                         >
                           Edit
                         </button>
@@ -1016,13 +908,12 @@ function SupportContactsCard() {
                           type="button"
                           className="btn-link"
                           onClick={() => {
-                            setMessage(null);
-                            setActionError(null);
+                            setDeleteError(null);
                             setDeleting(contact);
                           }}
-                          disabled={busy}
+                          disabled={busy || editing !== null || lockedBy !== null}
                         >
-                          Delete…
+                          Delete
                         </button>
                       </div>
                     </td>
@@ -1034,32 +925,46 @@ function SupportContactsCard() {
         </>
       )}
 
+      {flow.reviewing && editing && (
+        <ReviewChangesDialog
+          rows={reviewRows}
+          effectNote="Shown contacts appear in the app the next time the Help screen or driver profile loads them."
+          saving={flow.saving}
+          error={flow.saveError}
+          onBack={flow.closeReview}
+          onSave={() => void handleSave()}
+        />
+      )}
+
       {deleting && (
         <ConfirmDialog
           title="Delete this contact?"
           confirmLabel="Delete contact"
           busyLabel="Deleting…"
           danger
-          busy={busy}
+          busy={deleteBusy}
           onConfirm={() => void handleDelete()}
           onCancel={() => {
             setDeleting(null);
-            setActionError(null);
+            setDeleteError(null);
           }}
         >
           <p>
             <strong>{deleting.label}</strong> <span className="mono">{deleting.phone}</span>
           </p>
           <p className="muted small">
-            This can&apos;t be undone. To hide it, turn off &quot;Shown in the app&quot; instead.
+            This can&apos;t be undone. To hide it, edit it and turn off &quot;Shown in the app&quot; instead.
           </p>
-          {actionError && (
+          {deleteError && (
             <div className="alert-error" role="alert">
-              {actionError}
+              {deleteError}
             </div>
           )}
         </ConfirmDialog>
       )}
-    </div>
+
+      {flow.toast && <Toast message={flow.toast} onDone={flow.hideToast} />}
+      {deletedToast && <Toast message={deletedToast} onDone={hideDeletedToast} />}
+    </SettingsSection>
   );
 }

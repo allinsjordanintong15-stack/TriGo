@@ -18,6 +18,8 @@ export type LoadedCommission = {
   /** Saved settings, or null when none are saved yet. */
   saved: CommissionSettings | null;
   updatedAt: Date | null;
+  /** UID of the admin who saved last, or null. */
+  updatedBy: string | null;
 };
 
 export const PAYMENT_PERIOD_RANGE = { min: 1, max: 31 } as const;
@@ -42,7 +44,11 @@ function readSettings(data: Record<string, unknown> | undefined): CommissionSett
 export async function loadCommission(): Promise<LoadedCommission> {
   const snapshot = await getDoc(COMMISSION_DOC);
   const data = snapshot.data();
-  return { saved: readSettings(data), updatedAt: data?.updatedAt?.toDate?.() ?? null };
+  return {
+    saved: readSettings(data),
+    updatedAt: data?.updatedAt?.toDate?.() ?? null,
+    updatedBy: typeof data?.updatedBy === 'string' ? data.updatedBy : null,
+  };
 }
 
 export function commissionEqual(a: CommissionSettings | null, b: CommissionSettings | null): boolean {
@@ -76,11 +82,6 @@ export async function saveCommission(
     }
     transaction.set(COMMISSION_DOC, { ...settings, updatedAt: serverTimestamp(), updatedBy: uid });
   });
-}
-
-/** Commission on a fare, rounded to the nearest centavo (for the example only). */
-export function calculateCommission(fare: number, percentage: number): number {
-  return Math.round(fare * percentage) / 100;
 }
 
 /** Parses a whole number of days within [min, max], or returns an error message. */

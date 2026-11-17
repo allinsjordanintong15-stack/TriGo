@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
-import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LoadingBlock } from '../components/LoadingBlock';
-import { PageHeader } from '../components/PageHeader';
-import { parseAmount } from '../fares/fareSettings';
+import {
+  ChangedFieldHint,
+  LastUpdated,
+  ReviewChangesDialog,
+  SaveBar,
+  SettingsHeader,
+  SettingsSection,
+  Toast,
+} from '../components/settings/SettingsParts';
+import { useUnsavedChanges } from '../components/settings/UnsavedChanges';
+import { useSaveFlow } from '../components/settings/useSaveFlow';
+import { parseAmount, VEHICLE_LABELS } from '../fares/fareSettings';
 import { amountInputValue, formatPeso } from '../lib/format';
+import { diffFields, NOT_SET_TEXT, switchField, type SettingField } from '../settings/settingsDiff';
 import { BARANGAYS, type BarangayId } from '../tariffs/barangays';
 import {
   loadTariffs,
@@ -13,19 +24,25 @@ import {
   StaleTariffsError,
   tariffsEqual,
   type BarangayTariff,
+  type LoadedTariffs,
   type SavedTariffs,
   type TariffChange,
 } from '../tariffs/barangayTariffs';
 
+type Vehicle = 'tricycle' | 'motorcycle';
 type RowValues = { tricycle: string; motorcycle: string; active: boolean };
 type FormValues = Record<BarangayId, RowValues>;
-type RowErrors = Partial<Record<'tricycle' | 'motorcycle', string>>;
 
-type ParsedRow =
-  /** Never saved and left blank: nothing to save for this barangay yet. */
-  | { kind: 'unset' }
-  | { kind: 'invalid'; errors: RowErrors }
-  | { kind: 'valid'; tariff: BarangayTariff };
+const VEHICLES: Vehicle[] = ['tricycle', 'motorcycle'];
+
+const EFFECT_NOTE =
+  'Applies to bookings made after saving; confirmed bookings keep their fare. Only active tariffs are charged.';
+
+const isStale = (error: unknown) => error instanceof StaleTariffsError;
+
+function cellId(id: BarangayId, field: Vehicle | 'active'): string {
+  return `tariff-${id}-${field}`;
+}
 
 function toFormValues(saved: SavedTariffs): FormValues {
   const values = {} as FormValues;
@@ -42,49 +59,73 @@ function toFormValues(saved: SavedTariffs): FormValues {
   return values;
 }
 
-function parseRow(row: RowValues, saved: BarangayTariff | null): ParsedRow {
-  if (!saved && !row.tricycle.trim() && !row.motorcycle.trim() && !row.active) {
-    return { kind: 'unset' };
-  }
-  const tricycle = parseAmount(row.tricycle, { allowZero: false });
-  const motorcycle = parseAmount(row.motorcycle, { allowZero: false });
-  if ('error' in tricycle || 'error' in motorcycle) {
-    return {
-      kind: 'invalid',
-      errors: {
-        tricycle: 'error' in tricycle ? tricycle.error : undefined,
-        motorcycle: 'error' in motorcycle ? motorcycle.error : undefined,
-      },
-    };
-  }
-  return { kind: 'valid', tariff: { tricycle: tricycle.value, motorcycle: motorcycle.value, active: row.active } };
+/** A never-saved barangay left blank and inactive: nothing to save, it uses the per-km fare. */
+function isUnset(row: RowValues, saved: BarangayTariff | null): boolean {
+  return !saved && !row.tricycle.trim() && !row.motorcycle.trim() && !row.active;
 }
 
-function formatOptionalPeso(tariff: BarangayTariff | null, field: 'tricycle' | 'motorcycle'): string {
-  return tariff ? formatPeso(tariff[field]) : 'Not set';
+/** The fields of every barangay that is saved or being filled in, in table order. */
+function toFields(values: FormValues, saved: SavedTariffs): SettingField[] {
+  return BARANGAYS.flatMap(({ id, name }) => {
+    const row = values[id];
+    const before = saved[id];
+    if (isUnset(row, before)) return [];
+    const amounts: SettingField[] = VEHICLES.map((vehicle) => ({
+      id: cellId(id, vehicle),
+      label: `${name} ${vehicle}`,
+      text: row[vehicle],
+      initialText: before ? amountInputValue(before[vehicle]) : '',
+      initial: before ? before[vehicle] : null,
+      parsed: parseAmount(row[vehicle], { allowZero: false }),
+      format: (value) => formatPeso(value as number),
+    }));
+    const active = switchField(
+      { id: cellId(id, 'active'), label: `${name} status`, initial: before ? before.active : null },
+      row.active,
+      ['Active', 'Inactive'],
+    );
+    return [...amounts, active];
+  });
 }
 
-function formatActive(tariff: BarangayTariff | null): string {
-  if (!tariff) return 'Not set';
-  return tariff.active ? 'Active' : 'Inactive';
+/** Rows to write: every barangay whose complete, valid row differs from what is saved. */
+function toChanges(values: FormValues, saved: SavedTariffs): TariffChange[] {
+  const changes: TariffChange[] = [];
+  for (const { id, name } of BARANGAYS) {
+    const row = values[id];
+    if (isUnset(row, saved[id])) continue;
+    const tricycle = parseAmount(row.tricycle, { allowZero: false });
+    const motorcycle = parseAmount(row.motorcycle, { allowZero: false });
+    if (!('value' in tricycle) || !('value' in motorcycle)) continue;
+    const after = { tricycle: tricycle.value, motorcycle: motorcycle.value, active: row.active };
+    if (!tariffsEqual(after, saved[id])) changes.push({ id, name, before: saved[id], after });
+  }
+  return changes;
+}
+
+function matchesSearch(name: string, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return !q || name.toLowerCase().includes(q);
 }
 
 export function BarangayTariffsPage() {
   const { admin } = useAuth();
-  const [saved, setSaved] = useState<SavedTariffs | null>(null);
+  const [loaded, setLoaded] = useState<LoadedTariffs | null>(null);
   const [values, setValues] = useState<FormValues | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState(false);
+  const [search, setSearch] = useState('');
+  const flow = useSaveFlow({
+    successMessage: 'Barangay tariffs saved.',
+    failMessage: 'Could not save barangay tariffs. Check your connection and try again.',
+    isStale,
+  });
 
   const reload = useCallback(async () => {
     setLoadError(null);
     try {
       const result = await loadTariffs();
-      setSaved(result);
-      setValues(toFormValues(result));
+      setLoaded(result);
+      setValues(toFormValues(result.saved));
     } catch {
       setLoadError('Could not load barangay tariffs. Check your connection and reload the page.');
     }
@@ -94,34 +135,21 @@ export function BarangayTariffsPage() {
     void reload();
   }, [reload]);
 
-  const parsed = useMemo(() => {
-    if (!values || !saved) return null;
-    const rows = {} as Record<BarangayId, ParsedRow>;
-    for (const { id } of BARANGAYS) {
-      rows[id] = parseRow(values[id], saved[id]);
-    }
-    return rows;
-  }, [values, saved]);
+  const fields = useMemo(() => (values && loaded ? toFields(values, loaded.saved) : []), [values, loaded]);
+  const diff = useMemo(() => diffFields(fields), [fields]);
+  const changeCount = diff.changedIds.length;
 
-  const { changes, hasErrors } = useMemo(() => {
-    const result: TariffChange[] = [];
-    let errors = false;
-    if (parsed && saved) {
-      for (const { id, name } of BARANGAYS) {
-        const row = parsed[id];
-        if (row.kind === 'invalid') errors = true;
-        if (row.kind === 'valid' && !tariffsEqual(row.tariff, saved[id])) {
-          result.push({ id, name, before: saved[id], after: row.tariff });
-        }
-      }
-    }
-    return { changes: result, hasErrors: errors };
-  }, [parsed, saved]);
+  const { clearSaveError } = flow;
+  const discard = useCallback(() => {
+    if (loaded) setValues(toFormValues(loaded.saved));
+    clearSaveError();
+  }, [loaded, clearSaveError]);
+  useUnsavedChanges('tariffs', 'Barangay tariffs', changeCount, discard);
 
   if (loadError) {
     return (
       <div className="stack page-narrow">
-        <PageHeader title="Barangay tariffs" />
+        <SettingsHeader title="Barangay tariffs" helper="Fixed fare per trip between Poblacion and each barangay." />
         <div className="alert-error" role="alert">
           {loadError}
         </div>
@@ -129,7 +157,7 @@ export function BarangayTariffsPage() {
     );
   }
 
-  if (!saved || !values || !parsed) {
+  if (!loaded || !values) {
     return (
       <div className="card">
         <LoadingBlock label="Loading barangay tariffs…" lines={4} />
@@ -137,105 +165,160 @@ export function BarangayTariffsPage() {
     );
   }
 
-  const savedCount = BARANGAYS.filter(({ id }) => saved[id]).length;
+  const { saved } = loaded;
+  const canReview = diff.errors.length === 0 && changeCount > 0;
+  const changed = new Set(diff.changedIds);
+  const errorById = new Map(diff.errors.map((e) => [e.id, e.message]));
+  const visible = BARANGAYS.filter(({ name }) => matchesSearch(name, search));
+  const activeCount = BARANGAYS.filter(({ id }) => saved[id]?.active).length;
+  const anySaved = BARANGAYS.some(({ id }) => saved[id]);
 
   function updateRow(id: BarangayId, patch: Partial<RowValues>) {
-    setSavedMessage(false);
-    setSaveError(null);
+    flow.clearSaveError();
     setValues((prev) => (prev ? { ...prev, [id]: { ...prev[id], ...patch } } : prev));
+  }
+
+  function normalizeCell(id: BarangayId, vehicle: Vehicle) {
+    const result = parseAmount(values![id][vehicle], { allowZero: false });
+    if ('value' in result) updateRow(id, { [vehicle]: amountInputValue(result.value) });
+  }
+
+  /** The invalid cell may be filtered out by the search: clear it first, then focus. */
+  function fixError(id: string) {
+    setSearch('');
+    requestAnimationFrame(() => document.getElementById(id)?.focus());
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!hasErrors && changes.length > 0) {
-      setSaveError(null);
-      setConfirming(true);
-    }
+    if (canReview) flow.openReview();
   }
 
-  async function handleConfirm() {
-    if (!admin || changes.length === 0) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await saveTariffs(changes, admin.uid);
-      setConfirming(false);
-      setSavedMessage(true);
-      await reload();
-    } catch (error) {
-      setSaveError(
-        error instanceof StaleTariffsError
-          ? error.message
-          : 'Could not save barangay tariffs. Check your connection and try again.',
-      );
-    } finally {
-      setSaving(false);
-    }
+  async function handleSave() {
+    if (!admin || !loaded || !canReview) return;
+    const changes = toChanges(values!, loaded.saved);
+    if (changes.length === 0) return;
+    await flow.save(() => saveTariffs(changes, admin.uid), reload);
   }
 
   return (
-    <div className="stack page-narrow">
-      <PageHeader
+    <form className="stack page-narrow settings-page" onSubmit={handleSubmit} noValidate>
+      <SettingsHeader
         title="Barangay tariffs"
-        subtitle="Fixed fare between Poblacion and each barangay, per vehicle. Blank or inactive barangays use the per-km fare."
+        helper="Fixed fare per trip between Poblacion and each barangay, per vehicle type."
+        meta={
+          anySaved ? (
+            <LastUpdated updatedAt={loaded.updatedAt} updatedBy={loaded.updatedBy} />
+          ) : (
+            'No tariffs saved yet — every trip uses the per-km fare.'
+          )
+        }
       />
 
-      <div className="card">
-        <p className="muted small">
-          {savedCount} of {BARANGAYS.length} barangays saved. A barangay left blank is not saved; to set one,
-          enter both tariffs.
-        </p>
-      </div>
+      <p className="settings-info">
+        An active tariff is charged for trips between Poblacion and that barangay, in either direction. Blank or
+        inactive barangays use the <Link to="/settings/fares">per-km fare</Link>.
+      </p>
 
-      <form className="card" onSubmit={handleSubmit} noValidate>
+      <SettingsSection>
+        <div className="tariff-toolbar">
+          <label className="tariff-search" htmlFor="tariff-search">
+            <span className="visually-hidden">Search barangay</span>
+            <input
+              id="tariff-search"
+              type="search"
+              placeholder="Search barangay"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+          <span className="muted small" aria-live="polite">
+            {activeCount} of {BARANGAYS.length} barangays have an active tariff
+          </span>
+        </div>
+
         <div className="table-scroll">
-          <table className="tariff-table">
+          <table className="tariff-edit-table">
             <thead>
               <tr>
                 <th scope="col">Barangay</th>
-                <th scope="col">Tricycle (₱)</th>
-                <th scope="col">Motorcycle (₱)</th>
+                {VEHICLES.map((vehicle) => (
+                  <th key={vehicle} scope="col">
+                    {VEHICLE_LABELS[vehicle]}
+                  </th>
+                ))}
                 <th scope="col">Active</th>
               </tr>
             </thead>
             <tbody>
-              {BARANGAYS.map(({ id, name }) => {
+              {visible.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    No barangay matches “{search.trim()}”.
+                  </td>
+                </tr>
+              )}
+              {visible.map(({ id, name }) => {
                 const row = values[id];
-                const result = parsed[id];
-                const errors = result.kind === 'invalid' ? result.errors : {};
-                const changed = result.kind === 'valid' && !tariffsEqual(result.tariff, saved[id]);
+                const before = saved[id];
+                const activeId = cellId(id, 'active');
                 return (
-                  <tr key={id} className={changed ? 'row-changed' : undefined}>
-                    <th scope="row">
-                      {name}
-                      {!saved[id] && <span className="tag">Not set</span>}
-                    </th>
-                    {(['tricycle', 'motorcycle'] as const).map((field) => (
-                      <td key={field}>
+                  <tr key={id}>
+                    <th scope="row">{name}</th>
+                    {VEHICLES.map((vehicle) => {
+                      const inputId = cellId(id, vehicle);
+                      const error = errorById.get(inputId);
+                      const isChanged = changed.has(inputId);
+                      return (
+                        <td key={vehicle} className={isChanged ? 'is-changed' : undefined}>
+                          <div className={`input-affix input-affix-compact${error ? ' is-invalid' : ''}`}>
+                            {/* No ₱ in front of the "Uses per-km fare" placeholder. */}
+                            {(before || row[vehicle]) && (
+                              <span className="affix" aria-hidden="true">
+                                ₱
+                              </span>
+                            )}
+                            <input
+                              id={inputId}
+                              inputMode="decimal"
+                              value={row[vehicle]}
+                              placeholder={before ? undefined : 'Uses per-km fare'}
+                              onChange={(e) => updateRow(id, { [vehicle]: e.target.value })}
+                              onBlur={() => normalizeCell(id, vehicle)}
+                              aria-label={`${name} ${VEHICLE_LABELS[vehicle].toLowerCase()} tariff`}
+                              aria-invalid={error ? true : undefined}
+                              aria-describedby={`${inputId}-note`}
+                              disabled={flow.saving}
+                            />
+                          </div>
+                          <span className="cell-note" id={`${inputId}-note`}>
+                            {error ? (
+                              <span className="field-error">{error}</span>
+                            ) : isChanged ? (
+                              <ChangedFieldHint was={before ? formatPeso(before[vehicle]) : NOT_SET_TEXT.toLowerCase()} />
+                            ) : null}
+                          </span>
+                        </td>
+                      );
+                    })}
+                    <td className={changed.has(activeId) ? 'is-changed' : undefined}>
+                      <label className="switch switch-cell">
                         <input
-                          className="cell-input"
-                          inputMode="decimal"
-                          value={row[field]}
-                          onChange={(e) => updateRow(id, { [field]: e.target.value })}
-                          aria-label={`${name} ${field} tariff`}
-                          aria-invalid={errors[field] ? true : undefined}
-                          disabled={saving}
-                        />
-                        {errors[field] && <div className="field-error cell-error">{errors[field]}</div>}
-                      </td>
-                    ))}
-                    <td>
-                      <label className="switch">
-                        <input
+                          id={activeId}
                           type="checkbox"
                           role="switch"
                           checked={row.active}
                           onChange={(e) => updateRow(id, { active: e.target.checked })}
                           aria-label={`${name} tariff active`}
-                          disabled={saving}
+                          disabled={flow.saving}
                         />
                         <span className="switch-track" aria-hidden="true" />
                       </label>
+                      <span className="cell-note">
+                        {changed.has(activeId) && before && (
+                          <ChangedFieldHint was={before.active ? 'active' : 'inactive'} />
+                        )}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -243,92 +326,28 @@ export function BarangayTariffsPage() {
             </tbody>
           </table>
         </div>
+      </SettingsSection>
 
-        {savedMessage && (
-          <div className="alert-success" role="status">
-            Barangay tariffs saved.
-          </div>
-        )}
+      <SaveBar
+        changeCount={changeCount}
+        errors={diff.errors}
+        busy={flow.saving}
+        onDiscard={discard}
+        onFix={fixError}
+      />
 
-        <div className="form-actions">
-          <span className="muted small form-actions-note">
-            {hasErrors
-              ? 'Fix the highlighted fields to save.'
-              : changes.length > 0
-                ? `${changes.length} barangay${changes.length === 1 ? '' : 's'} changed.`
-                : 'No changes.'}
-          </span>
-          <button
-            type="button"
-            className="btn-outline"
-            onClick={() => {
-              setSavedMessage(false);
-              setValues(toFormValues(saved));
-            }}
-            disabled={saving || (changes.length === 0 && !hasErrors)}
-          >
-            Reset
-          </button>
-          <button type="submit" className="btn-primary" disabled={saving || hasErrors || changes.length === 0}>
-            Save changes…
-          </button>
-        </div>
-      </form>
-
-      {confirming && (
-        <ConfirmDialog
-          title="Save barangay tariffs?"
-          confirmLabel="Save tariffs"
-          busy={saving}
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setConfirming(false)}
-        >
-          <div className="table-scroll">
-            <table className="change-table">
-              <thead>
-                <tr>
-                  <th>Barangay</th>
-                  <th>Tricycle</th>
-                  <th>Motorcycle</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {changes.map(({ id, name, before, after }) => (
-                  <tr key={id} className="changed">
-                    <td>{name}</td>
-                    <td>
-                      <ChangeCell from={formatOptionalPeso(before, 'tricycle')} to={formatPeso(after.tricycle)} />
-                    </td>
-                    <td>
-                      <ChangeCell from={formatOptionalPeso(before, 'motorcycle')} to={formatPeso(after.motorcycle)} />
-                    </td>
-                    <td>
-                      <ChangeCell from={formatActive(before)} to={formatActive(after)} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {saveError && (
-            <div className="alert-error" role="alert">
-              {saveError}
-            </div>
-          )}
-        </ConfirmDialog>
+      {flow.reviewing && (
+        <ReviewChangesDialog
+          rows={diff.rows}
+          effectNote={EFFECT_NOTE}
+          saving={flow.saving}
+          error={flow.saveError}
+          onBack={flow.closeReview}
+          onSave={() => void handleSave()}
+        />
       )}
-    </div>
-  );
-}
 
-function ChangeCell({ from, to }: { from: string; to: string }) {
-  if (from === to) {
-    return <span className="unchanged-value">{to}</span>;
-  }
-  return (
-    <span>
-      <span className="old-value">{from}</span> → <span className="new-value">{to}</span>
-    </span>
+      {flow.toast && <Toast message={flow.toast} onDone={flow.hideToast} />}
+    </form>
   );
 }
