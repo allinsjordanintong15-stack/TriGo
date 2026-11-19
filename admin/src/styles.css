@@ -711,6 +711,9 @@ h2 {
   position: relative;
   width: 100%;
   overflow-x: auto;
+  /* overflow-x: auto makes overflow-y auto too; the table never needs vertical scrolling
+     here (no height limit), so a stray 1px overflow cannot show a vertical scrollbar. */
+  overflow-y: hidden;
 }
 
 .tag {
@@ -1894,16 +1897,27 @@ button.btn-link:disabled {
 
 /* ─── Page tabs (Dashboard, Drivers, Complaints, Settings) ─────────────── */
 
+/* Scrolls sideways on narrow windows (no visible scrollbar; swipe, shift+wheel or Tab) and
+   never vertically. overflow-x: auto turns overflow-y into auto as well, so the baseline is an
+   inset shadow inside the bar, not a border the tabs overlap with a negative margin (that
+   overlap made the content 2px taller than the bar and showed a vertical scrollbar). */
 .page-tabs {
   display: flex;
   gap: var(--space-xs);
-  border-bottom: 2px solid var(--color-border);
+  box-shadow: inset 0 -2px 0 var(--color-border);
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.page-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .page-tabs a {
+  flex: none;
   padding: 10px var(--space-md);
-  margin-bottom: -2px;
   border-bottom: 3px solid transparent;
   color: var(--color-text-secondary);
   font-weight: 600;
@@ -1926,9 +1940,10 @@ button.btn-link:disabled {
   color: var(--color-primary-dark);
 }
 
+/* Inside the tab: the bar clips anything drawn outside it. */
 .page-tabs a:focus-visible {
   outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .complaints-table {

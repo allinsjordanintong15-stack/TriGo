@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 import { useAdminCounts, type AdminCounts } from '../lib/adminCounts';
@@ -27,11 +28,26 @@ export function activeTab<T extends PageTab>(tabs: T[], pathname: string): T | u
 export function PageTabs({ label, tabs }: { label: string; tabs: PageTab[] }) {
   const { pathname } = useLocation();
   const { counts } = useAdminCounts();
-  if (tabs.length < 2) return null;
+  const navRef = useRef<HTMLElement>(null);
   const active = activeTab(tabs, pathname);
+  const activeKey = active?.to ?? null;
+
+  // On a narrow window the bar scrolls sideways: bring the active tab into view. Only the
+  // bar's own scrollLeft changes (scrollIntoView could also scroll the page).
+  useEffect(() => {
+    const nav = navRef.current;
+    const link = nav?.querySelector<HTMLElement>('a[aria-current="page"]');
+    if (!nav || !link) return;
+    const left = link.offsetLeft - nav.offsetLeft;
+    const right = left + link.offsetWidth;
+    if (left < nav.scrollLeft) nav.scrollLeft = left;
+    else if (right > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = right - nav.clientWidth;
+  }, [activeKey]);
+
+  if (tabs.length < 2) return null;
 
   return (
-    <nav className="page-tabs" aria-label={label}>
+    <nav className="page-tabs" aria-label={label} ref={navRef}>
       {tabs.map((tab) => {
         const isActive = tab === active;
         const count = tab.badge && counts ? counts[tab.badge.count] : 0;
