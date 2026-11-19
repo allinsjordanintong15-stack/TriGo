@@ -46,7 +46,8 @@ const OTHER_DRIVER = 'driver2';
 const UNVERIFIED_DRIVER = 'driver3';
 const BOOKING = 'booking1';
 
-const ESTIMATED_FARE = 45;
+// Default tricycle per-km fare for the 3.2 km trip below: 15 + 8 × 3.2 (security batch A).
+const ESTIMATED_FARE = 40.6;
 
 const MINUTE_MS = 60 * 1000;
 
@@ -63,7 +64,17 @@ function db(uid: string | null): Firestore {
 }
 
 function location(address: string) {
-  return { latitude: 9.97, longitude: 124.48, address };
+  return address.startsWith('Poblacion')
+    ? { latitude: 10.08, longitude: 124.343, address }
+    : { latitude: 10.06, longitude: 124.36, address };
+}
+
+/** A standard booking create as the app sends it: with the passenger's open-request pointer. */
+function createWithPointer(firestore: Firestore, data: DocumentData, owner: string = PASSENGER): Promise<void> {
+  const batch = writeBatch(firestore);
+  batch.set(doc(firestore, 'bookings', BOOKING), data);
+  batch.set(doc(firestore, 'passengerOpenRequest', owner), { kind: 'booking', id: BOOKING, updatedAt: serverTimestamp() });
+  return batch.commit();
 }
 
 function newBooking(overrides: DocumentData = {}): DocumentData {
@@ -199,79 +210,76 @@ beforeEach(async () => {
 
 describe('standard booking: create', () => {
   it('allows a passenger to create an unassigned pending booking', async () => {
-    await assertSucceeds(setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking()));
+    await assertSucceeds(createWithPointer(db(PASSENGER), newBooking()));
   });
 
   it('denies a signed-out user', async () => {
-    await assertFails(setDoc(doc(db(null), 'bookings', BOOKING), newBooking()));
+    await assertFails(createWithPointer(db(null), newBooking()));
   });
 
   it('denies creating a booking for another passenger', async () => {
     await assertFails(
-      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ passengerId: OTHER_PASSENGER })),
+      createWithPointer(db(PASSENGER), newBooking({ passengerId: OTHER_PASSENGER })),
     );
   });
 
   it('denies a passenger assigning a driver', async () => {
-    await assertFails(setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ driverId: DRIVER })));
+    await assertFails(createWithPointer(db(PASSENGER), newBooking({ driverId: DRIVER })));
   });
 
   it('denies a status other than pending', async () => {
-    await assertFails(setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ status: 'accepted' })));
+    await assertFails(createWithPointer(db(PASSENGER), newBooking({ status: 'accepted' })));
   });
 
   it('denies an unknown vehicle type', async () => {
-    await assertFails(setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ vehicleType: 'van' })));
+    await assertFails(createWithPointer(db(PASSENGER), newBooking({ vehicleType: 'van' })));
   });
 
   it('denies an invalid pickup location', async () => {
     await assertFails(
-      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ pickupLocation: { address: 'x' } })),
+      createWithPointer(db(PASSENGER), newBooking({ pickupLocation: { address: 'x' } })),
     );
   });
 
   it('denies a non-numeric estimated fare', async () => {
-    await assertFails(setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ estimatedFare: '45' })));
+    await assertFails(createWithPointer(db(PASSENGER), newBooking({ estimatedFare: '45' })));
   });
 
   it('allows expiresAt at the 30-minute maximum setting', async () => {
     await assertSucceeds(
-      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ expiresAt: expiresIn(30) })),
+      createWithPointer(db(PASSENGER), newBooking({ expiresAt: expiresIn(30) })),
     );
   });
 
   it('denies a booking without expiresAt', async () => {
     const { expiresAt: _omitted, ...withoutExpiry } = newBooking();
-    await assertFails(setDoc(doc(db(PASSENGER), 'bookings', BOOKING), withoutExpiry));
+    await assertFails(createWithPointer(db(PASSENGER), withoutExpiry));
   });
 
   it('denies a null or non-timestamp expiresAt', async () => {
     await assertFails(
-      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ expiresAt: null })),
+      createWithPointer(db(PASSENGER), newBooking({ expiresAt: null })),
     );
     await assertFails(
-      setDoc(
-        doc(db(PASSENGER), 'bookings', BOOKING),
-        newBooking({ expiresAt: Date.now() + 10 * MINUTE_MS }),
-      ),
+      createWithPointer(db(PASSENGER), newBooking({ expiresAt: Date.now() + 10 * MINUTE_MS })),
     );
   });
 
   it('denies expiresAt in the past', async () => {
     await assertFails(
-      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ expiresAt: expiresIn(-1) })),
+      createWithPointer(db(PASSENGER), newBooking({ expiresAt: expiresIn(-1) })),
     );
   });
 
   it('denies expiresAt more than 35 minutes ahead', async () => {
     await assertFails(
-      setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking({ expiresAt: expiresIn(36) })),
+      createWithPointer(db(PASSENGER), newBooking({ expiresAt: expiresIn(36) })),
     );
   });
 
   it('denies a driver-role account', async () => {
     await assertFails(
-      setDoc(doc(db(DRIVER), 'bookings', BOOKING), newBooking({ passengerId: DRIVER })),
+      createWithPointer(db(DRIVER), newBooking({ passengerId: DRIVER }), DRIVER),
     );
   });
 });
@@ -298,7 +306,7 @@ describe('standard booking: fare basis', () => {
   });
 
   function create(overrides: DocumentData) {
-    return setDoc(doc(db(PASSENGER), 'bookings', BOOKING), newBooking(overrides));
+    return createWithPointer(db(PASSENGER), newBooking(overrides));
   }
 
   function tariffBooking(overrides: DocumentData = {}): DocumentData {
@@ -316,7 +324,7 @@ describe('standard booking: fare basis', () => {
       fareBasis: 'per_km',
       pickupBarangayId: 'bongbong',
       destinationBarangayId: 'soom',
-      perKmRate: 8.5,
+      perKmRate: 8,
       ...overrides,
     };
   }
@@ -424,7 +432,7 @@ describe('standard booking: fare basis', () => {
   }
 
   it('allows a valid per-km rate without a fare basis (counts as per-km)', async () => {
-    await assertSucceeds(create({ perKmRate: 8.5 }));
+    await assertSucceeds(create({ perKmRate: 8 }));
   });
 
   it('denies an invalid per-km rate without a fare basis', async () => {

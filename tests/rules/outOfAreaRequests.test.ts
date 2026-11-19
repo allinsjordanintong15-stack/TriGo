@@ -118,8 +118,35 @@ function openRequestsQuery(uid: string, vehicleType: string) {
   );
 }
 
+/**
+ * A request create as the app sends it (security batch A): with the passenger's open-request
+ * pointer in the same commit.
+ */
 function createRequest(uid: string | null, data: DocumentData) {
-  return setDoc(doc(db(uid), 'outOfAreaRequests', REQUEST), data);
+  const firestore = db(uid);
+  const batch = writeBatch(firestore);
+  batch.set(doc(firestore, 'outOfAreaRequests', REQUEST), data);
+  batch.set(doc(firestore, 'passengerOpenRequest', uid ?? 'nobody'), {
+    kind: 'out_of_area',
+    id: REQUEST,
+    updatedAt: serverTimestamp(),
+  });
+  return batch.commit();
+}
+
+/**
+ * A new request the create rule accepts (security batch A): real points (Trinidad →
+ * Tagbilaran, ~72 km straight), a plausible 75 km road distance and the default tricycle
+ * per-km fare for it (15 + 8 × 75). Stored requests elsewhere keep newRequest's values.
+ */
+function newCreateRequest(overrides: DocumentData = {}): DocumentData {
+  return newRequest({
+    pickupLocation: { latitude: 10.08, longitude: 124.343, address: 'Poblacion, Trinidad' },
+    destination: { latitude: 9.65, longitude: 123.85, address: 'Tagbilaran City' },
+    distanceKm: 75,
+    standardEstimatedFare: 615,
+    ...overrides,
+  });
 }
 
 before(async () => {
@@ -154,66 +181,66 @@ beforeEach(async () => {
 
 describe('out-of-area request: create', () => {
   it('allows a passenger to create a valid searching request', async () => {
-    await assertSucceeds(createRequest(PASSENGER, newRequest()));
+    await assertSucceeds(createRequest(PASSENGER, newCreateRequest()));
   });
 
   it('allows an expiry just under the 35-minute cap', async () => {
-    await assertSucceeds(createRequest(PASSENGER, newRequest({ expiresAt: expiresInMinutes(34) })));
+    await assertSucceeds(createRequest(PASSENGER, newCreateRequest({ expiresAt: expiresInMinutes(34) })));
   });
 
   it('denies a signed-out user', async () => {
-    await assertFails(createRequest(null, newRequest()));
+    await assertFails(createRequest(null, newCreateRequest()));
   });
 
   it('denies a null expiresAt', async () => {
-    await assertFails(createRequest(PASSENGER, newRequest({ expiresAt: null })));
+    await assertFails(createRequest(PASSENGER, newCreateRequest({ expiresAt: null })));
   });
 
   it('denies a missing expiresAt', async () => {
-    const data = newRequest();
+    const data = newCreateRequest();
     delete data.expiresAt;
     await assertFails(createRequest(PASSENGER, data));
   });
 
   it('denies an expiresAt in the past', async () => {
-    await assertFails(createRequest(PASSENGER, newRequest({ expiresAt: expiresInMinutes(-1) })));
+    await assertFails(createRequest(PASSENGER, newCreateRequest({ expiresAt: expiresInMinutes(-1) })));
   });
 
   it('denies an expiresAt more than 35 minutes ahead', async () => {
-    await assertFails(createRequest(PASSENGER, newRequest({ expiresAt: expiresInMinutes(40) })));
+    await assertFails(createRequest(PASSENGER, newCreateRequest({ expiresAt: expiresInMinutes(40) })));
   });
 
   it('denies an extra field', async () => {
-    await assertFails(createRequest(PASSENGER, newRequest({ isPriority: true })));
+    await assertFails(createRequest(PASSENGER, newCreateRequest({ isPriority: true })));
   });
 
   it('denies a client-chosen createdAt', async () => {
-    await assertFails(createRequest(PASSENGER, newRequest({ createdAt: Timestamp.now() })));
+    await assertFails(createRequest(PASSENGER, newCreateRequest({ createdAt: Timestamp.now() })));
   });
 
   for (const fare of [0, -10]) {
     it(`denies a standardEstimatedFare of ${fare}`, async () => {
-      await assertFails(createRequest(PASSENGER, newRequest({ standardEstimatedFare: fare })));
+      await assertFails(createRequest(PASSENGER, newCreateRequest({ standardEstimatedFare: fare })));
     });
   }
 
   it('denies a distanceKm of 0', async () => {
-    await assertFails(createRequest(PASSENGER, newRequest({ distanceKm: 0 })));
+    await assertFails(createRequest(PASSENGER, newCreateRequest({ distanceKm: 0 })));
   });
 
   it('denies creating a request for another passenger', async () => {
-    await assertFails(createRequest(PASSENGER, newRequest({ passengerId: OTHER_PASSENGER })));
+    await assertFails(createRequest(PASSENGER, newCreateRequest({ passengerId: OTHER_PASSENGER })));
   });
 
   it('denies a request with a driver already set', async () => {
-    await assertFails(createRequest(PASSENGER, newRequest({ driverId: DRIVER })));
+    await assertFails(createRequest(PASSENGER, newCreateRequest({ driverId: DRIVER })));
   });
 
   it('denies a pre-filled fare agreement', async () => {
     await assertFails(
       createRequest(
         PASSENGER,
-        newRequest({
+        newCreateRequest({
           agreedFare: 100,
           fareAgreement: {
             standardEstimatedFare: 520,
@@ -229,12 +256,12 @@ describe('out-of-area request: create', () => {
 
   for (const status of ['negotiating', 'accepted']) {
     it(`denies creating with status ${status}`, async () => {
-      await assertFails(createRequest(PASSENGER, newRequest({ status })));
+      await assertFails(createRequest(PASSENGER, newCreateRequest({ status })));
     });
   }
 
   it('denies a driver-role account', async () => {
-    await assertFails(createRequest(DRIVER, newRequest({ passengerId: DRIVER })));
+    await assertFails(createRequest(DRIVER, newCreateRequest({ passengerId: DRIVER })));
   });
 });
 

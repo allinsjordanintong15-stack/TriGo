@@ -49,10 +49,14 @@ const DRIVER = 'driver1';
 /** Rules: sizeBytes <= 700000 (933 336 base64 characters; text at most 950 000). */
 const MAX_OK_BYTES = 700_000;
 
-/** `size` bytes of JPEG-like data as base64, exactly as the image manipulator returns it. */
+/**
+ * `size` bytes of JPEG-like data as base64, exactly as the image manipulator returns it:
+ * starting with the JPEG signature FF D8 FF (base64 "/9j/"), which the rules require.
+ */
 function base64Of(size: number): string {
   const jpeg = Buffer.alloc(size);
   for (let i = 0; i < size; i++) jpeg[i] = (i * 31 + size) & 0xff;
+  jpeg.set([0xff, 0xd8, 0xff].slice(0, size));
   return jpeg.toString('base64');
 }
 const KEPT_TIME = Timestamp.fromMillis(Date.UTC(2026, 10, 1));
@@ -253,7 +257,8 @@ describe('application documents: upload with the first submit', () => {
     strictAssert.equal(stored?.sizeBytes, 179_123);
   });
 
-  for (const size of [1, 2, 3]) {
+  // 4, 5 and 6 bytes: each base64 padding length, with room for the 3-byte JPEG signature.
+  for (const size of [4, 5, 6]) {
     it(`accepts a ${size}-byte photo (each base64 padding length)`, async () => {
       await assertSucceeds(submitWith(bothPhotos(photo('orCr', {}, size), photo('ltoLicense', {}, size))));
     });
@@ -337,6 +342,20 @@ describe('application documents: upload with the first submit', () => {
     for (const mimeType of ['image/png', 'application/pdf', 'image/heic', '']) {
       await assertFails(submitWith(bothPhotos(photo('orCr', { mimeType }))));
     }
+  });
+
+  // Security batch A (SEC-15): the data must start with the JPEG signature (base64 "/9j/").
+  it('refuses data that is not a JPEG (PNG, HTML, plain bytes)', async () => {
+    const withHeader = (header: number[]) => {
+      const bytes = Buffer.alloc(3000, 0x41);
+      bytes.set(header);
+      const dataBase64 = bytes.toString('base64');
+      return photo('orCr', { dataBase64, sizeBytes: 3000 });
+    };
+    await assertFails(submitWith(bothPhotos(withHeader([0x89, 0x50, 0x4e, 0x47]))));
+    await assertFails(submitWith(bothPhotos(withHeader([0x3c, 0x73, 0x63, 0x72]))));
+    await assertFails(submitWith(bothPhotos(withHeader([0x41, 0x41, 0x41]))));
+    await assertSucceeds(submitWith(bothPhotos(withHeader([0xff, 0xd8, 0xff]))));
   });
 
   it('refuses extra fields, a client-chosen time, a wrong uid and sizes over 1600 px', async () => {

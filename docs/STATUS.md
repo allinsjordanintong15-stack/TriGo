@@ -71,6 +71,11 @@ things stand.
   unread dot, "Mark all as read", badge on the Notifications tab and the Home bell, and a
   local phone notification (title only) for each new unread item while the app is running;
   tapping it opens the item. Needs the new rules deployed first.
+- **Security batch A (built 2026-11-19, not committed, not deployed):** the rules check every
+  new booking and out-of-area request (fare equal to the admin per-km fare or tariff, plausible
+  distance, Bohol / Philippines bounds, exact fields) and allow one open request per passenger
+  ("You already have a pending request"). Rules and app must be deployed together; older app
+  builds can no longer book. See docs/review/SECURITY_AUDIT.md.
 
 ### Driver (mobile app)
 - Tabs: Home, Requests, Trips, Earnings, Profile.

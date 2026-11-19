@@ -61,3 +61,18 @@ export async function fetchFareConfig(): Promise<TriGoFareConfig> {
     };
   }
 }
+
+/**
+ * The per-km fares the Firestore rules check a new booking against (fareSettings/active
+ * `fares`, or the in-code defaults while it has none), read now. Null when it could not be
+ * read, so a connection problem is never mistaken for a fare change.
+ */
+export async function fetchCurrentFareSettings(): Promise<FareSettings | null> {
+  try {
+    const snapshot = await getDoc(doc(firestore, COLLECTIONS.fareSettings, ACTIVE_FARE_CONFIG_DOC));
+    const fares = snapshot.exists() ? (snapshot.data().fares as FareSettings | undefined) : undefined;
+    return fares ? { ...DEFAULT_FARE_SETTINGS, ...fares } : DEFAULT_FARE_SETTINGS;
+  } catch {
+    return null;
+  }
+}

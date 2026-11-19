@@ -123,6 +123,8 @@ type Target =
   | 'approve: driver create'
   | 'reject: application review'
   | 'deletion decline'
+  | 'request create'
+  | 'open request pointer'
   | 'announcement create'
   | 'announcement withdraw'
   | 'announcement read'
@@ -247,8 +249,8 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
     '        && isValidVehicleDetails(request.resource.data)\n        && pad()\n        && request.resource.data.updatedAt == request.time',
   ],
   'standard create': [
-    "        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')\n        && isValidFareBasis();",
-    "        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')\n        && isValidFareBasis()\n        && pad();",
+    '        && getAfter(openRequestPath(request.auth.uid)).data.id == bookingId\n        && isValidFareBasis();',
+    '        && getAfter(openRequestPath(request.auth.uid)).data.id == bookingId\n        && isValidFareBasis()\n        && pad();',
   ],
   'consent: user create': [
     "        && (!('legalConsent' in request.resource.data) || isNewConsent(request.resource.data));",
@@ -321,6 +323,15 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
   'admin lift': [
     '        && request.resource.data.suspensionLiftedBy == request.auth.uid;',
     '        && request.resource.data.suspensionLiftedBy == request.auth.uid\n        && pad();',
+  ],
+  // Out-of-area request create (passenger): after the last term of the rule.
+  'request create': [
+    "        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm');",
+    "        && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')\n        && pad();",
+  ],
+  'open request pointer': [
+    '      allow update: if isOwner(uid) && isValidPointer() && !isOpenTarget(resource.data);',
+    '      allow update: if isOwner(uid) && isValidPointer() && !isOpenTarget(resource.data) && pad();',
   ],
   // After the kind check (system notices read the decision's document there).
   'admin message create': [
@@ -541,13 +552,23 @@ const confirm: Scenario = {
   },
 };
 
-// Standard booking create as createStandardBooking writes it (bookings.test.ts, fare basis).
+// Standard booking create as createStandardBooking writes it (bookings.test.ts, fare basis):
+// a trip inside Trinidad at the default per-km fare (or the tariff), with the passenger's
+// open-request pointer moved to it in the same commit, replacing a finished booking (the
+// pointer's update path, the longest).
+const TRIP_PICKUP = { latitude: 10.08, longitude: 124.343, address: 'Poblacion, Trinidad' };
+const TRIP_DESTINATION = { latitude: 10.06, longitude: 124.36, address: 'Bongbong, Trinidad' };
+const TRIP_KM = 3.2;
+const TRIP_FARE = Math.round((15 + 8 * TRIP_KM) * 100) / 100;
+
 function standardCreate(label: string, fareFields: DocumentData): Scenario {
   return {
     label,
-    targets: ['standard create'],
+    targets: ['standard create', 'open request pointer'],
     run: async () => {
       await seed({
+        'bookings/finished': { passengerId: PASSENGER, status: 'cancelled', expiresAt: Timestamp.now() },
+        [`passengerOpenRequest/${PASSENGER}`]: { kind: 'booking', id: 'finished', updatedAt: Timestamp.now() },
         'barangayTariffs/bongbong': {
           name: 'Bongbong',
           tricycle: 40.5,
@@ -557,15 +578,18 @@ function standardCreate(label: string, fareFields: DocumentData): Scenario {
           updatedBy: 'admin1',
         },
       });
-      await setDoc(doc(db(PASSENGER), 'bookings', BOOKING), {
+      const firestore = db(PASSENGER);
+      const batch = writeBatch(firestore);
+      batch.set(doc(firestore, 'passengerOpenRequest', PASSENGER), { kind: 'booking', id: BOOKING, updatedAt: serverTimestamp() });
+      batch.set(doc(firestore, 'bookings', BOOKING), {
         passengerId: PASSENGER,
         driverId: null,
         vehicleType: 'tricycle',
         bookingType: 'standard',
-        pickupLocation: location('Poblacion, Trinidad'),
-        destination: location('Bongbong, Trinidad'),
-        distanceKm: 3.2,
-        estimatedFare: 42.2,
+        pickupLocation: TRIP_PICKUP,
+        destination: TRIP_DESTINATION,
+        distanceKm: TRIP_KM,
+        estimatedFare: TRIP_FARE,
         driverProposedFare: null,
         agreedFare: null,
         fareAgreement: null,
@@ -586,9 +610,42 @@ function standardCreate(label: string, fareFields: DocumentData): Scenario {
         expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
         ...fareFields,
       });
+      await batch.commit();
     },
   };
 }
+
+// Out-of-area request create as createOutOfAreaRequest writes it.
+const requestCreate: Scenario = {
+  label: 'out-of-area request create (passenger)',
+  targets: ['request create', 'open request pointer'],
+  run: async () => {
+    await seed({
+      'outOfAreaRequests/finished': { passengerId: PASSENGER, status: 'cancelled', expiresAt: Timestamp.now() },
+      [`passengerOpenRequest/${PASSENGER}`]: { kind: 'out_of_area', id: 'finished', updatedAt: Timestamp.now() },
+    });
+    const firestore = db(PASSENGER);
+    const batch = writeBatch(firestore);
+    batch.set(doc(firestore, 'passengerOpenRequest', PASSENGER), { kind: 'out_of_area', id: 'newRequest', updatedAt: serverTimestamp() });
+    batch.set(doc(firestore, 'outOfAreaRequests', 'newRequest'), {
+      passengerId: PASSENGER,
+      pickupLocation: TRIP_PICKUP,
+      destination: { latitude: 9.65, longitude: 123.85, address: 'Tagbilaran City' },
+      vehicleType: 'tricycle',
+      distanceKm: 75,
+      standardEstimatedFare: Math.round((15 + 8 * 75) * 100) / 100,
+      suggestedAgreementFare: null,
+      agreedFare: null,
+      status: 'searching',
+      driverId: null,
+      fareAgreement: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
+    });
+    await batch.commit();
+  },
+};
 
 // New work (commissionEnforcement.test.ts) with the costliest account that still passes
 // isCommissionSuspended(): an unpaid closed period inside its grace period, so both halves
@@ -909,7 +966,7 @@ const APPLICANT_MOBILE = '+639171234567';
 // The largest photo the rules allow (700 000 bytes, 933 336 base64 characters), as the app
 // writes it.
 const PHOTO_BYTES = 700_000;
-const PHOTO_BASE64 = Buffer.alloc(PHOTO_BYTES, 0xab).toString('base64');
+const PHOTO_BASE64 = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(PHOTO_BYTES - 3, 0xab)]).toString('base64');
 const PHOTO_TIME = Timestamp.fromMillis(Date.UTC(2026, 10, 1));
 
 function documentPhoto(uid: string, type: string, uploadedAt: unknown = serverTimestamp()): DocumentData {
@@ -1867,12 +1924,13 @@ const SCENARIOS: Scenario[] = [
   goOnlineScenario,
   goOfflineScenario,
   confirm,
+  requestCreate,
   standardCreate('standard booking create: older shape (no fareBasis)', {}),
   standardCreate('standard booking create: per-km', {
     fareBasis: 'per_km',
     pickupBarangayId: 'poblacion',
     destinationBarangayId: 'bongbong',
-    perKmRate: 8.5,
+    perKmRate: 8,
   }),
   standardCreate('standard booking create: barangay tariff', {
     fareBasis: 'barangay_tariff',
@@ -1937,6 +1995,11 @@ const ONLY_WARNING = process.env.TRIGO_HEADROOM === 'warning';
 const WARNING_LABELS = /^warning/;
 const ONLY_SUSPENSION = process.env.TRIGO_HEADROOM === 'suspension';
 const SUSPENSION_LABELS = /^(admin suspension|T1 accept: expired admin|propose: expired admin)/;
+// TRIGO_HEADROOM=secA: every path security batch A touches (booking and request create,
+// completion + commission, duty, photo submit) plus the tightest driver paths for reference.
+const ONLY_SEC_A = process.env.TRIGO_HEADROOM === 'secA';
+const SEC_A_LABELS =
+  /^(standard booking create|out-of-area request create|completion|duty|driver application: submit|out-of-area confirm|propose: account inside grace, approved-applicant driver|propose: expired admin suspension, account inside grace, approved-applicant driver)/;
 // TRIGO_HEADROOM=inbox: every admin decision that writes a message to the user's inbox.
 const ONLY_INBOX = process.env.TRIGO_HEADROOM === 'inbox';
 const INBOX_LABELS =
@@ -1997,7 +2060,8 @@ try {
       (!ONLY_COMPLAINT || COMPLAINT_LABELS.test(s.label)) &&
       (!ONLY_WARNING || WARNING_LABELS.test(s.label)) &&
       (!ONLY_SUSPENSION || SUSPENSION_LABELS.test(s.label)) &&
-      (!ONLY_INBOX || INBOX_LABELS.test(s.label)),
+      (!ONLY_INBOX || INBOX_LABELS.test(s.label)) &&
+      (!ONLY_SEC_A || SEC_A_LABELS.test(s.label)),
   );
   for (const scenario of selected) {
     console.log(scenario.label);

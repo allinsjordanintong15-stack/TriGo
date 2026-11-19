@@ -34,4 +34,5 @@ export const COLLECTIONS = {
   warnings: 'warnings',
   adminMessages: 'adminMessages',
   announcements: 'announcements',
+  passengerOpenRequest: 'passengerOpenRequest',
 } as const;

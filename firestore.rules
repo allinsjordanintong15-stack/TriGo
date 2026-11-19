@@ -234,11 +234,88 @@ service cloud.firestore {
       return math.abs(value * 100 - math.round(value * 100)) < 0.000001;
     }
 
+    // ─── Trip limits (security batch A, 2026-11-19) ───────────────────────────
+    // Keep equal to shared/bookings/limits.ts (tests/booking/bookingLimitsSync.test.ts).
+    function maxFarePesos() {
+      return 20000;
+    }
+
+    function maxDistanceKm() {
+      return 300;
+    }
+
+    function maxAddressLength() {
+      return 200;
+    }
+
+    // A fare: more than 0, at most maxFarePesos(), whole centavos. NaN fails every
+    // comparison and Infinity fails the maximum, so only finite amounts pass.
+    function isValidFareAmount(value) {
+      return value is number
+        && value > 0
+        && value <= maxFarePesos()
+        && hasAtMostTwoDecimals(value);
+    }
+
+    // Exactly latitude, longitude and an address of at most maxAddressLength() characters.
     function isValidLocation(loc) {
-      return loc.keys().hasAll(['latitude', 'longitude', 'address'])
+      return loc is map
+        && loc.keys().hasAll(['latitude', 'longitude', 'address'])
+        && loc.keys().hasOnly(['latitude', 'longitude', 'address'])
         && loc.latitude is number
         && loc.longitude is number
-        && loc.address is string;
+        && loc.address is string
+        && loc.address.size() <= maxAddressLength();
+    }
+
+    // Generous box around Bohol (standard bookings) and around the Philippines (out-of-area
+    // requests). Comparisons also reject NaN and Infinity.
+    function isInBohol(loc) {
+      return loc.latitude >= 9.4 && loc.latitude <= 10.25
+        && loc.longitude >= 123.6 && loc.longitude <= 124.7;
+    }
+
+    function isInPhilippines(loc) {
+      return loc.latitude >= 4.0 && loc.latitude <= 21.5
+        && loc.longitude >= 116.0 && loc.longitude <= 127.0;
+    }
+
+    // Road distance (km, from the app's route) plausible for the two points: above 0, at most
+    // maxDistanceKm(), between 0.9 × and 4 × + 2 km the straight line (equirectangular
+    // approximation at ~10° N: 109.6 km per degree of longitude, 110.6 km per degree of
+    // latitude).
+    function isPlausibleDistance(distanceKm, a, b) {
+      let dx = (b.longitude - a.longitude) * 109.6;
+      let dy = (b.latitude - a.latitude) * 110.6;
+      let straight = math.sqrt(dx * dx + dy * dy);
+      return distanceKm is number
+        && distanceKm > 0
+        && distanceKm <= maxDistanceKm()
+        && distanceKm >= 0.9 * straight
+        && distanceKm <= 4 * straight + 2;
+    }
+
+    // The admin per-km fares (fareSettings/active.fares), or the app's in-code defaults while
+    // none are saved. Keep the defaults equal to DEFAULT_FARE_SETTINGS in src/constants
+    // (tests/booking/bookingLimitsSync.test.ts).
+    function activeFares() {
+      let path = /databases/$(database)/documents/fareSettings/active;
+      let defaults = {
+        'tricycle': { 'baseFare': 15, 'perKm': 8 },
+        'motorcycle': { 'baseFare': 10, 'perKm': 6 }
+      };
+      return exists(path) ? get(path).data.get('fares', defaults) : defaults;
+    }
+
+    // fare == base + rate × distance, kept to the centavo exactly as shared/fares perKmFare
+    // (Math.round of the amount × 100).
+    function isPerKmFare(fare, rate, distanceKm) {
+      return math.round(fare * 100) == math.round((rate.baseFare + rate.perKm * distanceKm) * 100);
+    }
+
+    // passengerOpenRequest/{uid}: the passenger's newest booking or out-of-area request.
+    function openRequestPath(uid) {
+      return /databases/$(database)/documents/passengerOpenRequest/$(uid);
     }
 
     // ─── Users ─────────────────────────────────────────────────────────────
@@ -561,6 +638,7 @@ service cloud.firestore {
 
       // A barangay tariff booking is Poblacion <-> X, X's tariff is active and estimatedFare
       // equals it for the vehicle type. A missing tariff document fails the get (denied).
+      // (Tariffs are written by admins with whole centavos, above 0.)
       function isTariffFare(pickup, destination) {
         let barangayId = pickup == 'poblacion' ? destination : pickup;
         let tariff = get(/databases/$(database)/documents/barangayTariffs/$(barangayId)).data;
@@ -571,10 +649,12 @@ service cloud.firestore {
       }
 
       // Fare basis of a new standard booking (barangay tariffs, 2026-10-28): fareBasis
-      // 'per_km' (perKmRate optional) or 'barangay_tariff' (no perKmRate), with optional
-      // pickup/destination barangay IDs. A missing fareBasis (older app versions) is per-km.
-      // Known limit: rules cannot check that the pins are really in those barangays, nor the
-      // per-km amount (distance and rate come from the app).
+      // 'per_km' or 'barangay_tariff' (no perKmRate), with optional pickup/destination barangay
+      // IDs. A missing fareBasis (older app versions) is per-km. Per-km (security batch A,
+      // 2026-11-19): estimatedFare is recomputed from the admin fares for the vehicle and the
+      // distance and must match to the centavo; a stored perKmRate must be that rate.
+      // Known limit: rules cannot check that the pins are really in those barangays, and the
+      // road distance comes from the app (bounded by isPlausibleDistance).
       function isValidFareBasis() {
         let data = request.resource.data;
         let basis = data.get('fareBasis', 'per_km');
@@ -586,11 +666,43 @@ service cloud.firestore {
           && (
             (
               basis == 'per_km'
-              && (perKmRate == null
-                || (perKmRate is number && perKmRate > 0 && hasAtMostTwoDecimals(perKmRate)))
+              && isPerKmBooking(data, perKmRate, activeFares()[data.vehicleType])
             )
             || (basis == 'barangay_tariff' && perKmRate == null && isTariffFare(pickup, destination))
           );
+      }
+
+      // Per-km: the stored rate (if any) is the admin rate and the fare matches it. Only
+      // evaluated for per-km bookings, so tariff bookings never read the fare settings.
+      function isPerKmBooking(data, perKmRate, rate) {
+        return (perKmRate == null || perKmRate == rate.perKm)
+          && isPerKmFare(data.estimatedFare, rate, data.distanceKm);
+      }
+
+      // Exactly the fields createStandardBooking writes (security batch A, SEC-02): trip,
+      // fare basis and expiry, every later field still empty, server times.
+      function isValidStandardBookingShape() {
+        let data = request.resource.data;
+        return data.keys().hasOnly([
+            'passengerId', 'driverId', 'vehicleType', 'bookingType', 'pickupLocation',
+            'destination', 'distanceKm', 'estimatedFare', 'driverProposedFare', 'agreedFare',
+            'fareAgreement', 'finalFare', 'status', 'outOfAreaRequestId', 'createdAt',
+            'updatedAt', 'acceptedAt', 'arrivedAt', 'startedAt', 'completedAt', 'cancelledAt',
+            'paymentMethod', 'cancelledBy', 'cancellationReason', 'expiresAt', 'fareBasis',
+            'pickupBarangayId', 'destinationBarangayId', 'perKmRate'
+          ])
+          && data.get('fareBasis', 'per_km') in ['per_km', 'barangay_tariff']
+          && [
+            data.get('driverProposedFare', null), data.get('agreedFare', null),
+            data.get('fareAgreement', null), data.get('finalFare', null),
+            data.get('outOfAreaRequestId', null), data.get('acceptedAt', null),
+            data.get('arrivedAt', null), data.get('startedAt', null),
+            data.get('completedAt', null), data.get('cancelledAt', null),
+            data.get('paymentMethod', null), data.get('cancelledBy', null),
+            data.get('cancellationReason', null)
+          ] == [null, null, null, null, null, null, null, null, null, null, null, null, null]
+          && data.createdAt == request.time
+          && data.updatedAt == request.time;
       }
 
       // Passengers create standard bookings with driverId == null. Driver assignment is a
@@ -598,6 +710,10 @@ service cloud.firestore {
       // Standard bookings expire (2026-11-01): the app writes expiresAt from the admin
       // setting (fareSettings/active.booking, 1-30 min); the 35-minute cap leaves 5 minutes
       // of client clock-skew grace, as for out-of-area requests.
+      // Security batch A (2026-11-19): exact field set, both ends in Bohol, a plausible road
+      // distance, a valid fare equal to the per-km or tariff fare, and only together with the
+      // passenger's open-request pointer moved to this booking (one open request at a time,
+      // passengerOpenRequest rules).
       allow create: if isSignedIn()
         && isPassenger()
         && request.resource.data.passengerId == request.auth.uid
@@ -605,13 +721,22 @@ service cloud.firestore {
         && request.resource.data.driverId == null
         && request.resource.data.bookingType == 'standard'
         && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
+        && isValidStandardBookingShape()
         && isValidLocation(request.resource.data.pickupLocation)
         && isValidLocation(request.resource.data.destination)
-        && request.resource.data.distanceKm is number
-        && request.resource.data.estimatedFare is number
+        && isInBohol(request.resource.data.pickupLocation)
+        && isInBohol(request.resource.data.destination)
+        && isPlausibleDistance(
+          request.resource.data.distanceKm,
+          request.resource.data.pickupLocation,
+          request.resource.data.destination
+        )
+        && isValidFareAmount(request.resource.data.estimatedFare)
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt > request.time
         && request.resource.data.expiresAt <= request.time + duration.value(35, 'm')
+        && getAfter(openRequestPath(request.auth.uid)).data.kind == 'booking'
+        && getAfter(openRequestPath(request.auth.uid)).data.id == bookingId
         && isValidFareBasis();
 
       allow create: if isSignedIn()
@@ -696,6 +821,7 @@ service cloud.firestore {
             && request.resource.data.status == 'completed'
             && request.resource.data.completedAt == request.time
             && request.resource.data.paymentMethod in ['cash', 'gcash']
+            && request.resource.data.finalFare > 0
             && isExpectedFinalFare()
             && onlyChanged(['status', 'completedAt', 'finalFare', 'paymentMethod', 'updatedAt'])
             && (!exists(commissionSettingsPath()) || existsAfter(commissionPath(bookingId)))
@@ -846,10 +972,24 @@ service cloud.firestore {
         && request.resource.data.vehicleType in ['tricycle', 'motorcycle']
         && isValidLocation(request.resource.data.pickupLocation)
         && isValidLocation(request.resource.data.destination)
-        && request.resource.data.distanceKm is number
-        && request.resource.data.distanceKm > 0
-        && request.resource.data.standardEstimatedFare is number
-        && request.resource.data.standardEstimatedFare > 0
+        // Security batch A (2026-11-19): both ends in the Philippines, a plausible road
+        // distance, the admin per-km fare for it (never passenger-chosen), and only together
+        // with the passenger's open-request pointer moved to this request.
+        && isInPhilippines(request.resource.data.pickupLocation)
+        && isInPhilippines(request.resource.data.destination)
+        && isPlausibleDistance(
+          request.resource.data.distanceKm,
+          request.resource.data.pickupLocation,
+          request.resource.data.destination
+        )
+        && isValidFareAmount(request.resource.data.standardEstimatedFare)
+        && isPerKmFare(
+          request.resource.data.standardEstimatedFare,
+          activeFares()[request.resource.data.vehicleType],
+          request.resource.data.distanceKm
+        )
+        && getAfter(openRequestPath(request.auth.uid)).data.kind == 'out_of_area'
+        && getAfter(openRequestPath(request.auth.uid)).data.id == requestId
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && request.resource.data.expiresAt is timestamp
@@ -924,6 +1064,43 @@ service cloud.firestore {
               .hasOnly(['status', 'driverId', 'suggestedAgreementFare', 'fareAgreement', 'updatedAt'])
           )
         );
+    }
+
+    // ─── One open request per passenger (security batch A, SEC-03) ───────────
+    // passengerOpenRequest/{uid} = { kind: 'booking' | 'out_of_area', id, updatedAt }: the
+    // passenger's newest standard booking or out-of-area request. The passenger moves it to a
+    // booking or request created in the same commit (whose create rules require it), and only
+    // while the one it points at is no longer open: a booking that is no longer pending or has
+    // expired, a request no longer searching / interested / negotiating or expired. Nothing
+    // clears it; cancelling, a driver accepting and expiry close the target. Owner-only.
+    match /passengerOpenRequest/{uid} {
+      function isOpenTarget(lock) {
+        let path = lock.kind == 'booking' ? bookingPath(lock.id) : requestPath(lock.id);
+        let target = get(path).data;
+        return target.status in (lock.kind == 'booking'
+            ? ['pending']
+            : ['searching', 'driver_interested', 'negotiating'])
+          && target.get('expiresAt', null) is timestamp
+          && request.time < target.expiresAt;
+      }
+
+      function isValidPointer() {
+        let data = request.resource.data;
+        let path = data.kind == 'booking' ? bookingPath(data.id) : requestPath(data.id);
+        return data.keys().hasAll(['kind', 'id', 'updatedAt'])
+          && data.keys().hasOnly(['kind', 'id', 'updatedAt'])
+          && data.kind in ['booking', 'out_of_area']
+          && data.id is string
+          && data.updatedAt == request.time
+          // Created in this commit, for this passenger.
+          && !exists(path)
+          && getAfter(path).data.passengerId == uid;
+      }
+
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidPointer();
+      allow update: if isOwner(uid) && isValidPointer() && !isOpenTarget(resource.data);
+      allow delete: if false;
     }
 
     // ─── Ratings ───────────────────────────────────────────────────────────
@@ -1305,6 +1482,11 @@ service cloud.firestore {
             request.resource.data.currentLocation != null
             && request.resource.data.currentLocation.latitude is number
             && request.resource.data.currentLocation.longitude is number
+            // Finite and on Earth (NaN and Infinity fail the comparisons).
+            && request.resource.data.currentLocation.latitude >= -90
+            && request.resource.data.currentLocation.latitude <= 90
+            && request.resource.data.currentLocation.longitude >= -180
+            && request.resource.data.currentLocation.longitude <= 180
           )
         )
         // Going online (offline → online) records a position.
@@ -1557,6 +1739,8 @@ service cloud.firestore {
           && request.resource.data.dataBase64.size() >= 4
           && request.resource.data.dataBase64.size() <= 950000
           && request.resource.data.dataBase64.size() % 4 == 0
+          // A JPEG: base64 of its FF D8 FF signature (security batch A, SEC-15).
+          && request.resource.data.dataBase64.matches('/9j/.*')
           && request.resource.data.sizeBytes is int
           && request.resource.data.sizeBytes >= 1
           && request.resource.data.sizeBytes <= 700000
@@ -1870,6 +2054,8 @@ service cloud.firestore {
           && data.finalFare == completed.finalFare
           && data.percentage == settings.percentage
           && data.amountCentavos == math.round(completed.finalFare * settings.percentage * 1.0)
+          // Never negative, so only a confirmed payment lowers what a driver owes.
+          && data.amountCentavos >= 0
           && account.lastBookingId == bookingId
           && data.periodSeq == account.current.seq
           && data.completedAt == request.time;

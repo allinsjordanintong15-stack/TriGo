@@ -15,6 +15,13 @@ import {
 import { COLLECTIONS, firestore } from '@/firebase';
 import { declineProposal } from '@/services/fareAgreementService';
 import { fetchBarangayTariffs } from '@/services/barangayTariffService';
+import { fetchCurrentFareSettings } from '@/services/fareService';
+import {
+  addOpenRequestToBatch,
+  findOpenRequest,
+  OPEN_REQUEST_EXISTS_MESSAGE,
+  OpenRequestKind,
+} from '@/services/openRequestService';
 import { findBarangayAt, isOutOfAreaTrip } from '@/services/serviceAreaService';
 import {
   Booking,
@@ -33,7 +40,14 @@ import {
 import { formatPhilippinePeso } from '@/utils/fare';
 import { BarangayTariffs, quoteFare } from '@/utils/fareQuote';
 import {
-  addDoc,
+  BOHOL_BOUNDS,
+  isPlausibleDistance,
+  isValidFareAmount,
+  isWithinBounds,
+  PHILIPPINES_BOUNDS,
+  toStoredLocation,
+} from '../../shared/bookings/limits.ts';
+import {
   collection,
   doc,
   getDoc,
@@ -51,6 +65,44 @@ export class BookingServiceError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'BookingServiceError';
+  }
+}
+
+/** The passenger still has a pending booking or an open out-of-area request (one at a time). */
+export class OpenRequestExistsError extends BookingServiceError {
+  readonly kind: OpenRequestKind;
+  readonly id: string;
+
+  constructor(kind: OpenRequestKind, id: string) {
+    super(OPEN_REQUEST_EXISTS_MESSAGE);
+    this.name = 'OpenRequestExistsError';
+    this.kind = kind;
+    this.id = id;
+  }
+}
+
+async function assertNoOpenRequest(passengerId: string): Promise<void> {
+  const open = await findOpenRequest(passengerId);
+  if (open) throw new OpenRequestExistsError(open.kind, open.id);
+}
+
+export const TRIP_OUTSIDE_AREA_MESSAGE = 'Pickup and destination must be in Bohol for this ride.';
+export const TRIP_TOO_FAR_MESSAGE = 'This trip is too long to book in TriGo.';
+
+/**
+ * The same limits the Firestore rules apply to a new booking or request (shared/bookings/
+ * limits.ts), checked first so the passenger gets a clear message.
+ */
+function assertBookableTrip(quote: TripQuote, inBohol: boolean): void {
+  const bounds = inBohol ? BOHOL_BOUNDS : PHILIPPINES_BOUNDS;
+  if (!isWithinBounds(quote.pickupLocation, bounds) || !isWithinBounds(quote.destination, bounds)) {
+    throw new BookingServiceError(TRIP_OUTSIDE_AREA_MESSAGE);
+  }
+  if (!isPlausibleDistance(quote.distanceKm, quote.pickupLocation, quote.destination)) {
+    throw new BookingServiceError(ROAD_ROUTE_UNAVAILABLE_MESSAGE);
+  }
+  if (!isValidFareAmount(quote.standardEstimatedFare)) {
+    throw new BookingServiceError(TRIP_TOO_FAR_MESSAGE);
   }
 }
 
@@ -141,6 +193,21 @@ export async function createOutOfAreaRequest(
     throw new BookingServiceError(ROAD_ROUTE_UNAVAILABLE_MESSAGE);
   }
 
+  await assertNoOpenRequest(passengerId);
+
+  // The rules require the admin per-km fare for this distance, priced with the current
+  // settings: a fare that changed since the quote is shown, never sent.
+  const currentFares = await fetchCurrentFareSettings();
+  if (currentFares) {
+    const latest = requoteTrip(quote, currentFares, {});
+    if (latest.standardEstimatedFare !== quote.standardEstimatedFare) {
+      throw new BookingServiceError(
+        `The fare changed to ${formatPhilippinePeso(latest.standardEstimatedFare)}. Go back and check the trip again.`,
+      );
+    }
+  }
+  assertBookableTrip(quote, false);
+
   // Must stay within the rules' expiry window (see MAX_REQUEST_EXPIRY_MINUTES).
   const expiryMinutes =
     settings.requestExpiryMinutes > 0
@@ -150,8 +217,8 @@ export async function createOutOfAreaRequest(
 
   const requestData = {
     passengerId,
-    pickupLocation: quote.pickupLocation,
-    destination: quote.destination,
+    pickupLocation: toStoredLocation(quote.pickupLocation),
+    destination: toStoredLocation(quote.destination),
     vehicleType: quote.vehicleType,
     distanceKm: quote.distanceKm,
     standardEstimatedFare: quote.standardEstimatedFare,
@@ -165,7 +232,17 @@ export async function createOutOfAreaRequest(
     expiresAt: Timestamp.fromDate(expiresAt),
   };
 
-  const docRef = await addDoc(collection(firestore, COLLECTIONS.outOfAreaRequests), requestData);
+  // The request and the passenger's open-request pointer in one commit (firestore.rules).
+  const docRef = doc(collection(firestore, COLLECTIONS.outOfAreaRequests));
+  const batch = writeBatch(firestore);
+  batch.set(docRef, requestData);
+  addOpenRequestToBatch(batch, passengerId, 'out_of_area', docRef.id);
+  try {
+    await batch.commit();
+  } catch (error) {
+    if ((error as { code?: string }).code === 'permission-denied') await assertNoOpenRequest(passengerId);
+    throw error;
+  }
   const snapshot = await getDoc(docRef);
 
   if (!snapshot.exists()) {
@@ -287,8 +364,8 @@ function buildBookingDocument(
     driverId: null,
     vehicleType: quote.vehicleType,
     bookingType: quote.bookingType,
-    pickupLocation: quote.pickupLocation,
-    destination: quote.destination,
+    pickupLocation: toStoredLocation(quote.pickupLocation),
+    destination: toStoredLocation(quote.destination),
     distanceKm: quote.distanceKm,
     estimatedFare: quote.standardEstimatedFare,
     driverProposedFare: null,
@@ -365,20 +442,30 @@ export async function createStandardBooking(
     );
   }
 
+  await assertNoOpenRequest(passengerId);
+
+  // Priced again with the tariffs and per-km fares the rules check now (firestore.rules
+  // recomputes the per-km fare); a different fare is shown, never booked.
   let bookedQuote = quote;
-  const latestTariffs = await fetchBarangayTariffs();
-  if (latestTariffs !== null) {
-    const latest = requoteTrip(quote, fareSettings, latestTariffs);
+  const [latestTariffs, currentFares] = await Promise.all([fetchBarangayTariffs(), fetchCurrentFareSettings()]);
+  const fares = currentFares ?? fareSettings;
+  if (latestTariffs !== null || (currentFares !== null && quote.fareBasis === 'per_km')) {
+    const tariffs = latestTariffs ?? {};
+    const latest = requoteTrip(quote, fares, tariffs);
     if (latest.standardEstimatedFare !== quote.standardEstimatedFare) {
       throw new FareChangedError(latest, latestTariffs);
     }
     // Same amount (e.g. a tariff equal to the per-km fare): book it with the current basis.
     bookedQuote = latest;
   }
+  assertBookableTrip(bookedQuote, true);
 
   try {
-    const docRef = await addDoc(
-      collection(firestore, COLLECTIONS.bookings),
+    // The booking and the passenger's open-request pointer in one commit (firestore.rules).
+    const docRef = doc(collection(firestore, COLLECTIONS.bookings));
+    const batch = writeBatch(firestore);
+    batch.set(
+      docRef,
       buildBookingDocument(passengerId, bookedQuote, {
         bookingType: 'standard',
         status: 'pending',
@@ -389,6 +476,8 @@ export async function createStandardBooking(
         ),
       }),
     );
+    addOpenRequestToBatch(batch, passengerId, 'booking', docRef.id);
+    await batch.commit();
 
     const snapshot = await getDoc(docRef);
     if (!snapshot.exists()) {
@@ -401,13 +490,18 @@ export async function createStandardBooking(
       throw error;
     }
 
+    // Refused: another request opened meanwhile (e.g. on another phone) gets its message.
+    if ((error as { code?: string }).code === 'permission-denied') {
+      await assertNoOpenRequest(passengerId);
+    }
+
     if (
       (error as { code?: string }).code === 'permission-denied' &&
       bookedQuote.fareBasis === 'barangay_tariff'
     ) {
       // No tariffs (read failed again) prices the trip per-km, which the rules accept.
       const retryTariffs = await fetchBarangayTariffs();
-      const latest = requoteTrip(bookedQuote, fareSettings, retryTariffs ?? {});
+      const latest = requoteTrip(bookedQuote, fares, retryTariffs ?? {});
       if (latest.standardEstimatedFare !== bookedQuote.standardEstimatedFare) {
         throw new FareChangedError(latest, retryTariffs);
       }
