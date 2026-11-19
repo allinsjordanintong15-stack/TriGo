@@ -24,10 +24,10 @@ never because of a setup error.
 | SEC-06 | Low–Medium | Coordinates and address text not range/size-checked (passenger and driver location spoofing) | Failing tests | **Fixed** for ranges/sizes (batch A); plausible spoofing Accepted |
 | SEC-07 | Low | `paymentReferences` get is an oracle: tells whether any GCash reference is already used | Failing test | Open (todo test; candidate for Accepted) |
 | SEC-08 | Low–Medium | Out-of-area `standardEstimatedFare` and `distanceKm` are client-chosen | Failing test | **Fixed** (batch A) |
-| SEC-09 | Medium | Admin CSV export is open to formula injection (driver names, reasons) | Failing test against the shipped `csvCell` | Open (todo test) |
+| SEC-09 | Medium | Admin CSV export is open to formula injection (driver names, reasons) | Failing test against the shipped `csvCell` | **Fixed** (batch B) |
 | SEC-10 | Medium (unverified) | Realtime Database is configured (`EXPO_PUBLIC_FIREBASE_DATABASE_URL`) but has no rules in the repo | Console check needed | **Code fixed** (cleanup, 2026-11-19); console check still open |
 | SEC-11 | Low–Medium | Account deletion leaves personal data in bookings, requests, complaints, ratings, payments; deleted users can still book until Auth is removed | Code review | Open (retention decision) |
-| SEC-12 | Low | Admin website has no security headers (clickjacking, no CSP) | `firebase.json` review | Open |
+| SEC-12 | Low | Admin website has no security headers (clickjacking, no CSP) | `firebase.json` review | **Fixed** (batch B; live after the next Hosting deploy) |
 | SEC-13 | Low | Auth: no email verification, server-side password minimum is Firebase's 6, enumeration-friendly error text | Code review | Open (console settings) |
 | SEC-14 | Low | Admin accounts have no MFA; one `admin: true` claim = full control | Design review | Open |
 | SEC-15 | Low | Document "photos" are not checked to be JPEG (any 700 KB of base64) | Rules review | **Fixed** (batch A) |
@@ -226,6 +226,14 @@ prompts).
 stay numbers. **Effort:** XS. **Risk:** none (negative amounts are numbers, not strings;
 check `csvPeso` returns a number or keep it unprefixed).
 
+**Status (2026-11-19, batch B): Fixed.** The CSV code moved to `admin/src/lib/csv.ts`.
+`csvCell` prefixes `'` to text starting with `= + - @`, tab or carriage return. Amounts are a
+separate numeric cell type (`csvAmount`, used by `csvPeso` and every Reports amount), so
+negative numbers are never prefixed. This covers every export: payments, driver balances,
+cash-outs, and the per-day and summary reports. Tests: `tests/admin/csvExport.test.ts`
+(unit), and the SEC-09 proof in `tests/rules/security/openFindings.test.ts` (no longer
+`todo`, now passes).
+
 ### SEC-10 — Medium (unverified) — Realtime Database configured without rules in the repo
 
 `EXPO_PUBLIC_FIREBASE_DATABASE_URL` is set and `src/firebase/realtimeDatabase.ts` exists, but
@@ -271,6 +279,29 @@ or kept for reports), (c) clear complaint `message`/rating `comment` written by 
 script/connect policy for Firebase once tested), `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: no-referrer`. **Effort:** XS (CSP proper: S). **Risk:** a strict CSP can
 break Firebase Auth popups/requests if incomplete; start with the framing headers.
+
+**Status (2026-11-19, batch B): Fixed in `firebase.json`; applies on the next Hosting
+deploy.** The live site (last deployed 2026-10-14) still sends none of these headers.
+Headers for `**`:
+- `Content-Security-Policy`: `default-src 'self'; script-src 'self'; style-src 'self';
+  img-src 'self' data: blob: https://www.google.com; font-src 'self'; connect-src 'self'
+  https://identitytoolkit.googleapis.com https://securetoken.googleapis.com
+  https://firestore.googleapis.com; frame-src 'none'; object-src 'none'; base-uri 'self';
+  form-action 'self'; frame-ancestors 'none'`
+- `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`,
+  `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()`.
+
+Why these hosts: the admin site uses only Firebase Auth (email and password, no popups) and
+Firestore, and loads no maps, tiles, routing or web fonts. `blob:` is for driver document
+photos. `www.google.com` is only for the `cleardot.gif` connectivity check that Firestore's
+transport makes when a connection fails. `img-src` also blocks a planted external
+`profileImage` URL (the SEC-05 tracking pixel). Checked in headless Chrome under `vite
+preview` with these exact headers: emulator build signed in as admin, 35 pages, all CSV
+exports, document photos, 0 violations (a control run without the Firestore host reported
+70); production build login page, privacy page and one wrong-password sign-in against the
+production Auth endpoint, 0 violations. The Firebase Hosting emulator does not send custom
+headers, so it can't be used for this check.
 
 ### SEC-13 — Low — Auth hardening
 
@@ -404,7 +435,8 @@ Files (outside the repository, not committed):
 - `C:\Users\Admin\AppData\Local\Temp\claude\e0c66fe06a6a013b\669d0b58-16c9-48a0-8796-f0808208aa89\scratchpad\security\securityProofs.test.ts`
   (SEC-01…SEC-08; imports `tests/rules/commissionFixtures.ts` by absolute path)
 - `C:\Users\Admin\AppData\Local\Temp\claude\e0c66fe06a6a013b\669d0b58-16c9-48a0-8796-f0808208aa89\scratchpad\security\csvInjection.test.ts`
-  (SEC-09; extracts `csvCell` from `admin/src/reports/reportMath.ts`)
+  (SEC-09; extracted `csvCell` from `admin/src/reports/reportMath.ts`. Superseded: `csvCell`
+  is now in `admin/src/lib/csv.ts`, tested by `tests/admin/csvExport.test.ts`)
 
 The folder has a `node_modules` junction to the repo's `node_modules` and a
 `{"type":"module"}` package.json. From the repo root:

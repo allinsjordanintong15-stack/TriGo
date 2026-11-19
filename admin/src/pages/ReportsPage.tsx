@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageHeader } from '../components/PageHeader';
-import { downloadCsv } from '../lib/csv';
+import { csvAmount, downloadCsv } from '../lib/csv';
 import { defaultDateRange, parseDateRange } from '../lib/dateRange';
 import { formatCentavos, formatCount, formatPeso, plural } from '../lib/format';
 import { ColumnChart, type ColumnDatum } from '../reports/ColumnChart';
@@ -78,10 +78,10 @@ export function ReportsPage() {
         row.period.isoStart,
         row.period.longLabel,
         row.completedTrips,
-        row.fares.toFixed(2),
+        csvAmount(row.fares),
         row.cancelledBookings,
       ]),
-      ['', 'Total', report.totals.completedTrips, report.totals.fares.toFixed(2), report.totals.cancelledBookings],
+      ['', 'Total', report.totals.completedTrips, csvAmount(report.totals.fares), report.totals.cancelledBookings],
     ]);
   }
 
@@ -93,16 +93,16 @@ export function ReportsPage() {
       ['From', applied.from],
       ['To', applied.to],
       ['Completed trips', totals.completedTrips],
-      ['Fares collected (PHP)', totals.fares.toFixed(2)],
+      ['Fares collected (PHP)', csvAmount(totals.fares)],
       ['Cancelled bookings', totals.cancelledBookings],
       ['Completed standard trips', byType.standard.trips],
-      ['Standard fares (PHP)', byType.standard.fares.toFixed(2)],
+      ['Standard fares (PHP)', csvAmount(byType.standard.fares)],
       ['Completed out-of-area trips', byType.outOfArea.trips],
-      ['Out-of-area fares (PHP)', byType.outOfArea.fares.toFixed(2)],
+      ['Out-of-area fares (PHP)', csvAmount(byType.outOfArea.fares)],
       ['Out-of-area requests', report.outOfAreaRequests],
       ['New passengers', report.newPassengers],
       ['Verified drivers (now)', report.verifiedDrivers],
-      ['Recorded commission (PHP)', (report.recordedCommissionCentavos / 100).toFixed(2)],
+      ['Recorded commission (PHP)', csvAmount(report.recordedCommissionCentavos / 100)],
     ]);
   }
 

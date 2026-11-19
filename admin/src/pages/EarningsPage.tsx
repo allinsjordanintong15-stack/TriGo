@@ -51,7 +51,7 @@ import {
 } from '../earnings/payments';
 import { db } from '../firebase/config';
 import { useAdminCounts } from '../lib/adminCounts';
-import { downloadCsv } from '../lib/csv';
+import { csvAmount, downloadCsv, type CsvAmount } from '../lib/csv';
 import { toDateInputValue } from '../lib/dateRange';
 import { formatCentavos, formatIsoDay } from '../lib/format';
 import { listLoadErrorMessage } from '../lib/loadError';
@@ -68,9 +68,9 @@ const emptyCashOutForm = (): CashOutForm => ({
   note: '',
 });
 
-/** Centavos as a plain CSV number, e.g. 70050 → "700.50". */
-function csvPeso(centavos: number): string {
-  return (centavos / 100).toFixed(2);
+/** Centavos as a CSV number cell, e.g. 70050 → 700.50 (written as a number, never as text). */
+function csvPeso(centavos: number): CsvAmount {
+  return csvAmount(centavos / 100);
 }
 
 function csvDateTime(date: Date | null): string {

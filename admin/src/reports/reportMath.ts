@@ -1,4 +1,4 @@
-// Pure helpers for the Reports page: report periods, axis ticks, money rounding and CSV.
+// Pure helpers for the Reports page: report periods, axis ticks and money rounding (CSV: lib/csv.ts).
 // Kept free of Firebase imports.
 
 import { rangeDays, toDateInputValue, type DateRange } from '../lib/dateRange';
@@ -91,15 +91,4 @@ export function compactNumber(value: number): string {
 
 function trimZero(value: number): string {
   return String(Math.round(value * 10) / 10);
-}
-
-/** One CSV cell: quoted when it contains a comma, quote or line break. */
-function csvCell(value: string | number): string {
-  const text = String(value);
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-/** RFC 4180 CSV with CRLF line ends and a UTF-8 BOM so Excel reads it correctly. */
-export function toCsv(rows: (string | number)[][]): string {
-  return `﻿${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }
