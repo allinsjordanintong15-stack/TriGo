@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { SUSPENSION_DURATIONS, type SuspensionDuration } from '../drivers/driverActionPlan';
 import { useAdminCounts } from '../lib/adminCounts';
-import { formatDateTime } from '../lib/format';
+import { formatDate, formatDateTime } from '../lib/format';
 import { WARNING_REASON_MAX_LENGTH, validateWarningReason } from '../warnings/warningPlan';
 import {
   addQuickNote,
@@ -80,6 +80,7 @@ export function ResolvePanel({
           : outcome === 'warned'
             ? { outcome, reason }
             : { outcome, reason, duration },
+        detail.booking?.createdAt ? formatDate(detail.booking.createdAt) : null,
       );
       refreshCounts();
       onChanged(
@@ -265,6 +266,10 @@ export function ResolvePanel({
               : 'Resolve'}
       </button>
       {!outcome && <p className="muted small">Choose an outcome to resolve this complaint.</p>}
+      <p className="muted small">
+        The person who reported it gets a message in the app that their report was reviewed. It does not
+        include your note or the outcome.
+      </p>
     </section>
   );
 }

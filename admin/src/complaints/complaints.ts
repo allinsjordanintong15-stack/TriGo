@@ -22,6 +22,7 @@ import {
   type SuspensionDuration,
 } from '../drivers/driverActionPlan';
 import { db } from '../firebase/config';
+import { newNoticeDoc } from '../inbox/noticePlan';
 import { formatDateTime } from '../lib/format';
 import { newWarningDoc, validateWarningReason } from '../warnings/warningPlan';
 import {
@@ -335,7 +336,10 @@ export type ResolveChoice =
  * Resolves the complaint in ONE transaction: status Resolved with the outcome, note,
  * resolvedAt/resolvedBy, and, when chosen, the warning (warnings/{complaintId}) or the
  * reported driver's suspension with its message (adminMessages). firestore.rules checks
- * that the outcome matches what is written in the same commit.
+ * that the outcome matches what is written in the same commit. The reporter always gets a
+ * "we reviewed your report" notice (report_resolved) with only the trip date: never the
+ * note, the outcome or anything about the other person. `tripDateLabel` is the booking date
+ * as the admin sees it, or null when unknown.
  */
 export async function resolveComplaint(
   complaintId: string,
@@ -343,6 +347,7 @@ export async function resolveComplaint(
   expectedStatus: ComplaintStatus,
   note: string,
   choice: ResolveChoice,
+  tripDateLabel: string | null,
 ): Promise<void> {
   const noteError = validateResolveNote(note);
   if (noteError) throw new ComplaintConflictError(noteError);
@@ -403,6 +408,12 @@ export async function resolveComplaint(
     }
 
     transaction.update(complaintRef, resolvedComplaintUpdate(choice.outcome, note, adminUid, now));
+    if (complaint.reporterId) {
+      transaction.set(
+        doc(collection(db, 'adminMessages')),
+        newNoticeDoc({ kind: 'report_resolved', userId: complaint.reporterId, complaintId, tripDateLabel }, adminUid, now),
+      );
+    }
   });
 }
 

@@ -12,7 +12,12 @@ import {
 } from 'firebase/firestore';
 
 import { base64ToBytes, readStoredPhoto } from '../../../shared/documents/index.ts';
+import {
+  parseApplicationStatus,
+  type ApplicationStatusValue,
+} from '../../../shared/drivers/applicationStatus.ts';
 import { db } from '../firebase/config';
+import { newNoticeDoc } from '../inbox/noticePlan';
 import { normalizeVehicleDetails, readVehicleText, type VehicleDetails } from './driverRecords';
 
 // driverApplications/{uid} is written by the applicant in the mobile app; admins only
@@ -30,7 +35,8 @@ export const VEHICLE_LABELS: Record<VehicleType, string> = {
 
 export const MAX_REMARKS_LENGTH = 500;
 
-export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
+/** A stored status, or 'unknown' for a missing or unexpected value (shared/drivers/applicationStatus.ts). */
+export type ApplicationStatus = ApplicationStatusValue;
 
 /** The required document photos, in display order (src/constants/applicationDocuments.ts). */
 export const APPLICATION_DOCUMENT_TYPES = ['orCr', 'ltoLicense'] as const;
@@ -102,7 +108,8 @@ function readApplication(uid: string, data: DocumentData): DriverApplication {
       orCr: readDocument(data.documents?.orCr ?? null),
       ltoLicense: readDocument(data.documents?.ltoLicense ?? null),
     },
-    status: data.status,
+    // Never trusted: a missing or unexpected value is 'unknown' (shown, never reviewable).
+    status: parseApplicationStatus(data.status),
     adminRemarks: data.adminRemarks ?? null,
     submittedAt,
     reviewedAt: toDate(data.reviewedAt),
@@ -150,6 +157,7 @@ export async function approveApplication(
   viewed: DriverApplication,
   vehicle: { vehicleType: VehicleType } & VehicleDetails,
   remarks: string,
+  adminUid: string,
 ): Promise<void> {
   const details = normalizeVehicleDetails(vehicle);
   const applicationRef = doc(db, 'driverApplications', viewed.uid);
@@ -181,20 +189,33 @@ export async function approveApplication(
       rating: 0,
       profileImage: null,
     });
+    // The applicant's inbox notice ("Switch to Driver Mode"), checked by the rules against this review.
+    transaction.set(
+      doc(collection(db, 'adminMessages')),
+      newNoticeDoc({ kind: 'application_approved', userId: viewed.uid }, adminUid, serverTimestamp()),
+    );
   });
 }
 
-/** Rejects the application; the remarks are shown to the applicant. */
-export async function rejectApplication(viewed: DriverApplication, remarks: string): Promise<void> {
+/**
+ * Rejects the application; the remarks are shown to the applicant, on the application screen
+ * and in the inbox notice written in the same transaction (its reason = the same remarks).
+ */
+export async function rejectApplication(viewed: DriverApplication, remarks: string, adminUid: string): Promise<void> {
   const applicationRef = doc(db, 'driverApplications', viewed.uid);
+  const text = remarks.trim();
   await runTransaction(db, async (transaction) => {
     assertStillPending(viewed, (await transaction.get(applicationRef)).data());
     transaction.update(applicationRef, {
       status: 'rejected',
-      adminRemarks: remarks.trim(),
+      adminRemarks: text,
       reviewedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    transaction.set(
+      doc(collection(db, 'adminMessages')),
+      newNoticeDoc({ kind: 'application_rejected', userId: viewed.uid, remarks: text }, adminUid, serverTimestamp()),
+    );
   });
 }
 

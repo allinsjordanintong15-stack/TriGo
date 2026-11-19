@@ -285,6 +285,47 @@ describe('application documents: upload with the first submit', () => {
     await assertFails(submitWith(bothPhotos(photo('orCr', { data: bytes }))));
   });
 
+  // Cleanup left the photos behind but no application document (2026-11-17): a fresh submit
+  // overwrites them in the same commit (the transaction uses set, which replaces every field).
+  it('a fresh submit overwrites leftover photos when no application exists (new and Bytes shape)', async () => {
+    await seed({
+      [ORCR_PATH]: keptPhoto('orCr'),
+      [LICENSE_PATH]: {
+        uid: APPLICANT,
+        docType: 'ltoLicense',
+        mimeType: 'image/jpeg',
+        data: Bytes.fromUint8Array(new Uint8Array(1234)),
+        sizeBytes: 1234,
+        width: 1600,
+        height: 1200,
+        uploadedAt: KEPT_TIME,
+      },
+    });
+    await assertSucceeds(submitWith(bothPhotos(photo('orCr', {}, 2_000), photo('ltoLicense', {}, 3_000))));
+    const stored: Record<string, DocumentData | undefined> = {};
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const firestore = context.firestore() as unknown as Firestore;
+      stored.orCr = (await getDoc(doc(firestore, ORCR_PATH))).data();
+      stored.ltoLicense = (await getDoc(doc(firestore, LICENSE_PATH))).data();
+      stored.application = (await getDoc(doc(firestore, 'driverApplications', APPLICANT))).data();
+    });
+    strictAssert.equal(stored.orCr?.sizeBytes, 2_000);
+    strictAssert.equal(stored.ltoLicense?.sizeBytes, 3_000);
+    strictAssert.equal(typeof stored.ltoLicense?.dataBase64, 'string');
+    strictAssert.equal(stored.ltoLicense?.data, undefined); // the Bytes field is gone
+    strictAssert.equal(stored.application?.status, 'pending');
+    strictAssert.equal(stored.application?.documents?.ltoLicense?.sizeBytes, 3_000);
+  });
+
+  // An application document that exists with no fields (console: "This document has no
+  // data"): not "no application". The app shows "status unavailable"; neither a create nor
+  // a resubmit can replace it, and the photos cannot be written next to it.
+  it('refuses any submit over an application document that exists with no fields', async () => {
+    await seed({ [`driverApplications/${APPLICANT}`]: {} });
+    await assertFails(submitWith(bothPhotos()));
+    await assertFails(submitWith(bothPhotos(), { mode: 'update' }));
+  });
+
   it('refuses a document type that is not on the list', async () => {
     await assertFails(
       submitWith([...bothPhotos(), { type: 'passport', data: photo('passport') }]),

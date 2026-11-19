@@ -24,7 +24,7 @@ import {
   DriverApplication,
   DriverApplicationDocument,
   DriverApplicationDocumentType,
-  DriverApplicationStatus,
+  DriverApplicationStatusValue,
   VehicleType,
 } from '@/types';
 import { validateMobileNumber } from '@/validations/auth';
@@ -45,6 +45,7 @@ import { ReactNode, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatDateTime } from '@/utils/dateTime';
+import { UNKNOWN_STATUS_MESSAGE } from '@/utils/driverApplicationStatus';
 
 const STEPS = ['Personal', 'Vehicle', 'Documents', 'Review'] as const;
 type Step = 0 | 1 | 2 | 3;
@@ -52,10 +53,11 @@ type DocumentState = Record<DriverApplicationDocumentType, ApplicationDocumentIm
 /** Shown for a photo on file that is kept on resubmit (never downloaded to the phone). */
 const KEPT_PHOTO_NOTE = 'Previously submitted photo — kept';
 
-const STATUS_LABELS: Record<DriverApplicationStatus, string> = {
+const STATUS_LABELS: Record<DriverApplicationStatusValue, string> = {
   pending: 'Pending Verification',
   approved: 'Approved',
   rejected: 'Rejected',
+  unknown: 'Unavailable',
 };
 
 const DOCUMENT_DESCRIPTIONS: Record<DriverApplicationDocumentType, string> = {
@@ -675,12 +677,14 @@ function ApplicationStatusView({
   onBack,
   onResubmit,
 }: ApplicationStatusViewProps) {
-  const heading: Record<DriverApplicationStatus, string> = {
+  const heading: Record<DriverApplicationStatusValue, string> = {
     pending: 'Application Submitted',
     approved: 'Application Approved',
     rejected: 'Application Status',
+    unknown: 'Application Status',
   };
-  const statusMessage: Record<DriverApplicationStatus, string> = {
+  const statusMessage: Record<DriverApplicationStatusValue, string> = {
+    unknown: UNKNOWN_STATUS_MESSAGE,
     pending:
       'Your TriGo Driver Application has been submitted and is waiting for verification.',
     approved: driverModeReady

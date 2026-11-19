@@ -48,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
     section: '/complaints',
     badge: { count: 'openComplaints', noun: ['open complaint', 'open complaints'] },
   },
+  { to: '/announcements', label: 'Announcements', icon: 'announcements', section: '/announcements' },
   {
     to: '/account-deletion',
     label: 'Account deletion',

@@ -23,3 +23,10 @@ export const LEGACY_RIDE_REQUEST_CHANNEL_IDS: readonly string[] = [
 export function legacyChannelsToDelete(existingChannelIds: readonly string[]): string[] {
   return LEGACY_RIDE_REQUEST_CHANNEL_IDS.filter((id) => existingChannelIds.includes(id));
 }
+
+/**
+ * Messages from TriGo (inbox): decisions on the user's application, payments, reports and
+ * account, warnings, and announcements. Default importance (sound, no heads-up pop-over),
+ * lock-screen visibility PRIVATE like ride requests.
+ */
+export const INBOX_CHANNEL_ID = 'trigo-messages';

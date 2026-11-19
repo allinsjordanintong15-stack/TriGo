@@ -113,7 +113,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return subscribeToDriverApplication(
       applicationUid,
       (application) => {
-        setApplicationStatus(application?.status ?? null);
+        // An unreadable status never grants driver access (only 'approved' does).
+        const status = application?.status ?? null;
+        setApplicationStatus(status === 'unknown' ? null : status);
         setApplicationLoadedFor(applicationUid);
       },
       () => {

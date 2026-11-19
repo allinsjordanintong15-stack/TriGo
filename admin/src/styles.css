@@ -4134,3 +4134,40 @@ a.btn-outline {
 .switch-cell input {
   inset: -10px -4px;
 }
+
+/* Quick-fill remark buttons above a reason field (RemarkChips). */
+.remark-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-sm);
+}
+
+.remark-chip {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-white);
+  color: var(--color-primary-dark);
+  cursor: pointer;
+  text-align: left;
+}
+
+.remark-chip:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.remark-chip:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.remark-chip:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}

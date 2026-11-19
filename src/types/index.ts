@@ -144,6 +144,12 @@ export interface Passenger extends User {
 
 export type DriverApplicationStatus = 'pending' | 'approved' | 'rejected';
 
+/**
+ * An application's status as read from Firestore: 'unknown' for a missing or unexpected
+ * value (src/utils/driverApplicationStatus.ts). Screens show a neutral state for it.
+ */
+export type DriverApplicationStatusValue = DriverApplicationStatus | 'unknown';
+
 export type DriverApplicationDocumentType = ApplicationDocumentType;
 
 /**
@@ -188,7 +194,7 @@ export interface DriverApplication {
   vehicleModel: string | null;
   vehicleColor: string | null;
   documents: DriverApplicationDocuments;
-  status: DriverApplicationStatus;
+  status: DriverApplicationStatusValue;
   adminRemarks: string | null;
   submittedAt: Date;
   updatedAt: Date;

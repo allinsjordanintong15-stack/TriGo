@@ -64,6 +64,13 @@ things stand.
   first, unread highlighted; a warning opens with its reason, date, related trip and an
   "I understand" button. The Home bell shows the number of unread warnings. Built to take
   announcements later. (Built 2026-11-15, not deployed.)
+- **Inbox upgrade (built 2026-11-19, not committed, not deployed):** system notices for
+  admin decisions (application approved/not approved, commission payment confirmed/not
+  accepted, report reviewed, account deletion declined) with an action button per kind,
+  announcements (megaphone), Today / Earlier groups, icon and colour per kind, time ago,
+  unread dot, "Mark all as read", badge on the Notifications tab and the Home bell, and a
+  local phone notification (title only) for each new unread item while the app is running;
+  tapping it opens the item. Needs the new rules deployed first.
 
 ### Driver (mobile app)
 - Tabs: Home, Requests, Trips, Earnings, Profile.
@@ -118,6 +125,11 @@ things stand.
 - A driver whose verification an admin revoked sees "Driver access revoked".
 
 ### Admin (website)
+- **Announcements (built 2026-11-19, not deployed):** sidebar page to send a title and
+  message to all users, passengers or drivers, optionally until a date; sent list with
+  Withdraw. Application approve/reject, payment confirm/reject, complaint resolve and
+  deletion decline each write the user's inbox notice in the same transaction; reject
+  dialogs have quick-fill remark chips.
 - Login is limited to accounts with the `admin` custom claim (granted with
   `scripts/setAdminClaim.mjs`).
 - **Dashboard** and **Reports**: per-day or per-month charts built with Firestore
@@ -267,6 +279,10 @@ things stand.
     at once.
   - Battery-saver settings on some Android phones (e.g. "optimised" or "restricted" app
     battery use) stop or kill backgrounded apps sooner, so alerts can stop earlier there.
+  - Inbox notifications (since 2026-11-19) follow the same limits: posted only while the
+    app runs, for items that arrive after the inbox first loaded in that run (a message
+    that arrived while the app was closed shows as unread and on the badge, without a
+    phone notification). Passengers must allow notifications (offered in the inbox).
   - Tapping a ride request notification while the app is in passenger mode does nothing;
     the driver has to switch to driver mode and open Requests.
   - A summary notification keeps its posted count until all of its requests are gone
@@ -335,4 +351,7 @@ things stand.
   would need a registered business and Blaze.
 - **TODO: Update privacy notice (warnings + announcements) after Task B2, single version
   bump and re-consent, before defense.** The current notice (1.0) does not mention
-  `warnings/{id}`, `adminMessages/{id}`, the driver suspension fields or the in-app inbox.
+  `warnings/{id}`, `adminMessages/{id}`, the driver suspension fields or the in-app inbox,
+  nor (since 2026-11-19, Task B2 built) the system notices, `announcements/{id}`,
+  `users/{uid}/inboxState` or inbox phone notifications. Still a TODO: the notice was not
+  changed.

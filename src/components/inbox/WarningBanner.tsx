@@ -17,7 +17,8 @@ export function WarningBanner() {
 
   const more = unread > 1 ? ` (${unread} unread)` : '';
   const isWarning = item.kind === 'warning';
-  const title = isWarning ? `You have a warning from TriGo${more}` : `You have a message from TriGo${more}`;
+  const noun = isWarning ? 'a warning' : item.kind === 'announcement' ? 'an announcement' : 'a message';
+  const title = `You have ${noun} from TriGo${more}`;
   const text = isWarning ? 'Tap to read it and confirm you understand.' : 'Tap to read it.';
   return (
     <Pressable
@@ -26,7 +27,11 @@ export function WarningBanner() {
       style={({ pressed }) => [styles.banner, pressed ? styles.pressed : null]}
       onPress={() => openInboxItem(item)}
     >
-      <Ionicons name={isWarning ? 'alert-circle' : 'mail'} size={24} color={colors.white} />
+      <Ionicons
+        name={isWarning ? 'alert-circle' : item.kind === 'announcement' ? 'megaphone' : 'mail'}
+        size={24}
+        color={colors.white}
+      />
       <View style={styles.body}>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.text}>{text}</Text>

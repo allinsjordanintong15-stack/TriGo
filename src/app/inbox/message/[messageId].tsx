@@ -1,5 +1,5 @@
 import { LoadingScreen } from '@/components/LoadingScreen';
-import { inboxItemIcon } from '@/components/inbox/InboxScreen';
+import { inboxItemIcon, TONE_COLORS } from '@/components/inbox/InboxScreen';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -8,16 +8,31 @@ import { colors, radius, spacing, typography } from '@/constants/theme';
 import { useInbox } from '@/hooks/useInbox';
 import { markAdminMessageRead } from '@/services/adminMessageService';
 import { formatDateTime } from '@/utils/dateTime';
-import { messageToInboxItem } from '@/utils/inbox';
+import {
+  InboxActionTarget,
+  inboxItemLook,
+  inboxMessageAction,
+  messageReasonLabel,
+  messageToInboxItem,
+} from '@/utils/inbox';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Href, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+/** Where each message button goes. Driver Mode and Earnings are replaced in (not stacked). */
+const ACTION_HREFS: Record<InboxActionTarget, { href: Href; replace: boolean }> = {
+  driver_mode: { href: '/driver/home', replace: true },
+  driver_application: { href: '/profile/driver-application', replace: false },
+  driver_earnings: { href: '/driver/earnings', replace: true },
+  privacy: { href: '/legal', replace: false },
+};
+
 /**
- * One message from TriGo (adminMessages): title, date, text, the admin's reason and, for a
- * suspension, until when. Opening it marks it read (readAt, set once).
+ * One message from TriGo (adminMessages): title, date, text, the admin's reason or remarks,
+ * for a suspension until when, and the button for its kind (e.g. "Switch to Driver Mode").
+ * Opening it marks it read (readAt, set once).
  */
 export default function AdminMessageScreen() {
   const insets = useSafeAreaInsets();
@@ -73,6 +88,8 @@ export default function AdminMessageScreen() {
   }
 
   const item = messageToInboxItem(message);
+  const tone = TONE_COLORS[inboxItemLook(item).tone];
+  const action = inboxMessageAction(message.kind);
   return (
     <View style={styles.container}>
       {header}
@@ -82,7 +99,7 @@ export default function AdminMessageScreen() {
       >
         <View style={styles.card}>
           <View style={styles.titleRow}>
-            <Ionicons name={inboxItemIcon(item)} size={24} color={colors.primary} />
+            <Ionicons name={inboxItemIcon(item)} size={24} color={tone.color} />
             <Text style={styles.title} accessibilityRole="header">
               {item.title}
             </Text>
@@ -102,15 +119,28 @@ export default function AdminMessageScreen() {
 
           {message.reason ? (
             <>
-              <Text style={styles.label}>Reason</Text>
+              <Text style={styles.label}>{messageReasonLabel(message.kind)}</Text>
               <Text style={styles.body}>{message.reason}</Text>
             </>
           ) : null}
         </View>
 
-        <Text style={styles.note}>
-          If you think this is a mistake, contact TriGo support (Profile).
-        </Text>
+        {action ? (
+          <Button
+            title={action.label}
+            onPress={() => {
+              const target = ACTION_HREFS[action.target];
+              if (target.replace) router.replace(target.href);
+              else router.push(target.href);
+            }}
+          />
+        ) : null}
+
+        {message.kind === 'report_resolved' ? null : (
+          <Text style={styles.note}>
+            If you think this is a mistake, contact TriGo support (Profile).
+          </Text>
+        )}
       </ScrollView>
     </View>
   );

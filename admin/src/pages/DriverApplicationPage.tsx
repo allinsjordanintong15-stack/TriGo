@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DocumentViewer } from '../components/DocumentViewer';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
+import { RemarkChips } from '../components/RemarkChips';
 import { VehicleDetailsFields } from '../components/VehicleDetailsFields';
 import {
   APPLICATION_DOCUMENT_LABELS,
@@ -29,12 +31,18 @@ import {
   validateVehicleDetails,
   type VehicleDetails,
 } from '../drivers/driverRecords';
+import { APPLICATION_REJECT_REMARKS } from '../inbox/noticePlan';
 import { useAdminCounts } from '../lib/adminCounts';
 import { formatDateTime } from '../lib/format';
 
 type Decision = 'approve' | 'reject';
 
-const STATUS_LABELS = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' } as const;
+const STATUS_LABELS = {
+  pending: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  unknown: 'Status unavailable',
+} as const;
 
 const EMPTY_DETAILS: VehicleDetails = { vehicleBrand: '', vehicleModel: '', vehicleColor: '' };
 
@@ -48,6 +56,7 @@ export function DriverApplicationPage() {
   const { uid = '' } = useParams();
   const navigate = useNavigate();
   const { refreshCounts } = useAdminCounts();
+  const { admin } = useAuth();
   const [application, setApplication] = useState<DriverApplication | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [vehicleType, setVehicleType] = useState<VehicleType>('tricycle');
@@ -131,16 +140,16 @@ export function DriverApplicationPage() {
   const missingDetails = !application.vehicleBrand || !application.vehicleModel || !application.vehicleColor;
 
   async function handleConfirm() {
-    if (!application || !decision) return;
+    if (!application || !decision || !admin) return;
     setSaving(true);
     setSaveError(null);
     try {
       if (decision === 'approve') {
-        await approveApplication(application, { vehicleType, ...vehicleDetails }, approveRemarks);
+        await approveApplication(application, { vehicleType, ...vehicleDetails }, approveRemarks, admin.uid);
         refreshCounts();
         navigate('/drivers/applications', { state: { message: `${application.fullName} was approved as a driver.` } });
       } else {
-        await rejectApplication(application, rejectRemarks);
+        await rejectApplication(application, rejectRemarks, admin.uid);
         refreshCounts();
         navigate('/drivers/applications', { state: { message: `${application.fullName}'s application was rejected.` } });
       }
@@ -273,6 +282,16 @@ export function DriverApplicationPage() {
           <section className="card review-panel" aria-labelledby="reject-heading">
             <h3 id="reject-heading">Reject</h3>
             <p className="muted small">The applicant sees these remarks and can resubmit.</p>
+            <RemarkChips
+              label="Common remarks"
+              chips={APPLICATION_REJECT_REMARKS}
+              value={rejectRemarks}
+              onChange={(next) => {
+                setRejectRemarks(next);
+                setRejectTouched(true);
+              }}
+              disabled={saving}
+            />
             <label className="field" htmlFor="reject-remarks">
               <span>Remarks (required)</span>
               <textarea
@@ -290,7 +309,7 @@ export function DriverApplicationPage() {
                 {rejectTouched && rejectRemarksError ? (
                   <span className="field-error">{rejectRemarksError}</span>
                 ) : (
-                  `${rejectRemarksTrimmed.length}/${MAX_REMARKS_LENGTH}`
+                  `Shown to the applicant in the app and in their inbox. ${rejectRemarksTrimmed.length}/${MAX_REMARKS_LENGTH}`
                 )}
               </span>
             </label>
@@ -323,7 +342,7 @@ export function DriverApplicationPage() {
           onConfirm={() => void handleConfirm()}
           onCancel={() => setDecision(null)}
         >
-          <p>They can go online and accept bookings right away.</p>
+          <p>They can go online and accept bookings right away. They also get a message in the app.</p>
           <table className="change-table">
             <tbody>
               <tr>
@@ -380,7 +399,7 @@ export function DriverApplicationPage() {
           onConfirm={() => void handleConfirm()}
           onCancel={() => setDecision(null)}
         >
-          <p>Application status: Pending → Rejected. The applicant will see:</p>
+          <p>Application status: Pending → Rejected. The applicant will see this, in the app and in their inbox:</p>
           <blockquote className="remarks-quote">{rejectRemarksTrimmed}</blockquote>
           {saveError && (
             <div className="alert-error" role="alert">

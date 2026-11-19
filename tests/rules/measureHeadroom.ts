@@ -25,12 +25,16 @@ import { readFileSync } from 'node:fs';
 
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import {
+  collection,
   doc,
+  getDocs,
+  query,
   serverTimestamp,
   setDoc,
   setLogLevel,
   Timestamp,
   updateDoc,
+  where,
   writeBatch,
   type DocumentData,
   type Firestore,
@@ -76,6 +80,7 @@ import {
   type Writes,
 } from './commissionFixtures.ts';
 import { manilaDay } from '../../src/utils/dailyQuota.ts';
+import { newNoticeDoc, type NoticeInput } from '../../admin/src/inbox/noticePlan.ts';
 
 const PROJECT_ID = 'demo-trigo-rules';
 const HOST = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
@@ -116,6 +121,12 @@ type Target =
   | 'document delete'
   | 'approve: application review'
   | 'approve: driver create'
+  | 'reject: application review'
+  | 'deletion decline'
+  | 'announcement create'
+  | 'announcement withdraw'
+  | 'announcement read'
+  | 'inbox state write'
   | 'vehicle edit'
   | 'standard create'
   | 'consent: user create'
@@ -223,6 +234,14 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
     '        && isValidVehicleDetails(request.resource.data)\n        && request.resource.data.isVerified == true',
     '        && isValidVehicleDetails(request.resource.data)\n        && pad()\n        && request.resource.data.isVerified == true',
   ],
+  'reject: application review': [
+    "        && request.resource.data.status == 'rejected'\n        && isValidRemarks(request.resource.data.adminRemarks);",
+    "        && request.resource.data.status == 'rejected'\n        && isValidRemarks(request.resource.data.adminRemarks)\n        && pad();",
+  ],
+  'deletion decline': [
+    '        && request.resource.data.declinedBy == request.auth.uid;',
+    '        && request.resource.data.declinedBy == request.auth.uid\n        && pad();',
+  ],
   'vehicle edit': [
     '        && isValidVehicleDetails(request.resource.data)\n        && request.resource.data.updatedAt == request.time',
     '        && isValidVehicleDetails(request.resource.data)\n        && pad()\n        && request.resource.data.updatedAt == request.time',
@@ -303,9 +322,26 @@ const ANCHORS: Record<Exclude<Target, 'calibration'>, [string, string]> = {
     '        && request.resource.data.suspensionLiftedBy == request.auth.uid;',
     '        && request.resource.data.suspensionLiftedBy == request.auth.uid\n        && pad();',
   ],
+  // After the kind check (system notices read the decision's document there).
   'admin message create': [
-    '          && data.readAt == null;',
-    '          && data.readAt == null\n          && pad();',
+    '          && isValidMessageKind(data);',
+    '          && isValidMessageKind(data)\n          && pad();',
+  ],
+  'announcement create': [
+    '      allow create: if isValidAnnouncementCreate();',
+    '      allow create: if isValidAnnouncementCreate() && pad();',
+  ],
+  'announcement withdraw': [
+    '        && request.resource.data.withdrawnBy == request.auth.uid;\n      allow delete: if false;\n    }\n\n    // users/{uid}/inboxState',
+    '        && request.resource.data.withdrawnBy == request.auth.uid\n        && pad();\n      allow delete: if false;\n    }\n\n    // users/{uid}/inboxState',
+  ],
+  'announcement read': [
+    "        || (isSignedIn() && resource.data.status == 'active' && isAnnouncementAudience(resource.data.audience));",
+    "        || (isSignedIn() && resource.data.status == 'active' && isAnnouncementAudience(resource.data.audience) && pad());",
+  ],
+  'inbox state write': [
+    '        && request.resource.data.updatedAt == request.time;\n      allow delete: if false;\n    }\n\n    // ─── Complaints',
+    '        && request.resource.data.updatedAt == request.time\n        && pad();\n      allow delete: if false;\n    }\n\n    // ─── Complaints',
   ],
   'admin message text clear': [
     '          && data.reasonClearedAt == request.time;',
@@ -1010,6 +1046,42 @@ const approval: Scenario = {
   },
 };
 
+const inboxApplicationReject: Scenario = {
+  label: 'inbox: application reject (application review)',
+  targets: ['reject: application review'],
+  run: async () => {
+    await seed({ ...applicantUser, [`driverApplications/${APPLICANT}`]: applicationDoc() });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'driverApplications', APPLICANT), {
+      status: 'rejected',
+      adminRemarks: 'Photo is blurry — please retake',
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    await batch.commit();
+  },
+};
+
+const inboxDeletionDecline: Scenario = {
+  label: 'inbox: account deletion decline (request)',
+  targets: ['deletion decline'],
+  run: async () => {
+    await seed({
+      [`deletionRequests/${PASSENGER}`]: { uid: PASSENGER, status: 'pending', requestedAt: Timestamp.now() },
+    });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'deletionRequests', PASSENGER), {
+      status: 'declined',
+      declineNote: 'We could not confirm that you hold this account.',
+      declinedAt: serverTimestamp(),
+      declinedBy: ADMIN,
+    });
+    await batch.commit();
+  },
+};
+
 const vehicleEdit: Scenario = {
   label: 'admin drivers: edit vehicle details (all five fields)',
   targets: ['vehicle edit'],
@@ -1455,6 +1527,268 @@ const adminMessageTextClear: Scenario = {
   },
 };
 
+// ─── Inbox: system notices written with each admin decision (2026-11-19) ──────
+
+/** Whether the loaded rules know the system notice kinds (measured before and after them). */
+const RULES_HAVE_NOTICES = BASE_RULES.includes("'application_approved'");
+
+function addNotice(batch: ReturnType<typeof writeBatch>, firestore: Firestore, input: NoticeInput): void {
+  if (!RULES_HAVE_NOTICES) return;
+  batch.set(doc(collection(firestore, 'adminMessages')), newNoticeDoc(input, ADMIN, serverTimestamp()));
+}
+
+const noticeTarget = (): Target[] => (RULES_HAVE_NOTICES ? ['admin message create'] : []);
+
+const inboxApprove: Scenario = {
+  label: 'inbox: approve + application_approved notice',
+  targets: ['approve: application review', 'approve: driver create', ...noticeTarget()],
+  run: async () => {
+    await seed({ ...applicantUser, [`driverApplications/${APPLICANT}`]: applicationDoc() });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'driverApplications', APPLICANT), {
+      status: 'approved',
+      adminRemarks: null,
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(firestore, 'drivers', APPLICANT), {
+      fullName: 'Juan Santos Dela Cruz',
+      vehiclePlate: 'ABC 1234',
+      vehicleType: 'tricycle',
+      vehicleBrand: 'Honda',
+      vehicleModel: 'TMX 155',
+      vehicleColor: 'Red',
+      isVerified: true,
+      isOnline: false,
+      isAvailable: false,
+      currentLocation: null,
+      currentBookingId: null,
+      currentRequestId: null,
+      rating: 0,
+      profileImage: null,
+    });
+    addNotice(batch, firestore, { kind: 'application_approved', userId: APPLICANT });
+    await batch.commit();
+  },
+};
+
+const inboxReject: Scenario = {
+  label: 'inbox: application reject + application_rejected notice',
+  targets: ['reject: application review', ...noticeTarget()],
+  run: async () => {
+    await seed({ ...applicantUser, [`driverApplications/${APPLICANT}`]: applicationDoc() });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    const remarks = 'Photo is blurry — please retake';
+    batch.update(doc(firestore, 'driverApplications', APPLICANT), {
+      status: 'rejected',
+      adminRemarks: remarks,
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    addNotice(batch, firestore, { kind: 'application_rejected', userId: APPLICANT, remarks });
+    await batch.commit();
+  },
+};
+
+function inboxPaymentConfirm(label: string, amount: number, unpaid: Period | null, withLedger: boolean): Scenario {
+  return {
+    label: `inbox: ${label} + payment_confirmed notice`,
+    targets: ['payment review', 'account credit', withLedger ? 'ledger update' : 'ledger create', ...noticeTarget()],
+    run: async () => {
+      await seed({ ...MULTI, ...submittedDocs(amount), ...(withLedger ? { 'earningsLedger/totals': LEDGER } : {}) });
+      const firestore = db(ADMIN, { admin: true });
+      const writes = confirmWrites({
+        amountCentavos: amount,
+        paidAfter: amount,
+        unpaid,
+        collectedBefore: withLedger ? 5000 : null,
+      });
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, 'commissionPayments', PAYMENT), writes.payment);
+      if (writes.account) batch.update(doc(firestore, 'commissionAccounts', DRIVER), writes.account);
+      if (writes.ledger?.kind === 'set') batch.set(doc(firestore, 'earningsLedger', 'totals'), writes.ledger.data);
+      if (writes.ledger?.kind === 'update') batch.update(doc(firestore, 'earningsLedger', 'totals'), writes.ledger.data);
+      addNotice(batch, firestore, {
+        kind: 'payment_confirmed',
+        userId: DRIVER,
+        paymentId: PAYMENT,
+        amountCentavos: amount,
+        reference: REFERENCE,
+      });
+      await batch.commit();
+    },
+  };
+}
+
+const inboxPaymentReject: Scenario = {
+  label: 'inbox: payment reject + payment_rejected notice',
+  targets: ['payment review', 'reference free', ...noticeTarget()],
+  run: async () => {
+    await seed({ ...MULTI, ...submittedDocs(700) });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    const reason = 'Reference number not found';
+    batch.update(doc(firestore, 'commissionPayments', PAYMENT), {
+      status: 'rejected',
+      rejectionReason: reason,
+      reviewedAt: serverTimestamp(),
+      reviewedBy: ADMIN,
+    });
+    batch.delete(doc(firestore, 'paymentReferences', REFERENCE));
+    addNotice(batch, firestore, {
+      kind: 'payment_rejected',
+      userId: DRIVER,
+      paymentId: PAYMENT,
+      amountCentavos: 700,
+      reference: REFERENCE,
+      reason,
+    });
+    await batch.commit();
+  },
+};
+
+const reportNotice = (): NoticeInput => ({
+  kind: 'report_resolved',
+  userId: PASSENGER,
+  complaintId: COMPLAINT_ID,
+  tripDateLabel: 'Nov 18, 2026',
+});
+
+const inboxResolve: Scenario = {
+  label: 'inbox: complaint resolve, no action + report_resolved notice',
+  targets: ['complaint review', ...noticeTarget()],
+  run: async () => {
+    await seedComplaint();
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'complaints', COMPLAINT_ID), complaintResolveFields('no_action'));
+    addNotice(batch, firestore, reportNotice());
+    await batch.commit();
+  },
+};
+
+const inboxResolveSuspended: Scenario = {
+  label: 'inbox: complaint resolve + suspension + its message + report_resolved notice',
+  targets: ['complaint review', 'admin suspend', 'admin message create'],
+  run: async () => {
+    await seedComplaint();
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    const until = Timestamp.fromMillis(Date.now() + 3 * DAY_MS);
+    batch.update(doc(firestore, 'drivers', DRIVER), {
+      suspendedAt: serverTimestamp(),
+      suspendedUntil: until,
+      suspensionReason: 'Repeated late pickups.',
+      suspendedBy: ADMIN,
+      suspensionLiftedAt: null,
+      suspensionLiftedBy: null,
+    });
+    batch.set(doc(firestore, 'adminMessages', 'message1'), { ...suspendedMessage(), until, createdAt: serverTimestamp() });
+    batch.update(doc(firestore, 'complaints', COMPLAINT_ID), complaintResolveFields('suspended'));
+    addNotice(batch, firestore, reportNotice());
+    await batch.commit();
+  },
+};
+
+const inboxDecline: Scenario = {
+  label: 'inbox: account deletion decline + deletion_declined notice',
+  targets: ['deletion decline', ...noticeTarget()],
+  run: async () => {
+    await seed({
+      [`deletionRequests/${PASSENGER}`]: { uid: PASSENGER, status: 'pending', requestedAt: Timestamp.now() },
+    });
+    const firestore = db(ADMIN, { admin: true });
+    const batch = writeBatch(firestore);
+    const note = 'We could not confirm that you hold this account.';
+    batch.update(doc(firestore, 'deletionRequests', PASSENGER), {
+      status: 'declined',
+      declineNote: note,
+      declinedAt: serverTimestamp(),
+      declinedBy: ADMIN,
+    });
+    addNotice(batch, firestore, { kind: 'deletion_declined', userId: PASSENGER, note });
+    await batch.commit();
+  },
+};
+
+const RULES_HAVE_ANNOUNCEMENTS = BASE_RULES.includes('match /announcements/{announcementId}');
+
+function activeAnnouncement(audience: string): DocumentData {
+  return {
+    title: 'Holiday schedule',
+    body: 'TriGo support is closed on Nov 30.',
+    audience,
+    showUntil: null,
+    status: 'active',
+    createdBy: ADMIN,
+    createdAt: Timestamp.now(),
+    withdrawnAt: null,
+    withdrawnBy: null,
+  };
+}
+
+const announcementScenarios: Scenario[] = RULES_HAVE_ANNOUNCEMENTS
+  ? [
+      {
+        label: 'inbox: announcement create (admin)',
+        targets: ['announcement create'],
+        run: async () => {
+          await seed({});
+          await setDoc(doc(db(ADMIN, { admin: true }), 'announcements', 'a1'), {
+            ...activeAnnouncement('all'),
+            showUntil: Timestamp.fromMillis(Date.now() + 7 * DAY_MS),
+            createdAt: serverTimestamp(),
+          });
+        },
+      },
+      {
+        label: 'inbox: announcement withdraw (admin)',
+        targets: ['announcement withdraw'],
+        run: async () => {
+          await seed({ 'announcements/a1': activeAnnouncement('all') });
+          await updateDoc(doc(db(ADMIN, { admin: true }), 'announcements', 'a1'), {
+            status: 'withdrawn',
+            withdrawnAt: serverTimestamp(),
+            withdrawnBy: ADMIN,
+          });
+        },
+      },
+      {
+        label: 'inbox: announcements query, drivers audience (approved applicant)',
+        targets: ['announcement read'],
+        run: async () => {
+          await seed({
+            ...baseDocs(),
+            [`drivers/${APPLICANT_DRIVER}`]: availableDriverRecord(),
+            'announcements/a1': activeAnnouncement('drivers'),
+          });
+          const snap = await getDocs(
+            query(
+              collection(db(APPLICANT_DRIVER), 'announcements'),
+              where('audience', '==', 'drivers'),
+              where('status', '==', 'active'),
+            ),
+          );
+          if (snap.size !== 1) throw new Error(`expected 1 announcement, got ${snap.size}`);
+        },
+      },
+      {
+        label: 'inbox: announcement read state (mark all as read, 200 IDs)',
+        targets: ['inbox state write'],
+        run: async () => {
+          await seed({});
+          await setDoc(doc(db(PASSENGER), 'users', PASSENGER, 'inboxState', 'announcements'), {
+            lastReadAllAt: serverTimestamp(),
+            readIds: Array.from({ length: 200 }, (_, i) => `announcement${i}`),
+            updatedAt: serverTimestamp(),
+          });
+        },
+      },
+    ]
+  : [];
+
 const SCENARIOS: Scenario[] = [
   completion('completion: no commission settings', () => tripDocs({ settings: null }), () => appWrites({ settings: null })),
   completion('completion: standard, first trip (account create)', () => tripDocs(), () => appWrites()),
@@ -1574,6 +1908,17 @@ const SCENARIOS: Scenario[] = [
   adminMessageCreate,
   adminMessageRead,
   adminMessageTextClear,
+  inboxApplicationReject,
+  inboxDeletionDecline,
+  inboxApprove,
+  inboxReject,
+  inboxPaymentConfirm('payment confirm: pointer stays on period 1 (reads periods 1 and 2), first ledger', 299, unpaidFrom(PERIODS[0]), false),
+  inboxPaymentConfirm('payment confirm: pointer 1 → 3 (reads period 3; next is current), ledger update', 700, unpaidFrom(PERIODS[2]), true),
+  inboxPaymentReject,
+  inboxResolve,
+  inboxResolveSuspended,
+  inboxDecline,
+  ...announcementScenarios,
 ];
 
 // TRIGO_HEADROOM=payments measures only the payment scenarios (and the calibration).
@@ -1592,6 +1937,10 @@ const ONLY_WARNING = process.env.TRIGO_HEADROOM === 'warning';
 const WARNING_LABELS = /^warning/;
 const ONLY_SUSPENSION = process.env.TRIGO_HEADROOM === 'suspension';
 const SUSPENSION_LABELS = /^(admin suspension|T1 accept: expired admin|propose: expired admin)/;
+// TRIGO_HEADROOM=inbox: every admin decision that writes a message to the user's inbox.
+const ONLY_INBOX = process.env.TRIGO_HEADROOM === 'inbox';
+const INBOX_LABELS =
+  /^(inbox|payment confirm|payment reject|driver verification: approve|complaint review|admin suspension: (message|suspend|lift))/;
 
 const calibration: Scenario = {
   label: 'calibration (rule with only pad())',
@@ -1647,7 +1996,8 @@ try {
       (!ONLY_PRIVACY || PRIVACY_LABELS.test(s.label)) &&
       (!ONLY_COMPLAINT || COMPLAINT_LABELS.test(s.label)) &&
       (!ONLY_WARNING || WARNING_LABELS.test(s.label)) &&
-      (!ONLY_SUSPENSION || SUSPENSION_LABELS.test(s.label)),
+      (!ONLY_SUSPENSION || SUSPENSION_LABELS.test(s.label)) &&
+      (!ONLY_INBOX || INBOX_LABELS.test(s.label)),
   );
   for (const scenario of selected) {
     console.log(scenario.label);

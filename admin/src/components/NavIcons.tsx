@@ -16,7 +16,8 @@ export type NavIconName =
   | 'tariffs'
   | 'commission'
   | 'settings'
-  | 'privacy';
+  | 'privacy'
+  | 'announcements';
 
 const PATHS: Record<NavIconName, ReactNode> = {
   dashboard: (
@@ -81,6 +82,14 @@ const PATHS: Record<NavIconName, ReactNode> = {
     <>
       <path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z" />
       <path d="M9.5 12.5l1.8 1.8 3.4-3.6" />
+    </>
+  ),
+  // Megaphone (same meaning as the app inbox's announcement icon).
+  announcements: (
+    <>
+      <path d="M4 10v4a1 1 0 0 0 1 1h2l6 4V5L7 9H5a1 1 0 0 0-1 1z" />
+      <path d="M17 9a4 4 0 0 1 0 6" />
+      <path d="M8 15l1 4" />
     </>
   ),
   quota: (

@@ -1,10 +1,11 @@
 import { colors } from '@/constants/theme';
 import { NEW_REQUEST_VIBRATION_PATTERN } from '@/utils/newRequestAlert';
-import { legacyChannelsToDelete, RIDE_REQUEST_CHANNEL_ID } from '@/utils/notificationChannels';
+import { INBOX_CHANNEL_ID, legacyChannelsToDelete, RIDE_REQUEST_CHANNEL_ID } from '@/utils/notificationChannels';
 import {
   NotificationPermissionState,
   toPermissionStatus,
 } from '@/utils/notificationPermission';
+import { isInboxNotificationId } from '@/utils/inbox';
 import { isRideRequestNotificationId } from '@/utils/requestNotification';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
@@ -70,10 +71,11 @@ export async function getNotificationPermission(): Promise<NotificationPermissio
   }
 }
 
-/** Shows the system prompt when it still can (creating the channel first). */
+/** Shows the system prompt when it still can (creating the channels first). */
 export async function requestNotificationPermission(): Promise<NotificationPermissionState> {
   try {
     await ensureRideRequestChannel();
+    await ensureInboxChannel();
     return toState(
       await Notifications.requestPermissionsAsync({
         ios: { allowAlert: true, allowSound: true, allowBadge: false },
@@ -147,4 +149,60 @@ export async function dismissAllRideRequestNotifications(): Promise<void> {
   } catch {
     // Nothing more to do; stale ones leave when tapped or swiped away.
   }
+}
+
+// ─── Messages from TriGo (inbox) ─────────────────────────────────────────────
+
+/** Creates (or keeps) the inbox channel. Android 13+ shows the permission prompt only once a channel exists. */
+export async function ensureInboxChannel(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(INBOX_CHANNEL_ID, {
+    name: 'Messages from TriGo',
+    description: 'Decisions on your application, payments, reports and account, warnings and announcements.',
+    importance: Notifications.AndroidImportance.DEFAULT,
+    lightColor: colors.primary,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+    showBadge: true,
+  });
+}
+
+/** Posts an inbox notification now. Failures are ignored (the inbox itself still shows the message). */
+export async function showInboxNotification(input: LocalNotificationInput): Promise<void> {
+  try {
+    await ensureInboxChannel();
+    await Notifications.scheduleNotificationAsync({
+      identifier: input.identifier,
+      content: { title: input.title, body: input.body, data: input.data, sound: true },
+      trigger: Platform.OS === 'android' ? { channelId: INBOX_CHANNEL_ID } : null,
+    });
+  } catch {
+    // Permission off or the OS refused.
+  }
+}
+
+export async function dismissInboxNotification(identifier: string): Promise<void> {
+  await Notifications.dismissNotificationAsync(identifier).catch(() => undefined);
+}
+
+let foregroundHandlerSet = false;
+
+/**
+ * While the app is open, only inbox notifications are shown (as a banner and in the list).
+ * Ride requests are never posted while the app is open (vibration only), and anything else
+ * stays hidden as before this handler existed.
+ */
+export function setForegroundNotificationHandler(): void {
+  if (foregroundHandlerSet) return;
+  foregroundHandlerSet = true;
+  Notifications.setNotificationHandler({
+    handleNotification: async (notification) => {
+      const show = isInboxNotificationId(notification.request.identifier);
+      return {
+        shouldShowBanner: show,
+        shouldShowList: show,
+        shouldPlaySound: show,
+        shouldSetBadge: false,
+      };
+    },
+  });
 }

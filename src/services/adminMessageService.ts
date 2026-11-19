@@ -10,11 +10,13 @@ import {
   Timestamp,
   updateDoc,
   where,
+  WriteBatch,
 } from 'firebase/firestore';
 
 // adminMessages/{messageId}: messages from TriGo, created by an admin (firestore.rules, Admin
-// messages): suspension and verification notices today. The user reads their own and sets
-// readAt once; nothing else.
+// messages): suspension and verification notices, and system notices written with an admin
+// decision (application, payment, report, account deletion). The user reads their own and
+// sets readAt once; nothing else.
 
 function toDate(value: unknown): Date | null {
   return value instanceof Timestamp ? value.toDate() : null;
@@ -33,6 +35,7 @@ export function docToMessage(id: string, data: DocumentData): InboxMessage {
     body: text(data.body),
     reason: text(data.reason),
     until: toDate(data.until),
+    refId: typeof data.refId === 'string' ? data.refId : null,
     createdAt: toDate(data.createdAt),
     readAt: toDate(data.readAt),
   };
@@ -57,4 +60,11 @@ export async function markAdminMessageRead(messageId: string): Promise<void> {
   await updateDoc(doc(firestore, COLLECTIONS.adminMessages, messageId), {
     readAt: serverTimestamp(),
   });
+}
+
+/** "Mark all as read": the same readAt write for each unread message, in the caller's batch. */
+export function addMarkMessagesReadToBatch(batch: WriteBatch, messageIds: readonly string[]): void {
+  for (const id of messageIds) {
+    batch.update(doc(firestore, COLLECTIONS.adminMessages, id), { readAt: serverTimestamp() });
+  }
 }

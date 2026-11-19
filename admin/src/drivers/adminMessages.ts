@@ -3,9 +3,10 @@ import { collection, getDocs, query, where, type DocumentData, type Timestamp } 
 import { db } from '../firebase/config';
 import { ADMIN_MESSAGE_KINDS, type AdminMessageKind } from './driverActionPlan';
 
-// adminMessages/{id}: messages from TriGo to one user (driverActionPlan.ts has the payloads).
-// The driver detail page shows them as the suspension and verification history; account
-// deletion clears their reason and body. Equality filter only, so no composite index.
+// adminMessages/{id}: messages from TriGo to one user (driverActionPlan.ts has the driver
+// action payloads, inbox/noticePlan.ts the system notices). The driver detail page shows the
+// driver actions as the suspension and verification history (kind null = any other kind);
+// account deletion clears the reason and body of every kind. Equality filter only, so no composite index.
 
 export type AdminMessage = {
   messageId: string;

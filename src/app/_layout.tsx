@@ -25,6 +25,10 @@ export default function RootLayout() {
             name="inbox/message/[messageId]"
             options={{ animation: 'slide_from_right' }}
           />
+          <Stack.Screen
+            name="inbox/announcement/[announcementId]"
+            options={{ animation: 'slide_from_right' }}
+          />
         </Stack>
         {/* Over every screen: passengers and drivers without the current legal version. */}
         <LegalConsentGate />

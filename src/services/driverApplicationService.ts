@@ -19,6 +19,7 @@ import {
   VehicleType,
 } from '@/types';
 import { SUBMIT_MESSAGES, submitErrorMessage } from '@/utils/driverApplicationErrors';
+import { parseApplicationStatus, UNKNOWN_STATUS_MESSAGE } from '@/utils/driverApplicationStatus';
 import { validateMobileNumber } from '@/validations/auth';
 import {
   normalizePersonName,
@@ -154,7 +155,8 @@ export function docToDriverApplication(uid: string, data: DocumentData): DriverA
       orCr: toApplicationDocument(documents.orCr),
       ltoLicense: toApplicationDocument(documents.ltoLicense),
     },
-    status: data.status as DriverApplicationStatus,
+    // Never trusted: a missing or unexpected value becomes 'unknown' (shown neutrally).
+    status: parseApplicationStatus(data.status),
     adminRemarks: typeof data.adminRemarks === 'string' ? data.adminRemarks : null,
     submittedAt: toDate(data.submittedAt) ?? new Date(),
     updatedAt: toDate(data.updatedAt) ?? new Date(),
@@ -220,8 +222,11 @@ export async function submitDriverApplication(
   // Check before sending the photos so a duplicate submission fails fast.
   const existing = await getDoc(applicationRef).catch(() => null);
   const existingStatus = existing?.exists()
-    ? (existing.data().status as DriverApplicationStatus)
+    ? parseApplicationStatus(existing.data().status)
     : null;
+  if (existingStatus === 'unknown') {
+    throw new DriverApplicationServiceError(UNKNOWN_STATUS_MESSAGE);
+  }
   if (existingStatus === 'pending' || existingStatus === 'approved') {
     throw new DriverApplicationServiceError(
       existingStatus === 'approved'
@@ -300,7 +305,8 @@ export async function submitDriverApplication(
     let statusNow: DriverApplicationStatus | null = null;
     if (code === 'permission-denied') {
       const latest = await getDoc(applicationRef).catch(() => null);
-      statusNow = latest?.exists() ? (latest.data().status as DriverApplicationStatus) : null;
+      const parsed = latest?.exists() ? parseApplicationStatus(latest.data().status) : null;
+      statusNow = parsed === 'unknown' ? null : parsed;
     }
     throw new DriverApplicationServiceError(submitErrorMessage(error, statusNow));
   }

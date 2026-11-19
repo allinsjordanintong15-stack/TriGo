@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/Button';
 import { colors, spacing, typography } from '@/constants/theme';
 import { getVehicleOption } from '@/constants/vehicles';
 import { DriverApplication } from '@/types';
+import { applicationCardContent } from '@/utils/driverApplicationStatus';
 import { ComponentProps } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
@@ -18,55 +19,13 @@ interface DriverApplicationCardProps {
   onOpenDriverMode: () => void;
 }
 
-interface CardContent {
-  /** An Ionicons name, or an emoji (e.g. the vehicle icon) to show as text. */
-  icon: IconName | { emoji: string };
-  heading: string;
-  badge: string | null;
-  badgeTone: 'pending' | 'approved' | 'rejected' | null;
-  message: string;
-}
-
-function getContent(application: DriverApplication | null, driverModeReady: boolean): CardContent {
-  if (!application) {
-    return {
-      icon: { emoji: getVehicleOption('tricycle').icon },
-      heading: 'Become a TriGo Driver',
-      badge: null,
-      badgeTone: null,
-      message: 'Want to provide transportation services through TriGo?',
-    };
-  }
-
-  switch (application.status) {
-    case 'pending':
-      return {
-        icon: 'time-outline',
-        heading: 'Driver Application',
-        badge: 'Pending Verification',
-        badgeTone: 'pending',
-        message:
-          'Your application has been submitted and is waiting for administrator verification.',
-      };
-    case 'approved':
-      return {
-        icon: 'shield-checkmark-outline',
-        heading: 'TriGo Driver',
-        badge: 'Verified Driver',
-        badgeTone: 'approved',
-        message: driverModeReady
-          ? 'Your Driver application has been approved.'
-          : 'Your Driver application has been approved. Your driver account is being set up by the TriGo administrator.',
-      };
-    case 'rejected':
-      return {
-        icon: 'close-circle-outline',
-        heading: 'Driver Application',
-        badge: 'Rejected',
-        badgeTone: 'rejected',
-        message: 'Your application was not approved.',
-      };
-  }
+/** The card's content; always defined, whatever the stored status (driverApplicationStatus). */
+function getContent(application: DriverApplication | null, driverModeReady: boolean) {
+  return applicationCardContent(
+    application ? application.status : null,
+    driverModeReady,
+    getVehicleOption('tricycle').icon,
+  );
 }
 
 /** The Profile "Driver" section. Its content and action follow the application status. */
@@ -93,7 +52,7 @@ export function DriverApplicationCard({
       <View style={styles.header}>
         <View style={styles.iconWrap}>
           {typeof content.icon === 'string' ? (
-            <Ionicons name={content.icon} size={22} color={colors.primary} />
+            <Ionicons name={content.icon as IconName} size={22} color={colors.primary} />
           ) : (
             <Text style={styles.emojiIcon}>{content.icon.emoji}</Text>
           )}
@@ -124,17 +83,13 @@ export function DriverApplicationCard({
         </View>
       ) : null}
 
-      {!application ? (
+      {content.action === 'apply' ? (
         <Button title="Apply to Become a Driver" onPress={onApply} />
-      ) : application.status === 'approved' ? (
-        driverModeReady ? (
-          <Button title="Open Driver Mode" onPress={onOpenDriverMode} />
-        ) : (
-          <Button title="View Application" variant="secondary" onPress={onViewApplication} />
-        )
-      ) : (
+      ) : content.action === 'open-driver-mode' ? (
+        <Button title="Open Driver Mode" onPress={onOpenDriverMode} />
+      ) : content.action === 'view' ? (
         <Button title="View Application" variant="secondary" onPress={onViewApplication} />
-      )}
+      ) : null}
     </View>
   );
 }

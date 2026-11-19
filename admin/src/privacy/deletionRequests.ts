@@ -16,6 +16,7 @@ import { adminMessageIdsWithText } from '../drivers/adminMessages';
 import { clearedAdminMessageUpdate } from '../drivers/driverActionPlan';
 import { readAccount } from '../earnings/earnings';
 import { db } from '../firebase/config';
+import { newNoticeDoc } from '../inbox/noticePlan';
 import { clearedReasonUpdate } from '../warnings/warningPlan';
 import { warningIdsWithReason } from '../warnings/warnings';
 import {
@@ -217,7 +218,10 @@ export async function anonymizeAndComplete(uid: string, adminUid: string): Promi
   });
 }
 
-/** Declines a pending request with a note the user reads in the app. */
+/**
+ * Declines a pending request with a note the user reads in the app (Privacy & Terms), and
+ * in the inbox notice written in the same transaction (its reason = the same note).
+ */
 export async function declineDeletionRequest(uid: string, adminUid: string, note: string): Promise<void> {
   const error = validateDeclineNote(note);
   if (error) throw new DeletionConflictError(error);
@@ -227,7 +231,12 @@ export async function declineDeletionRequest(uid: string, adminUid: string, note
     if (!snap.exists() || snap.data().status !== 'pending') {
       throw new DeletionConflictError('This request is no longer pending. Reload the page to see the latest.');
     }
-    transaction.update(requestRef, declinedRequestUpdate(note, serverTimestamp(), adminUid));
+    const update = declinedRequestUpdate(note, serverTimestamp(), adminUid);
+    transaction.update(requestRef, update);
+    transaction.set(
+      doc(collection(db, 'adminMessages')),
+      newNoticeDoc({ kind: 'deletion_declined', userId: uid, note: update.declineNote }, adminUid, serverTimestamp()),
+    );
   });
 }
 

@@ -84,7 +84,9 @@ export function DriverDetailPage() {
       setLoadError('Could not load this driver. Check your connection and reload the page.');
     }
     try {
-      setHistory(await loadAdminMessagesFor(uid));
+      // Account standing only: suspensions and verification changes (not system notices
+      // such as payment confirmations, which the website does not know as a driver action).
+      setHistory((await loadAdminMessagesFor(uid)).filter((message) => message.kind !== null));
     } catch (error) {
       console.error('Driver message history failed to load:', error);
       setHistory('error');

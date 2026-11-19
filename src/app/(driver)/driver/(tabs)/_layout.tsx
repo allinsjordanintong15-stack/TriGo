@@ -3,6 +3,7 @@ import { colors } from '@/constants/theme';
 import { useDriverActivity } from '@/contexts/DriverActivityContext';
 import { formatRequestCount } from '@/utils/openRequests';
 import { useNewRequestAlert } from '@/hooks/useNewRequestAlert';
+import { useInboxNotifications } from '@/hooks/useInboxNotifications';
 import { useNotificationTapRouting } from '@/hooks/useNotificationTapRouting';
 import { Tabs } from 'expo-router';
 
@@ -11,6 +12,8 @@ export default function DriverTabsLayout() {
   useNewRequestAlert();
   // Here, not in the root layout: the driver account has loaded (also on a cold start).
   useNotificationTapRouting();
+  // Phone notifications for new inbox messages, and taps on them.
+  useInboxNotifications();
   // Waiting passenger requests (the shared listener in DriverActivityContext).
   const { openRequests } = useDriverActivity();
   const requestBadge = formatRequestCount(openRequests.count);

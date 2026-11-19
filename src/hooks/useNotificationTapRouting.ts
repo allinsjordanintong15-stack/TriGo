@@ -42,13 +42,15 @@ export function useNotificationTapRouting(): void {
     if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
 
     const { request, date } = response.notification;
+    const target = parseNotificationData(request.content.data, driverId);
+    // Not a ride request for this driver (e.g. an inbox notification): left untouched for
+    // the hook that handles it (useInboxNotifications).
+    if (!target) return;
     const tapKey = `${request.identifier}@${date}`;
     if (tapKey === lastHandledTap) return;
     lastHandledTap = tapKey;
     Notifications.clearLastNotificationResponse();
 
-    const target = parseNotificationData(request.content.data, driverId);
-    if (!target) return;
     try {
       openTarget(target);
     } catch {

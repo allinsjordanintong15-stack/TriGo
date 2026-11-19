@@ -2241,23 +2241,30 @@ service cloud.firestore {
 
     // ─── Admin messages ("messages from TriGo") ──────────────────────────────
     //
-    // adminMessages/{messageId}: { userId, kind, title, body, reason, until, createdBy,
-    // createdAt, readAt }. Created by an admin with each suspension, lift, revoke and restore
-    // (Admin Website, Drivers), in the same commit as the driver change. kind is one of
-    // 'suspended', 'suspension_lifted', 'revoked', 'restored' (more kinds, e.g.
-    // announcements, may be added); until is the suspension end or null. The user reads only
-    // their own and sets readAt once; in the commit that anonymizes the user an admin clears
-    // reason and body (the record stays). Nobody deletes.
+    // adminMessages/{messageId}: { userId, kind, title, body, reason, until, refId?, createdBy,
+    // createdAt, readAt }. Always created by an admin in the same commit as the decision it
+    // reports, and each kind is checked against the document that decision changes:
+    //   Drivers page: 'suspended', 'suspension_lifted', 'revoked', 'restored' (reason
+    //     required; until = suspension end or null; no refId).
+    //   System notices (2026-11-19), until null:
+    //     'application_approved' / 'application_rejected': driverApplications/{userId}
+    //       reviewed now with that status; reason '' / exactly the stored adminRemarks.
+    //     'payment_confirmed' / 'payment_rejected': refId = commissionPayments ID, the
+    //       user's payment reviewed now with that status; reason '' / the rejectionReason.
+    //     'report_resolved': refId = complaint ID, the user's own report resolved now;
+    //       reason always '' (the admin's note and the outcome stay private).
+    //     'deletion_declined': deletionRequests/{userId} declined now; reason = declineNote.
+    // The user reads only their own and sets readAt once; in the commit that anonymizes the
+    // user an admin clears reason and body (the record stays). Nobody deletes.
     match /adminMessages/{messageId} {
       function isValidAdminMessageCreate() {
         let data = request.resource.data;
         let keys = ['userId', 'kind', 'title', 'body', 'reason', 'until', 'createdBy', 'createdAt', 'readAt'];
         return isAdmin()
-          && data.keys().hasOnly(keys)
+          && data.keys().hasOnly(['userId', 'kind', 'title', 'body', 'reason', 'until', 'refId', 'createdBy', 'createdAt', 'readAt'])
           && data.keys().hasAll(keys)
           && data.userId is string
           && data.userId.size() > 0
-          && data.kind in ['suspended', 'suspension_lifted', 'revoked', 'restored']
           && data.title is string
           && data.title.size() > 0
           && data.title.size() <= 120
@@ -2265,12 +2272,62 @@ service cloud.firestore {
           && data.body.size() > 0
           && data.body.size() <= 1000
           && data.reason is string
-          && data.reason.trim().size() > 0
           && data.reason.size() <= 500
           && (data.until == null || data.until is timestamp)
           && data.createdBy == request.auth.uid
           && data.createdAt == request.time
-          && data.readAt == null;
+          && data.readAt == null
+          && isValidMessageKind(data);
+      }
+
+      function isValidMessageKind(data) {
+        return data.kind in ['suspended', 'suspension_lifted', 'revoked', 'restored']
+          ? (data.reason.trim().size() > 0 && data.get('refId', null) == null)
+          : (data.until == null && isValidNotice(data));
+      }
+
+      function isValidNotice(data) {
+        return data.kind == 'application_approved' ? isApplicationNotice(data, 'approved')
+          : data.kind == 'application_rejected' ? isApplicationNotice(data, 'rejected')
+          : data.kind == 'payment_confirmed' ? isPaymentNotice(data, 'confirmed')
+          : data.kind == 'payment_rejected' ? isPaymentNotice(data, 'rejected')
+          : data.kind == 'report_resolved' ? isReportNotice(data)
+          : data.kind == 'deletion_declined' ? isDeletionNotice(data)
+          : false;
+      }
+
+      function isApplicationNotice(data, status) {
+        let application = getAfter(applicationPath(data.userId)).data;
+        return data.get('refId', null) == null
+          && application.status == status
+          && application.reviewedAt == request.time
+          && data.reason == (status == 'rejected' ? application.adminRemarks : '');
+      }
+
+      function isPaymentNotice(data, status) {
+        let payment = getAfter(paymentPath(data.refId)).data;
+        return data.refId is string
+          && payment.driverId == data.userId
+          && payment.status == status
+          && payment.reviewedAt == request.time
+          && data.reason == (status == 'rejected' ? payment.rejectionReason : '');
+      }
+
+      function isReportNotice(data) {
+        let complaint = getAfter(/databases/$(database)/documents/complaints/$(data.refId)).data;
+        return data.refId is string
+          && complaint.reporterId == data.userId
+          && complaint.status == 'resolved'
+          && complaint.resolvedAt == request.time
+          && data.reason == '';
+      }
+
+      function isDeletionNotice(data) {
+        let deletion = getAfter(deletionRequestPath(data.userId)).data;
+        return data.get('refId', null) == null
+          && deletion.status == 'declined'
+          && deletion.declinedAt == request.time
+          && data.reason == deletion.declineNote;
       }
 
       function isMarkRead() {
@@ -2296,6 +2353,74 @@ service cloud.firestore {
         || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow create: if isValidAdminMessageCreate();
       allow update: if isMarkRead() || isTextCleared();
+      allow delete: if false;
+    }
+
+    // ─── Announcements (admin → many users) ─────────────────────────────────
+    //
+    // announcements/{id}: { title, body, audience ('all' | 'passengers' | 'drivers'),
+    // showUntil (a later time, or null = until withdrawn), status ('active' | 'withdrawn'),
+    // createdBy, createdAt, withdrawnAt, withdrawnBy }. ONE document per announcement, never
+    // one per user. Admins create and withdraw (Admin Website → Announcements); nobody edits
+    // the text or deletes. Signed-in users read the active ones of their audience:
+    // passengers = passenger accounts (isPassenger), drivers = the driver role (isDriver: driver
+    // accounts and approved applicants). The app queries one audience at a time with
+    // status == 'active', so each query is decided by its own audience. showUntil only hides
+    // an announcement in the app; it stays readable until withdrawn.
+    match /announcements/{announcementId} {
+      function isAnnouncementAudience(audience) {
+        return audience == 'all'
+          || (audience == 'passengers' && isPassenger())
+          || (audience == 'drivers' && isDriver());
+      }
+
+      function isValidAnnouncementCreate() {
+        let data = request.resource.data;
+        let keys = ['title', 'body', 'audience', 'showUntil', 'status', 'createdBy', 'createdAt', 'withdrawnAt', 'withdrawnBy'];
+        return isAdmin()
+          && data.keys().hasOnly(keys)
+          && data.keys().hasAll(keys)
+          && data.title is string
+          && data.title.trim().size() > 0
+          && data.title.size() <= 120
+          && data.body is string
+          && data.body.trim().size() > 0
+          && data.body.size() <= 1000
+          && data.audience in ['all', 'passengers', 'drivers']
+          && (data.showUntil == null || (data.showUntil is timestamp && data.showUntil > request.time))
+          && data.status == 'active'
+          && data.createdBy == request.auth.uid
+          && data.createdAt == request.time
+          && data.withdrawnAt == null
+          && data.withdrawnBy == null;
+      }
+
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.status == 'active' && isAnnouncementAudience(resource.data.audience));
+      allow create: if isValidAnnouncementCreate();
+      // Withdraw: it leaves every inbox at once (the app reads only active ones).
+      allow update: if isAdmin()
+        && resource.data.status == 'active'
+        && onlyChanged(['status', 'withdrawnAt', 'withdrawnBy'])
+        && request.resource.data.status == 'withdrawn'
+        && request.resource.data.withdrawnAt == request.time
+        && request.resource.data.withdrawnBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // users/{uid}/inboxState/announcements: { lastReadAllAt (null or a time), readIds (the
+    // announcements opened one by one, at most 200), updatedAt }. Only the user reads and
+    // writes it; it holds announcement IDs only (no message text, nothing about others).
+    match /users/{userId}/inboxState/{stateId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && stateId == 'announcements'
+        && request.resource.data.keys().hasOnly(['lastReadAllAt', 'readIds', 'updatedAt'])
+        && request.resource.data.readIds is list
+        && request.resource.data.readIds.size() <= 200
+        && (request.resource.data.get('lastReadAllAt', null) == null
+          || request.resource.data.lastReadAllAt is timestamp)
+        && request.resource.data.updatedAt == request.time;
       allow delete: if false;
     }
 

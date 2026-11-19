@@ -4,6 +4,8 @@ import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-
 
 import { useAuth } from '../auth/AuthContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { RemarkChips } from '../components/RemarkChips';
+import { PAYMENT_REJECT_REASONS } from '../inbox/noticePlan';
 import { PageHeader } from '../components/PageHeader';
 import { PageTabs, type PageTab } from '../components/PageTabs';
 import {
@@ -695,6 +697,16 @@ function Earnings({ tab }: { tab: EarningsTab }) {
               </tr>
             </tbody>
           </table>
+          <RemarkChips
+            label="Common reasons"
+            chips={PAYMENT_REJECT_REASONS}
+            value={reason}
+            onChange={(next) => {
+              setReason(next);
+              setReasonTouched(true);
+            }}
+            disabled={saving}
+          />
           <label className="field" htmlFor="reject-reason">
             <span>Reason (the driver sees it)</span>
             <textarea
@@ -712,7 +724,7 @@ function Earnings({ tab }: { tab: EarningsTab }) {
               {reasonTouched && reasonError ? (
                 <span className="field-error">{reasonError}</span>
               ) : (
-                `${reasonTrimmed.length}/${MAX_REJECTION_REASON_LENGTH}`
+                `Shown to the driver in the app and in their inbox. ${reasonTrimmed.length}/${MAX_REJECTION_REASON_LENGTH}`
               )}
             </span>
           </label>

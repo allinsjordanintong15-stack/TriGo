@@ -97,6 +97,7 @@ const CASES: [string, string, string][] = [
   // Passengers and account deletion
   ['/passengers', '/passengers', 'PassengersPage'],
   ['/passengers/u1', '/passengers/u1', 'PassengerDetailPage'],
+  ['/announcements', '/announcements', 'AnnouncementsPage'],
   ['/account-deletion', '/account-deletion', 'DeletionRequestsPage'],
   ['/account-deletion/u1', '/account-deletion/u1', 'DeletionRequestPage'],
   // Trips: Bookings | Out-of-area

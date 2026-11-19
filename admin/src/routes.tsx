@@ -3,6 +3,7 @@ import { createRoutesFromElements, Navigate, Route, useRoutes, type RouteObject 
 import { RequireAdmin } from './auth/RequireAdmin';
 import { AdminLayout } from './components/AdminLayout';
 import { enc, Redirect } from './components/Redirect';
+import { AnnouncementsPage } from './pages/AnnouncementsPage';
 import { BookingDetailPage } from './pages/BookingDetailPage';
 import { BookingsPage } from './pages/BookingsPage';
 import { ComplaintDetailPage } from './pages/ComplaintDetailPage';
@@ -80,6 +81,8 @@ export const APP_ROUTES: RouteObject[] = createRoutesFromElements(
         <Route path=":tab" element={<ComplaintsPage />} />
         <Route path=":tab/:complaintId" element={<ComplaintDetailPage />} />
       </Route>
+
+      <Route path="/announcements" element={<AnnouncementsPage />} />
 
       <Route path="/account-deletion" element={<DeletionRequestsPage />} />
       <Route path="/account-deletion/:uid" element={<DeletionRequestPage />} />

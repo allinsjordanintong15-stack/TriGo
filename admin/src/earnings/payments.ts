@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../firebase/config';
+import { newNoticeDoc } from '../inbox/noticePlan';
 import { formatCentavos } from '../lib/format';
 
 // Commission payments drivers report from the app (GCash, outside TriGo). An admin checks
@@ -173,21 +174,55 @@ export async function confirmPayment(paymentId: string, adminUid: string): Promi
         updatedAt: serverTimestamp(),
       });
     }
+    // The driver's inbox notice, checked by the rules against this payment's review.
+    transaction.set(
+      doc(collection(db, 'adminMessages')),
+      newNoticeDoc(
+        {
+          kind: 'payment_confirmed',
+          userId: payment.driverId,
+          paymentId,
+          amountCentavos: payment.amountCentavos,
+          reference: payment.reference,
+        },
+        adminUid,
+        serverTimestamp(),
+      ),
+    );
     return { paidBefore: account.paidCentavos, paidAfter, accrued: account.accruedCentavos };
   });
 }
 
-/** Rejects a pending payment with a reason and frees its reference in the same commit. */
+/**
+ * Rejects a pending payment with a reason and frees its reference in the same commit, with
+ * the driver's inbox notice (its reason = the same rejectionReason).
+ */
 export async function rejectPayment(paymentId: string, adminUid: string, reason: string): Promise<void> {
+  const text = reason.trim();
   await runTransaction(db, async (transaction) => {
     const payment = await readPendingPayment(transaction, paymentId);
     transaction.update(doc(db, 'commissionPayments', paymentId), {
       status: 'rejected',
-      rejectionReason: reason.trim(),
+      rejectionReason: text,
       reviewedAt: serverTimestamp(),
       reviewedBy: adminUid,
     });
     transaction.delete(doc(db, 'paymentReferences', payment.reference));
+    transaction.set(
+      doc(collection(db, 'adminMessages')),
+      newNoticeDoc(
+        {
+          kind: 'payment_rejected',
+          userId: payment.driverId,
+          paymentId,
+          amountCentavos: payment.amountCentavos,
+          reference: payment.reference,
+          reason: text,
+        },
+        adminUid,
+        serverTimestamp(),
+      ),
+    );
   });
 }
 
