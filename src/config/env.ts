@@ -14,7 +14,6 @@ interface FirebaseEnvConfig {
   storageBucket: string;
   messagingSenderId: string;
   appId: string;
-  databaseURL: string;
 }
 
 function readFirebaseEnv(): { config: FirebaseEnvConfig; missing: string[] } {
@@ -26,7 +25,6 @@ function readFirebaseEnv(): { config: FirebaseEnvConfig; missing: string[] } {
     storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '',
     messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
     appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
-    databaseURL: process.env.EXPO_PUBLIC_FIREBASE_DATABASE_URL ?? '',
   };
 
   return { config, missing };
@@ -42,7 +40,6 @@ export const env = {
     storageBucket: config.storageBucket,
     messagingSenderId: config.messagingSenderId,
     appId: config.appId,
-    databaseURL: config.databaseURL,
   },
 } as const;
 

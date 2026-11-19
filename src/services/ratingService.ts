@@ -66,20 +66,6 @@ export async function getOwnRating(bookingId: string): Promise<Rating | null> {
   }
 }
 
-/** True when this trip has been rated. */
-export async function hasRated(bookingId: string): Promise<boolean> {
-  return (await getOwnRating(bookingId)) !== null;
-}
-
-/** The driver's rating sum and count, or null when nobody has rated them yet. */
-export async function getDriverRatingSummary(driverId: string): Promise<DriverRatingSummary | null> {
-  try {
-    return readRatingSummary((await getDoc(summaryRef(driverId))).data());
-  } catch {
-    throw new RatingServiceError('Unable to load the driver rating.');
-  }
-}
-
 /** Live summary (driver Home, driver card); null while missing or unreadable. */
 export function subscribeToDriverRatingSummary(
   driverId: string,

@@ -216,10 +216,6 @@ export async function sendPasswordReset(email: string): Promise<void> {
   }
 }
 
-export function getCurrentFirebaseUser(): FirebaseUser | null {
-  return auth.currentUser;
-}
-
 export interface PassengerProfileUpdate {
   fullName: string;
   mobileNumber: string;

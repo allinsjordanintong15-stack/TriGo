@@ -44,5 +44,3 @@ export const TRIGO_SERVICE_AREA = {
    */
   edgeToleranceMeters: 150,
 } as const;
-
-export type TrigoServiceArea = typeof TRIGO_SERVICE_AREA;

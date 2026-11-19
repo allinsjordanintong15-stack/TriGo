@@ -296,13 +296,3 @@ export function toMapRegion(location: AppLocation) {
     ...MAP_DELTA,
   };
 }
-
-export function coordinatesAreEqual(
-  a: { latitude: number; longitude: number },
-  b: { latitude: number; longitude: number },
-): boolean {
-  return (
-    Math.abs(a.latitude - b.latitude) < 0.00001 &&
-    Math.abs(a.longitude - b.longitude) < 0.00001
-  );
-}

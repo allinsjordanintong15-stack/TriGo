@@ -42,13 +42,6 @@ export const COMMISSION_STATUS_LABELS: Record<CommissionStatus, string> = {
   suspended: 'Suspended',
 };
 
-export const COMMISSION_STATUS_BADGE_CLASS: Record<CommissionStatus, string> = {
-  paid_up: 'status-approved',
-  due: 'status-pending',
-  overdue: 'status-overdue',
-  suspended: 'status-rejected',
-};
-
 export type StatusSummary = {
   status: CommissionStatus;
   /** accrued − paid. */

@@ -25,7 +25,7 @@ never because of a setup error.
 | SEC-07 | Low | `paymentReferences` get is an oracle: tells whether any GCash reference is already used | Failing test | Open (todo test; candidate for Accepted) |
 | SEC-08 | Low–Medium | Out-of-area `standardEstimatedFare` and `distanceKm` are client-chosen | Failing test | **Fixed** (batch A) |
 | SEC-09 | Medium | Admin CSV export is open to formula injection (driver names, reasons) | Failing test against the shipped `csvCell` | Open (todo test) |
-| SEC-10 | Medium (unverified) | Realtime Database is configured (`EXPO_PUBLIC_FIREBASE_DATABASE_URL`) but has no rules in the repo | Console check needed | Open (console check) |
+| SEC-10 | Medium (unverified) | Realtime Database is configured (`EXPO_PUBLIC_FIREBASE_DATABASE_URL`) but has no rules in the repo | Console check needed | **Code fixed** (cleanup, 2026-11-19); console check still open |
 | SEC-11 | Low–Medium | Account deletion leaves personal data in bookings, requests, complaints, ratings, payments; deleted users can still book until Auth is removed | Code review | Open (retention decision) |
 | SEC-12 | Low | Admin website has no security headers (clickjacking, no CSP) | `firebase.json` review | Open |
 | SEC-13 | Low | Auth: no email verification, server-side password minimum is Firebase's 6, enumeration-friendly error text | Code review | Open (console settings) |
@@ -236,6 +236,10 @@ project). I did not query production.
 **Fix:** Console → Realtime Database → Rules: set `{".read": false, ".write": false}` or delete
 the instance; remove the env var and `realtimeDatabase.ts` if unused. **Effort:** XS.
 **Risk:** none (unused).
+**Status (2026-11-19, cleanup):** code part done. `src/firebase/realtimeDatabase.ts` is deleted,
+the app no longer reads `EXPO_PUBLIC_FIREBASE_DATABASE_URL` or passes `databaseURL` to Firebase, and
+the variable is removed from `.env.example`. Still open: the console check (lock or delete the
+instance if one exists).
 
 ### SEC-11 — Low–Medium — Account deletion leaves personal data (RA 10173)
 

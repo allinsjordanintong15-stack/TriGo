@@ -28,15 +28,6 @@ export const NOTICE_KINDS: NoticeKind[] = [
   'deletion_declined',
 ];
 
-export const NOTICE_KIND_LABELS: Record<NoticeKind, string> = {
-  application_approved: 'Application approved',
-  application_rejected: 'Application not approved',
-  payment_confirmed: 'Payment confirmed',
-  payment_rejected: 'Payment not accepted',
-  report_resolved: 'Report reviewed',
-  deletion_declined: 'Deletion request declined',
-};
-
 /** "₱1,234.50" from centavos (the admin website's own formatter is not imported here). */
 export function pesoText(centavos: number): string {
   const [whole, cents] = (Math.max(0, centavos) / 100).toFixed(2).split('.');

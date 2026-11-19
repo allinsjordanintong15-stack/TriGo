@@ -45,8 +45,3 @@ export function getFirebaseErrorMessage(error: unknown, fallback: string): strin
 
   return fallback;
 }
-
-export function getFirstValidationError(errors: Record<string, string>): string {
-  const firstKey = Object.keys(errors)[0];
-  return firstKey ? errors[firstKey] : 'Please check your input and try again.';
-}

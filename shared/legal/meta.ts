@@ -45,11 +45,3 @@ export function legalVersionLine(): string {
 export function privacyContactLine(): string {
   return `${PRIVACY_CONTACT.name} · ${PRIVACY_CONTACT.email}`;
 }
-
-/**
- * Values still to be filled in by the project team are written as ⟦TO FILL: …⟧ so they
- * stand out wherever the text is shown. findPlaceholders() lists them.
- */
-export function toFill(what: string): string {
-  return `⟦TO FILL: ${what}⟧`;
-}

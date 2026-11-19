@@ -55,11 +55,6 @@ export function formatIsoDay(value: string): string {
   return match ? DATE.format(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : value || '—';
 }
 
-/** "Last updated Oct 21, 2026, 3:05 PM." for settings pages. */
-export function lastUpdated(date: Date | null): string {
-  return `Last updated ${date ? formatDateTime(date) : 'at an unknown time'}.`;
-}
-
 /** A peso amount as an editable input value with 2 decimals, e.g. 20.5 → "20.50". */
 export function amountInputValue(amount: number): string {
   return amount.toFixed(2);

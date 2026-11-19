@@ -114,11 +114,6 @@ export function displayStatus(request: AdminOutOfAreaRequest, now: Date): Displa
   }
 }
 
-/** Newest first; requests without createdAt go last. */
-export function sortRequestsNewestFirst(requests: AdminOutOfAreaRequest[]): AdminOutOfAreaRequest[] {
-  return [...requests].sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
-}
-
 // ─── List page ──────────────────────────────────────────────────────────
 
 /** Each list query returns at most this many requests (newest first). */

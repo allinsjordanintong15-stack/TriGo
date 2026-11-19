@@ -20,10 +20,6 @@ export function getDisplayFare(booking: Booking): number {
   return booking.estimatedFare;
 }
 
-export function isOutOfAreaBooking(booking: Booking): boolean {
-  return booking.bookingType === 'out_of_area';
-}
-
 export function buildConfirmationQuote(
   tripQuote: TripQuote,
   outOfAreaRequest?: OutOfAreaRequest | null,

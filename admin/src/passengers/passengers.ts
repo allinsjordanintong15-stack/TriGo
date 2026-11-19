@@ -33,14 +33,6 @@ function readPassenger(uid: string, data: DocumentData): Passenger {
   };
 }
 
-/** All passengers, A–Z by name. Search is done in the browser (Firestore has no text search). */
-export async function loadPassengers(): Promise<Passenger[]> {
-  const snapshot = await getDocs(query(collection(db, 'users'), where('role', '==', 'passenger')));
-  return snapshot.docs
-    .map((d) => readPassenger(d.id, d.data()))
-    .sort((a, b) => a.fullName.localeCompare(b.fullName));
-}
-
 export type PassengerDetail = {
   passenger: Passenger;
   role: string;

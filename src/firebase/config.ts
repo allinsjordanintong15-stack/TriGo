@@ -8,9 +8,6 @@ const firebaseConfig: FirebaseOptions = {
   storageBucket: env.firebase.storageBucket,
   messagingSenderId: env.firebase.messagingSenderId,
   appId: env.firebase.appId,
-  ...(env.firebase.databaseURL
-    ? { databaseURL: env.firebase.databaseURL }
-    : {}),
 };
 
 export const firebaseApp = initializeApp(firebaseConfig);

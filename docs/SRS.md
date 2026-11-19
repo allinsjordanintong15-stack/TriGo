@@ -539,7 +539,7 @@ The following assumptions and dependencies apply to the system:
 
       This section describes functions that are planned or partly built but are not fully available in the current version, and the reason for each. These items are not claimed as working features.
 
-- Driver Document Upload: The driver application form and the OR/CR and LTO driver's license photo upload are implemented, but storing the photos requires Firebase Storage, which needs the Firebase Blaze plan. Until the project moves to the Blaze plan, drivers cannot complete an application through the application. Passenger profile photos are blocked for the same reason.
+- Passenger Profile Photos: Storing profile photos requires Firebase Storage, which needs the Firebase Blaze plan, so passenger profile photos are not available in the current version. Driver application documents are not affected: since 2026-11-17 the OR/CR and LTO driver's license photos are stored in Cloud Firestore, so drivers can complete an application through the application.
 
 - Push Notifications: Ride request alerts are created by the application itself while it is running (vibration on screen and a local notification in the background). Alerts cannot reach an application that is closed, and on iOS background alerts are practically unavailable. True push notifications need Cloud Functions and the Blaze plan.
 

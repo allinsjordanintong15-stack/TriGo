@@ -1,5 +1,5 @@
 // Ride-request notification permission decisions (no imports, so plain Node tests can
-// load this file). The service (src/services/notificationService.ts) reads the real state.
+// load this file). The service (src/services/localNotificationService.ts) reads the real state.
 
 export type NotificationPermissionStatus = 'granted' | 'denied' | 'undetermined';
 

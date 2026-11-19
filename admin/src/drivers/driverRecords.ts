@@ -1,6 +1,5 @@
 import type { DocumentData, Timestamp } from 'firebase/firestore';
 
-import { matchesMobile } from '../passengers/search';
 
 // drivers/{uid} as the admin Drivers page sees it. The driver writes their duty status and
 // trip links from the app; admins write only isVerified, isOnline/isAvailable (forced off
@@ -200,15 +199,4 @@ export function dutyStatus(driver: AdminDriver): DutyStatus {
   if (driver.currentRequestId) return 'holding_request';
   if (driver.isOnline) return driver.isAvailable ? 'available' : 'online';
   return 'offline';
-}
-
-export function matchesDriverSearch(driver: AdminDriver, contact: DriverContact | undefined, search: string): boolean {
-  const text = search.trim().toLowerCase();
-  if (!text) return true;
-  // Plates are compared without spaces or dashes ("ABC 1234" = "abc1234").
-  const plateKey = (value: string) => value.toLowerCase().replace(/[\s-]/g, '');
-  if (driver.fullName.toLowerCase().includes(text)) return true;
-  if (plateKey(text) && plateKey(driver.vehiclePlate).includes(plateKey(text))) return true;
-  if (contact?.email.toLowerCase().includes(text)) return true;
-  return contact ? matchesMobile(contact.mobileNumber, text) : false;
 }
