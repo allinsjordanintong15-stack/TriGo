@@ -1,24 +1,37 @@
 import { ExpoConfig, ConfigContext } from 'expo/config';
 
+// APP_VARIANT (set per EAS build profile in eas.json): 'preview' builds install next to the
+// development client and the production app, with their own package / bundle ID, name and
+// link scheme. Anything else (unset) = the normal app.
+const IS_PREVIEW = process.env.APP_VARIANT === 'preview';
+
+const BASE_ID = 'com.trigo.passenger';
+const APP_ID = IS_PREVIEW ? `${BASE_ID}.preview` : BASE_ID;
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'TriGo',
+  name: IS_PREVIEW ? 'TriGo (Preview)' : 'TriGo',
   slug: 'TriGo',
-  scheme: 'trigo',
+  scheme: IS_PREVIEW ? 'trigo-preview' : 'trigo',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   userInterfaceStyle: 'light',
   ios: {
     supportsTablet: true,
+    bundleIdentifier: APP_ID,
+    // Camera and photo library texts come from the expo-image-picker plugin, the location
+    // text from expo-location (below). Local notifications need no Info.plist text.
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
         'TriGo uses your location to set pickup points and show your ride on the map.',
+      // Only standard HTTPS/TLS (Firebase, OpenRouteService): no export-compliance prompt.
+      ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {
     ...config.android,
-    package: config.android?.package ?? 'com.trigo.passenger',
+    package: APP_ID,
     adaptiveIcon: {
       foregroundImage: './assets/images/adaptive-icon.png',
       backgroundColor: '#1B5E3A',

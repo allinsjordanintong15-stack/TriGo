@@ -17,10 +17,23 @@
       "android": {
         "buildType": "apk"
       },
-      "environment": "preview"
+      "ios": {
+        "simulator": false
+      },
+      "environment": "preview",
+      "env": {
+        "APP_VARIANT": "preview"
+      }
     },
     "production": {
       "environment": "production"
+    },
+    "preview-simulator": {
+      "extends": "preview",
+      "environment": "preview",
+      "ios": {
+        "simulator": true
+      }
     }
   }
 }

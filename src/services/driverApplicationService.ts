@@ -292,7 +292,7 @@ export async function submitDriverApplication(
       // Controlled resubmission after rejection; admin remarks and review details stay.
       transaction.update(applicationRef, { ...submittedFields, documents });
     });
-    console.info('[submitDriverApplication] committed', { uid: user.uid });
+    if (__DEV__) console.info('[submitDriverApplication] committed', { uid: user.uid });
   } catch (error) {
     if (error instanceof DriverApplicationServiceError) {
       throw error;
