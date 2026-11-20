@@ -53,8 +53,10 @@ function minutesAgo(minutes) {
   return Timestamp.fromMillis(Date.now() - minutes * 60_000);
 }
 
-// A small placeholder JPEG (240×160, "seed placeholder") for every seeded document photo.
-const PLACEHOLDER_JPEG = Buffer.from(
+// A small placeholder JPEG (240×160, "seed placeholder") for every seeded document photo,
+// stored like the app stores photos: base64 text in `dataBase64` (starts with /9j/, the
+// JPEG FF D8 FF signature), never Firestore Bytes (firestore.rules, docs/DECISIONS.md).
+const PLACEHOLDER_JPEG_BASE64 =
   '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19i' +
   'Z2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj' +
   'Y2NjY2NjY2P/wAARCACgAPADASIAAhEBAxEB/8QAGgABAQADAQEAAAAAAAAAAAAAAAQCAwUBBv/EADgQAAECAwMLAwIFBQEBAAAA' +
@@ -92,9 +94,8 @@ const PLACEHOLDER_JPEG = Buffer.from(
   'Ws0tTeYSnebiNLU3mEp3m4keq1G4PyvxGq1G4PyvxBazS1N5hKd5uI0tTeYSnebiR6rUbg/K/EarUbg/K/EFrNLU3mEp3m4jS1N5' +
   'hKd5uJHqtRuD8r8RqtRuD8r8QWs0tTeYSnebiNLU3mEp3m4keq1G4PyvxGq1G4PyvxBazS1N5hKd5uI0tTeYSnebiR6rUbg/K/Ea' +
   'rUbg/K/EFrNLU3mEp3m4jS1N5hKd5uJHqtRuD8r8RqtRuD8r8QWs0tTeYSnebiNLU3mEp3m4keq1G4PyvxGq1G4PyvxBb2q1OnxK' +
-  'TOMZPSznugPRrWxmqqrmrsTaeZJbuSnXfcNVqNwflfidKUlYMlLMl5ZmZCZbmttVbLVt9/8AYIie9l//2Q==',
-  'base64',
-);
+  'TOMZPSznugPRrWxmqqrmrsTaeZJbuSnXfcNVqNwflfidKUlYMlLMl5ZmZCZbmttVbLVt9/8AYIie9l//2Q==';
+const PLACEHOLDER_JPEG_SIZE = Buffer.from(PLACEHOLDER_JPEG_BASE64, 'base64').length;
 
 // Document photos at driverApplications/{uid}/documents/{docType} and the application's
 // references to them (firestore.rules). The older applicant keeps the retired Cloud Storage
@@ -117,13 +118,13 @@ async function seedDocuments(uid, legacy) {
       uid,
       docType: type,
       mimeType: 'image/jpeg',
-      data: PLACEHOLDER_JPEG,
-      sizeBytes: PLACEHOLDER_JPEG.length,
+      dataBase64: PLACEHOLDER_JPEG_BASE64,
+      sizeBytes: PLACEHOLDER_JPEG_SIZE,
       width: 240,
       height: 160,
       uploadedAt,
     });
-    references[type] = { sizeBytes: PLACEHOLDER_JPEG.length, uploadedAt };
+    references[type] = { sizeBytes: PLACEHOLDER_JPEG_SIZE, uploadedAt };
   }
   return references;
 }
