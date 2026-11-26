@@ -12,10 +12,10 @@ export const PRIVACY_CONTACT = {
 } as const;
 
 /** "major.minor". Users are asked to accept again whenever this changes. */
-export const LEGAL_VERSION = '1.0';
+export const LEGAL_VERSION = '1.1';
 
 /** Date the current version takes effect, YYYY-MM-DD (Philippine date). */
-export const LEGAL_EFFECTIVE_DATE = '2026-11-03';
+export const LEGAL_EFFECTIVE_DATE = '2026-11-20';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',

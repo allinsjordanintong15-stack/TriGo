@@ -9,6 +9,7 @@
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
 import { readFileSync } from 'node:fs';
+import { LEGAL_VERSION } from '../../shared/legal/meta.ts';
 import { after, before, beforeEach, describe, it } from 'node:test';
 
 import {
@@ -198,7 +199,7 @@ function applicantDb(): Firestore {
 
 /** The Privacy Notice acknowledgement every submit and resubmit carries (rules: currentLegalVersion()). */
 function privacyAck(): DocumentData {
-  return { privacyNoticeVersion: '1.0', privacyNoticeAcknowledgedAt: serverTimestamp() };
+  return { privacyNoticeVersion: LEGAL_VERSION, privacyNoticeAcknowledgedAt: serverTimestamp() };
 }
 
 /** First submission exactly like the mobile app (server timestamps). */

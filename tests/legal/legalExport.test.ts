@@ -39,7 +39,7 @@ describe('legal Markdown export', () => {
 
   it('each export starts with the title and the version line', () => {
     const md = legalDocumentToMarkdown(PRIVACY_NOTICE);
-    assert.match(md, /\n# TriGo Privacy Notice\n\n_Version 1\.0 · Effective 3 November 2026_\n/);
+    assert.match(md, /\n# TriGo Privacy Notice\n\n_Version 1\.1 · Effective 20 November 2026_\n/);
   });
 });
 

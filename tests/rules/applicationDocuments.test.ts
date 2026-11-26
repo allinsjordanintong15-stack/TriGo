@@ -36,6 +36,7 @@ import {
 } from 'firebase/firestore';
 
 import { base64ByteLength } from '../../shared/documents/index.ts';
+import { LEGAL_VERSION } from '../../shared/legal/meta.ts';
 
 const PROJECT_ID = 'demo-trigo-rules';
 
@@ -115,7 +116,7 @@ function applicationFields(overrides: DocumentData = {}): DocumentData {
     submittedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     reviewedAt: null,
-    privacyNoticeVersion: '1.0',
+    privacyNoticeVersion: LEGAL_VERSION,
     privacyNoticeAcknowledgedAt: serverTimestamp(),
     ...overrides,
   };
@@ -170,7 +171,7 @@ function submitWith(
       status: 'pending',
       submittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      privacyNoticeVersion: '1.0',
+      privacyNoticeVersion: LEGAL_VERSION,
       privacyNoticeAcknowledgedAt: serverTimestamp(),
       documents: references,
       ...(options.application ?? {}),

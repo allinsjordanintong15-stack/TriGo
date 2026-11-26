@@ -9,6 +9,7 @@
 // Self-contained on purpose: Node's type stripping does not resolve the "@/..." aliases.
 
 import { readFileSync } from 'node:fs';
+import { LEGAL_VERSION } from '../../shared/legal/meta.ts';
 import { after, before, beforeEach, describe, it } from 'node:test';
 
 import {
@@ -48,7 +49,8 @@ const PROJECT_ID = 'demo-trigo-rules';
 setLogLevel('error');
 
 /** Must equal currentLegalVersion() in firestore.rules (tests/legal/legalRulesSync.test.ts). */
-const VERSION = '1.0';
+// The current legal version (shared/legal/meta.ts = currentLegalVersion() in the rules).
+const VERSION = LEGAL_VERSION;
 
 const ADMIN = 'admin1';
 const PASSENGER = 'passenger1';
@@ -280,7 +282,7 @@ describe('privacy: consent at registration', () => {
 
   const badConsents: [string, DocumentData][] = [
     ['an old version', consent({ version: '0.9' })],
-    ['a future version', consent({ version: '1.1' })],
+    ['a future version', consent({ version: '9.9' })],
     ['a client-chosen time', consent({ acceptedAt: Timestamp.now() })],
     ['an extra field', consent({ ip: '1.2.3.4' })],
   ];
@@ -311,6 +313,17 @@ describe('privacy: re-consent', () => {
 
   it('allows a driver account to accept the current version', async () => {
     await assertSucceeds(reconsent(DRIVER));
+  });
+
+  it('allows a passenger and a driver who agreed to 1.0 to accept the current version', async () => {
+    const acceptedAt = Timestamp.fromMillis(Date.now() - 86_400_000);
+    for (const uid of [PASSENGER, DRIVER]) {
+      await seed({
+        [`users/${uid}`]: { ...USERS[uid], legalConsent: { version: '1.0', acceptedAt } },
+        [`users/${uid}/legalConsents/1.0`]: { version: '1.0', acceptedAt },
+      });
+      await assertSucceeds(reconsent(uid));
+    }
   });
 
   it('denies accepting the same version twice (one log entry per version)', async () => {

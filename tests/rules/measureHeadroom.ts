@@ -80,6 +80,7 @@ import {
   type Writes,
 } from './commissionFixtures.ts';
 import { manilaDay } from '../../src/utils/dailyQuota.ts';
+import { LEGAL_VERSION } from '../../shared/legal/meta.ts';
 import { newNoticeDoc, type NoticeInput } from '../../admin/src/inbox/noticePlan.ts';
 
 const PROJECT_ID = 'demo-trigo-rules';
@@ -1034,7 +1035,7 @@ const applicationCreate: Scenario = {
         documents,
         submittedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        privacyNoticeVersion: '1.0',
+        privacyNoticeVersion: LEGAL_VERSION,
         privacyNoticeAcknowledgedAt: serverTimestamp(),
       }),
     );
@@ -1063,7 +1064,7 @@ const applicationResubmit: Scenario = {
       status: 'pending',
       submittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      privacyNoticeVersion: '1.0',
+      privacyNoticeVersion: LEGAL_VERSION,
       privacyNoticeAcknowledgedAt: serverTimestamp(),
     });
     await batch.commit();
@@ -1159,7 +1160,6 @@ const vehicleEdit: Scenario = {
 
 // ─── Privacy: consent, deletion request, anonymization ─────────────────────
 
-const LEGAL_VERSION = '1.0';
 const NEW_USER = 'privacyNewUser';
 const ERASED = 'privacyErased';
 

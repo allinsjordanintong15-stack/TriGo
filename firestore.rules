@@ -68,7 +68,7 @@ service cloud.firestore {
     // The version of the Privacy Notice and Terms of Use that users accept. Keep equal to
     // LEGAL_VERSION in shared/legal/meta.ts (tests/legal/legalRulesSync.test.ts).
     function currentLegalVersion() {
-      return '1.0';
+      return '1.1';
     }
 
     // The document at `path` is anonymized (account deletion) in this very commit.

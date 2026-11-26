@@ -18,7 +18,7 @@ export const DRIVER_APPLICATION_NOTICE: DriverApplicationNotice = {
     },
     {
       heading: 'Who reviews it',
-      text: 'The TriGo team (administrators) checks your application and documents. Only you and the TriGo team can see them.',
+      text: 'The TriGo team (administrators) checks your application and documents. Your document photos are stored as compressed images in Cloud Firestore. Only you and the TriGo team can see them, and they are deleted if your account is deleted.',
     },
     {
       heading: 'If you are approved',

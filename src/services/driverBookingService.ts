@@ -555,7 +555,12 @@ export async function fetchDriverTripHistory(
     const code = (error as { code?: string }).code;
     // A missing composite index fails with failed-precondition; the logged error
     // includes the Console link that creates it.
-    console.warn('[TriGo] fetchDriverTripHistory failed', error);
+    // Release builds log only the error code, never the raw Firestore error.
+    if (__DEV__) {
+      console.warn('[TriGo] fetchDriverTripHistory failed', error);
+    } else {
+      console.warn('[TriGo] fetchDriverTripHistory failed', code ?? 'unknown');
+    }
     throw new DriverBookingServiceError(
       code === 'failed-precondition'
         ? 'Trip history is not available yet: the database index is still being set up.'
@@ -598,7 +603,11 @@ export async function getDriverFaresCollectedSince(
     // Sums of centavo amounts can carry floating-point noise.
     return { trips, total: Math.round((total ?? 0) * 100) / 100 };
   } catch (error) {
-    console.warn('[TriGo] getDriverFaresCollectedSince failed', error);
+    if (__DEV__) {
+      console.warn('[TriGo] getDriverFaresCollectedSince failed', error);
+    } else {
+      console.warn('[TriGo] getDriverFaresCollectedSince failed', (error as { code?: string }).code ?? 'unknown');
+    }
     throw new DriverBookingServiceError('Unable to load fares collected.');
   }
 }

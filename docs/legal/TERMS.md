@@ -2,7 +2,7 @@
 
 # TriGo Terms of Use
 
-_Version 1.0 · Effective 3 November 2026_
+_Version 1.1 · Effective 20 November 2026_
 
 Contact: TriGo Management · allinsjordanintong15@gmail.com
 
@@ -54,7 +54,7 @@ These terms apply to the TriGo mobile app and are offered by TriGo Management. B
 - TriGo charges a commission, a percentage of the fare set by the TriGo team, on every completed trip. The total for each payment period is due at the end of the period.
 - Pay commission by GCash to TriGo's GCash account shown in the app, and enter the GCash reference number. The TriGo team checks each payment and confirms or rejects it. Each reference number can be used once.
 - If commission is not paid after the due date you get a warning; after the grace period you cannot accept trips until the overdue amount is confirmed paid.
-- The TriGo team can revoke a driver's access for breaking these terms, for false documents or details, or for safety reasons. A trip already in progress can still be finished.
+- The TriGo team can warn a driver, suspend a driver for a period or until lifted, or revoke a driver's access, for breaking these terms, for false documents or details, or for safety reasons. A suspended driver cannot accept new trips; a trip already in progress can still be finished.
 
 ## 7. How everyone must behave
 
@@ -65,7 +65,9 @@ These terms apply to the TriGo mobile app and are offered by TriGo Management. B
 
 ## 8. Problems, complaints and safety
 
-- You can report a problem with a trip in the app (Report a problem on the trip). The TriGo team reviews every report.
+- You can report a problem with a trip in the app (Report a problem on the trip). The TriGo team reviews every report and tells you when it has been reviewed.
+- After reviewing a report, the TriGo team may take no action, warn the person it is about or, for a driver, suspend the account. Warnings and suspensions are sent to your inbox with the reason.
+- To ask about or contest a warning or a suspension, email allinsjordanintong15@gmail.com. The TriGo team will review it and can withdraw the warning or lift the suspension.
 - In an emergency, contact the police or other local emergency services first. TriGo is not an emergency service.
 - The support numbers in the app can be called for help with TriGo.
 

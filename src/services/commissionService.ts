@@ -402,7 +402,12 @@ export async function fetchDriverCommissions(
     };
   } catch (error) {
     const code = (error as { code?: string }).code;
-    console.warn('[TriGo] fetchDriverCommissions failed', error);
+    // Release builds log only the error code, never the raw Firestore error.
+    if (__DEV__) {
+      console.warn('[TriGo] fetchDriverCommissions failed', error);
+    } else {
+      console.warn('[TriGo] fetchDriverCommissions failed', code ?? 'unknown');
+    }
     throw new CommissionServiceError(
       code === 'failed-precondition'
         ? 'Commission history is not available yet: the database index is still being set up.'
@@ -519,7 +524,11 @@ export async function fetchDriverPayments(
     };
   } catch (error) {
     const code = (error as { code?: string }).code;
-    console.warn('[TriGo] fetchDriverPayments failed', error);
+    if (__DEV__) {
+      console.warn('[TriGo] fetchDriverPayments failed', error);
+    } else {
+      console.warn('[TriGo] fetchDriverPayments failed', code ?? 'unknown');
+    }
     throw new CommissionServiceError(
       code === 'failed-precondition'
         ? 'Payment history is not available yet: the database index is still being set up.'

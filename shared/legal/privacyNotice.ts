@@ -1,6 +1,7 @@
 // TriGo Privacy Notice. Based on docs/privacy/DATA_INVENTORY.md (what the code does), with
 // fix A (a driver's location is cleared on going offline) and fix B (ride request
-// notifications are private on the Android lock screen).
+// notifications are private on the Android lock screen). Version 1.1 adds application photos
+// in Firestore, inbox messages and announcements, complaints, warnings and suspensions.
 //
 // Editing this text changes what users agreed to: raise LEGAL_VERSION in meta.ts and run
 // `npm run legal:export`.
@@ -63,6 +64,7 @@ export const PRIVACY_NOTICE: LegalDocument = {
             'The payment method you chose (cash or GCash). TriGo does not handle the payment itself.',
             'The times a trip was requested, accepted, started, completed or cancelled, who cancelled it and the reason given.',
             'Ratings and comments you give, and problem reports (complaints) you send, including what you write in them.',
+            'Complaints about you: a problem report can name the other person on the trip (see section 6).',
           ],
         },
         { kind: 'paragraph', text: 'Drivers and driver applicants, in addition:' },
@@ -70,10 +72,20 @@ export const PRIVACY_NOTICE: LegalDocument = {
           kind: 'list',
           items: [
             'Your first, middle and last name, vehicle type, plate number, brand, model and color.',
-            'Photos of your OR/CR and driver\'s license, once document uploads are enabled.',
+            'Photos of your OR/CR and driver\'s license, which you take or choose in the app. They are stored as compressed images (JPEG) in Cloud Firestore, with their file size and dimensions.',
             'The status of your application and the remarks of the TriGo team.',
             'Your online and available status, your location when you go online (see section 4), your rating and how many passengers you accepted today.',
             'Commission records: commission per completed trip, balances, payment periods, and the amount and GCash reference number of each commission payment you report.',
+            'Suspensions: when a suspension starts and ends, the reason and which administrator set or lifted it (see section 6).',
+          ],
+        },
+        { kind: 'paragraph', text: 'Messages and records from TriGo:' },
+        {
+          kind: 'list',
+          items: [
+            'Messages from TriGo in your inbox (application decisions, commission payment decisions, report updates, warnings, suspensions and account deletion decisions), with the reason given and when you read them.',
+            'Which announcements you have read.',
+            'Warnings: the reason, the date, the trip and complaint it relates to (if any), which administrator gave it, and when you acknowledged it.',
           ],
         },
         {
@@ -93,7 +105,8 @@ export const PRIVACY_NOTICE: LegalDocument = {
             'To book trips: calculate the fare, show requests to suitable drivers, match a driver, and let the passenger and the driver contact each other during the trip.',
             'To check driver applications and keep driver details (name, plate and vehicle) correct, so passengers know who is coming.',
             'To record commission owed by drivers, check commission payments and apply the daily acceptance limit.',
-            'To handle complaints and safety reports, and to keep trip records in case of disputes.',
+            'To handle complaints and safety reports, give warnings, suspend drivers who break the Terms of Use, and keep trip records in case of disputes.',
+            'To tell you about decisions on your account, application, payments and reports, and to send announcements to all users, to passengers or to drivers.',
             'To produce totals and reports for running TriGo (counts and sums, not profiles of individual users).',
           ],
         },
@@ -128,8 +141,10 @@ export const PRIVACY_NOTICE: LegalDocument = {
             'You can see your own profile, trips, ratings you gave, complaints you sent and, as a driver, your application and commission records.',
             'Your passenger or driver on an active trip (accepted, driver arrived, or in progress) can see your name and mobile number so you can call each other. This stops when the trip is completed or cancelled.',
             'Verified drivers can see open trip requests for their vehicle type: pickup, destination and fare, but not the passenger\'s name or number.',
-            'A verified driver\'s record (name, plate, vehicle details, rating, online status, today\'s accepted count, verification details recorded by the TriGo team and, while online, location) can be read by signed-in TriGo users. The app shows passengers only the name, plate and vehicle of the driver assigned to them, and uses online drivers\' locations to find drivers for out-of-area trips.',
-            'The TriGo team (admins) can see all accounts, trips, driver applications, driver records, complaints and commission records, to run the service and handle problems.',
+            'Driver application photos (OR/CR and driver\'s license) can be seen only by the applicant and the TriGo team. They are never shown to passengers or other drivers.',
+            'Your inbox messages and warnings can be seen only by you and the TriGo team.',
+            'A verified driver\'s record (name, plate, vehicle details, rating, online status, today\'s accepted count, verification and suspension details recorded by the TriGo team and, while online, location) can be read by signed-in TriGo users. The app shows passengers only the name, plate and vehicle of the driver assigned to them, and uses online drivers\' locations to find drivers for out-of-area trips.',
+            'The TriGo team (admins) can see all accounts, trips, driver applications and their photos, driver records, complaints, warnings, inbox messages and commission records, to run the service and handle problems.',
           ],
         },
         {
@@ -139,22 +154,43 @@ export const PRIVACY_NOTICE: LegalDocument = {
       ],
     },
     {
-      id: 'notifications',
-      heading: '6. Notifications on drivers\' phones',
+      id: 'complaints-warnings-suspensions',
+      heading: '6. Complaints, warnings and suspensions',
       blocks: [
         {
           kind: 'list',
           items: [
-            'When the driver app is in the background, it can show a notification for a new ride request with the fare, the pickup and destination place names and the distance to the pickup.',
+            'A problem report (complaint) is about one trip and can name the other person on that trip (the driver or the passenger). The TriGo team reviews every report and may take no action, give a warning or, for a driver, suspend the account.',
+            'The person who sent the report gets a message that it was reviewed. The app does not show them the TriGo team\'s internal notes or what action was taken.',
+            'The person named in a report does not see the report or the reporter\'s message. If they are warned, they see the warning and its reason.',
+            'A warning records the reason, the date, the trip and complaint it relates to (if any) and which administrator gave it. It stays in your inbox until you acknowledge it. The TriGo team can withdraw it.',
+            'A driver suspension records when it starts, until when (or until lifted), the reason and which administrator set it. While suspended, a driver cannot accept new trips; a trip already in progress can be finished. The driver gets a message with the reason, and another when the suspension is lifted.',
+            `To ask about or contest a warning or a suspension, email ${PRIVACY_CONTACT.email} with your name and the date of the message. The TriGo team will review it and can withdraw the warning or lift the suspension.`,
+          ],
+        },
+      ],
+    },
+    {
+      id: 'notifications',
+      heading: '7. Notifications and messages',
+      blocks: [
+        {
+          kind: 'list',
+          items: [
+            'Ride request alerts (drivers): while the driver app is running, also in the background, it can show a notification for a new ride request with the fare, the pickup and destination place names and the distance to the pickup.',
+            'Messages from TriGo (everyone): application decisions, commission payment decisions, report updates, warnings, suspensions and account deletion decisions appear in the inbox in the app.',
+            'Announcements: notices from the TriGo team to all users, to passengers or to drivers, also shown in the inbox.',
+            'While the app is running, a new inbox message or announcement can also show a phone notification with its title only. The details are shown in the app.',
+            'When you read a message or an announcement, or acknowledge a warning, this is stored in Cloud Firestore so the inbox can show what is new.',
             'On Android these notifications are private: the lock screen shows only Android\'s own message that the contents are hidden. The details appear after the phone is unlocked. On iPhone, what the lock screen shows follows your iPhone\'s notification preview setting.',
-            'The notifications are created on the phone itself. No server sends them, and no notification token is created or shared.',
+            'The notifications are created on the phone itself. No server sends them, and no notification token is created or shared. Once your phone stops the app, no notifications are shown until you open it again.',
           ],
         },
       ],
     },
     {
       id: 'service-providers',
-      heading: '7. Services we use',
+      heading: '8. Services we use',
       blocks: [
         {
           kind: 'list',
@@ -174,15 +210,15 @@ export const PRIVACY_NOTICE: LegalDocument = {
     },
     {
       id: 'permissions',
-      heading: '8. Phone permissions',
+      heading: '9. Phone permissions',
       blocks: [
         {
           kind: 'list',
           items: [
             'Location (only while the app is in use): see section 4.',
-            'Notifications: ride request notifications for drivers. You can say no and still use the app.',
+            'Notifications: ride request alerts for drivers and inbox notifications for everyone (section 7). You can say no and still use the app; messages stay in the inbox.',
             'Vibration: the alert for a new ride request.',
-            'Camera and photos: for driver document photos once uploads are enabled. TriGo uses only the photos you choose.',
+            'Camera and photos: to take or choose the photos of your OR/CR and driver\'s license when you apply as a driver. TriGo uses only the photos you take or choose.',
             'Phone calls: the Call buttons open your phone\'s dialer. TriGo does not place or record calls.',
           ],
         },
@@ -190,7 +226,7 @@ export const PRIVACY_NOTICE: LegalDocument = {
     },
     {
       id: 'on-your-phone',
-      heading: '9. What is kept on your phone',
+      heading: '10. What is kept on your phone',
       blocks: [
         {
           kind: 'paragraph',
@@ -200,21 +236,23 @@ export const PRIVACY_NOTICE: LegalDocument = {
     },
     {
       id: 'retention',
-      heading: '10. How long we keep it',
+      heading: '11. How long we keep it',
       blocks: [
         {
           kind: 'list',
           items: [
             'Your account and profile: until you ask us to delete your account.',
-            'Trips, commission and payment records: kept after an account is deleted, for accurate records, but without your name, mobile number or vehicle details.',
+            'Trip, commission and payment records: kept after an account is deleted, for accurate financial records and reports, but without your name, mobile number or vehicle details.',
+            'Driver application photos: while your application or driver account is active. They are deleted when your account is deleted.',
             'Driver applications and complaints: as long as needed to review them and to handle any follow-up or dispute.',
+            'Inbox messages and warnings: while your account exists. When your account is deleted, the record stays but its reason and message text are removed.',
           ],
         },
       ],
     },
     {
       id: 'deletion',
-      heading: '11. Deleting your account',
+      heading: '12. Deleting your account',
       blocks: [
         {
           kind: 'paragraph',
@@ -224,8 +262,9 @@ export const PRIVACY_NOTICE: LegalDocument = {
           kind: 'list',
           items: [
             'Your name, mobile number and other personal details are removed from your profile and contact details.',
-            'For drivers, your name, plate and vehicle details are removed from your driver record and driver application, and you are taken offline and can no longer accept trips.',
-            'Trip, commission and payment records stay, without your personal details (see section 10).',
+            'For drivers, your name, plate and vehicle details are removed from your driver record and driver application, your document photos are deleted, and you are taken offline and can no longer accept trips.',
+            'The reasons and message text of your warnings and inbox messages are removed.',
+            'Trip, commission and payment records stay, without your personal details, for financial records and reports (see section 11).',
             'Your sign-in account is deleted by the TriGo team, after which you can no longer sign in.',
           ],
         },
@@ -233,7 +272,7 @@ export const PRIVACY_NOTICE: LegalDocument = {
     },
     {
       id: 'your-rights',
-      heading: '12. Your rights',
+      heading: '13. Your rights',
       blocks: [
         { kind: 'paragraph', text: 'Under the Data Privacy Act of 2012 you have the right to:' },
         {
@@ -257,17 +296,17 @@ export const PRIVACY_NOTICE: LegalDocument = {
     },
     {
       id: 'security',
-      heading: '13. Security',
+      heading: '14. Security',
       blocks: [
         {
           kind: 'paragraph',
-          text: 'All data is sent over encrypted connections. Access is limited by sign-in and by security rules that check every read and write, so users see only what is described in section 5. No system is perfectly secure; if we learn of a breach that affects you, we will tell you and the National Privacy Commission as the law requires.',
+          text: 'All data is sent over encrypted connections. Access is limited by sign-in and by security rules that check every read and write, so users see only what is described in sections 5 and 6. No system is perfectly secure; if we learn of a breach that affects you, we will tell you and the National Privacy Commission as the law requires.',
         },
       ],
     },
     {
       id: 'age',
-      heading: '14. Age',
+      heading: '15. Age',
       blocks: [
         {
           kind: 'paragraph',
@@ -281,7 +320,7 @@ export const PRIVACY_NOTICE: LegalDocument = {
     },
     {
       id: 'changes',
-      heading: '15. Changes to this notice',
+      heading: '16. Changes to this notice',
       blocks: [
         {
           kind: 'paragraph',
