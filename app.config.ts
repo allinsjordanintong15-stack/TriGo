@@ -10,7 +10,7 @@ const APP_ID = IS_PREVIEW ? `${BASE_ID}.preview` : BASE_ID;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: IS_PREVIEW ? 'TriGo (Preview)' : 'TriGo',
+  name: IS_PREVIEW ? 'TriGo' : 'TriGo',
   slug: 'TriGo',
   scheme: IS_PREVIEW ? 'trigo-preview' : 'trigo',
   version: '1.0.0',
