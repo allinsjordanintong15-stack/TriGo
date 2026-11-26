@@ -53,7 +53,7 @@ export default function LoginScreen() {
 
   return (
     <AuthScreenLayout
-      title="Welcome back"
+      title="Welcome!"
       subtitle="Sign in to book your ride in Trinidad, Bohol."
       footer={
         <View style={styles.footerLinks}>
